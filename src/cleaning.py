@@ -19,6 +19,10 @@ def clean_metadata(df_meta):
         'ORIGINAL_DATA_CREATOR_CITATION',
         'ORIGINAL_DATA_CREATOR',
         'DATA_CITATION', 'DATA_LICENSE', 'DATA_CREATOR',
+        'EVENT_NAME', 'INSTRUMENTAL_FREQUENCY_HZ',
+        'INSTRUMENTAL_DAMPING', 'MORPHOLOGIC_CLASSIFICATION',
+        'MAGNITUDE_L', 'MAGNITUDE_L_REFERENCE',
+        'FULL_SCALE_G', 'N_BIT_DIGITAL_CONVERTER', 'VS30_M/S',
     ]
     df.drop(columns=[c for c in cols_to_drop if c in df.columns], inplace=True)
 
