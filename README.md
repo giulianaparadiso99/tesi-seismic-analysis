@@ -7,24 +7,22 @@ The project processes accelerometric data stored in .ASC files and performs stat
 The goal is to explore statistical properties of seismic signals and their relationship with event and station metadata.
 
 --------------------------------------------------
-
-PROJECT STRUCTURE
-
-tesi-seismic-analysis
+## Project Structure
+```
+tesi-seismic-analysis/
 │
-├── data
-│   ├── raw
+├── data/
+│   ├── raw/
 │   │   └── query.zip
-│   │
-│   └── processed
+│   └── processed/
 │
-├── notebooks
+├── notebooks/
 │   ├── 01_data_loading.ipynb
 │   ├── 02_metadata_analysis.ipynb
 │   ├── 03_signal_analysis.ipynb
 │   └── figures.ipynb
 │
-├── src
+├── src/
 │   ├── __init__.py
 │   ├── io.py
 │   ├── cleaning.py
@@ -32,19 +30,20 @@ tesi-seismic-analysis
 │   ├── signals.py
 │   └── plots.py
 │
-├── figures
+├── figures/
 │
-├── scripts
+├── scripts/
 │   └── generate_figures.py
 │
 ├── pyproject.toml
 ├── requirements.txt
 ├── README.md
 └── .gitignore
+```
 
 --------------------------------------------------
 
-INSTALLATION
+## INSTALLATION
 
 Clone the repository:
 
@@ -57,7 +56,7 @@ pip install -r requirements.txt
 
 --------------------------------------------------
 
-DATA
+## DATA
 
 The dataset is not included in the repository due to size constraints.
 
@@ -69,7 +68,7 @@ The raw dataset should contain the .ASC files used in the analysis.
 
 --------------------------------------------------
 
-USAGE
+## USAGE
 
 The analysis is performed through Jupyter notebooks.
 
@@ -94,7 +93,7 @@ df_meta, df_acc = build_dataframes("../data/raw/query.zip")
 
 --------------------------------------------------
 
-OUTPUT
+## OUTPUT
 
 Generated figures are saved in:
 
@@ -106,7 +105,7 @@ data/processed/
 
 --------------------------------------------------
 
-REQUIREMENTS
+## REQUIREMENTS
 
 Main Python libraries used in the project:
 
@@ -119,7 +118,7 @@ jupyter
 
 --------------------------------------------------
 
-AUTHOR
+## AUTHOR
 
 Giuliana Paradiso  
 Politecnico di Torino
