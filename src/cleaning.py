@@ -57,17 +57,6 @@ def _convert_types(df):
     return df
 
 
-def _parse_filename(df):
-    """Extract structured components from the filename column.
-    
-    Filename format: NETWORK.STATION.LOCATION.STREAM.D.EVENT_ID.ACC.MP.ASC
-    Example: FR.EILF.00.HNE.D.INT-41004391.ACC.MP.ASC
-    """
-    parts = df['file'].str.replace('.ASC', '', regex=False).str.split('.')
-    df['CHANNEL'] = parts.str[3]   # e.g. HNE, HNN, HNZ
-    return df
-
-
 def _normalize_strings(df):
     """Strip and uppercase string columns for consistency."""
     str_cols = df.select_dtypes(include='object').columns
@@ -94,7 +83,6 @@ def clean_metadata(df_meta):
     df = _replace_missing(df)
     df = _drop_columns(df)
     df = _convert_types(df)
-    df = _parse_filename(df)
     df = _normalize_strings(df)
     df = _remove_duplicates(df)
     return df
