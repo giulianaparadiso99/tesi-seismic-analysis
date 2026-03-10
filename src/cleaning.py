@@ -28,7 +28,8 @@ def _drop_columns(df):
         'FULL_SCALE_G',
         'N_BIT_DIGITAL_CONVERTER',
         'VS30_M/S', 'DATE_TIME_FIRST_SAMPLE_PRECISION',
-        'DATA_TYPE', 'UNITS',
+        'DATA_TYPE', 'UNITS', 'DATA_TIMESTAMP_YYYYMMDD_HHMMSS',
+        'ORIGINAL_DATA_MEDIATOR',
     ]
     return df.drop(columns=[c for c in cols_to_drop if c in df.columns])
 
