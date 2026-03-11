@@ -17,10 +17,9 @@ tesi-seismic-analysis/
 │   └── processed/
 │
 ├── notebooks/
-│   ├── 01_data_loading.ipynb
-│   ├── 02_metadata_analysis.ipynb
+│   ├── 01_metadata_preprocessing_exploration.ipynb
+│   ├── 02_seismic_signals_preprocessing_exploration.ipynb 
 │   ├── 03_signal_analysis.ipynb
-│   └── figures.ipynb
 │
 ├── src/
 │   ├── __init__.py
