@@ -42,7 +42,7 @@ tesi-seismic-analysis/
 
 --------------------------------------------------
 
-## INSTALLATION
+## Installation
 
 Clone the repository:
 
@@ -55,7 +55,7 @@ pip install -r requirements.txt
 
 --------------------------------------------------
 
-## DATA
+## Data
 
 The dataset is not included in the repository due to size constraints.
 
@@ -67,7 +67,7 @@ The raw dataset should contain the .ASC files used in the analysis.
 
 --------------------------------------------------
 
-## USAGE
+## Usage
 
 The analysis is performed through Jupyter notebooks.
 
@@ -92,7 +92,7 @@ df_meta, df_acc = build_dataframes("../data/raw/query.zip")
 
 --------------------------------------------------
 
-## OUTPUT
+## Output
 
 Generated figures are saved in:
 
@@ -104,20 +104,21 @@ data/processed/
 
 --------------------------------------------------
 
-## REQUIREMENTS
-
+## Requirements
 Main Python libraries used in the project:
 
-pandas  
-numpy  
-matplotlib  
-seaborn  
-scipy  
-jupyter  
+pandas
+numpy
+matplotlib
+seaborn
+scipy
+jupyter
+contextily
+adjustText
 
 --------------------------------------------------
 
-## AUTHOR
+## Author
 
 Giuliana Paradiso  
 Politecnico di Torino
