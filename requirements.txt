@@ -6,3 +6,4 @@ jupyter
 scipy
 contextily
 adjustText
+pyarrow

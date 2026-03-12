@@ -115,6 +115,7 @@ scipy
 jupyter
 contextily
 adjustText
+pyarrow
 
 --------------------------------------------------
 
