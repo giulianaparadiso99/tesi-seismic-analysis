@@ -5,6 +5,7 @@ The goal is to explore statistical properties of seismic signals and their relat
 
 --------------------------------------------------
 ## Project Structure
+```
 tesi-seismic-analysis/
 │
 ├── data/
@@ -34,6 +35,7 @@ tesi-seismic-analysis/
 ├── requirements.txt
 ├── README.md
 └── .gitignore
+```
 
 --------------------------------------------------
 ## Installation
