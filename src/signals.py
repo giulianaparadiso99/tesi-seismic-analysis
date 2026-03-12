@@ -246,10 +246,15 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
         aic_t = 2 * k_t - 2 * loglik_t
         bic_t = k_t * np.log(len(signal)) - 2 * loglik_t
 
-        # Levy stable
-        alpha_s, beta_s, loc_s, scale_s = stats.levy_stable.fit(signal, method='mle')
+        # Levy stable — subsample for computational efficiency
+        n_subsample = 5000
+        if len(signal) > n_subsample:
+            signal_sample = np.random.choice(signal, size=n_subsample, replace=False)
+        else:
+            signal_sample = signal
+        alpha_s, beta_s, loc_s, scale_s = stats.levy_stable.fit(signal_sample, method='mle')
         loglik_s = np.sum(stats.levy_stable.logpdf(signal, alpha_s, beta_s, loc_s, scale_s))
-        k_s = 4  # parameters: alpha, beta, loc, scale
+        k_s = 4
         aic_s = 2 * k_s - 2 * loglik_s
         bic_s = k_s * np.log(len(signal)) - 2 * loglik_s
 
