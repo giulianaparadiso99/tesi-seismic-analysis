@@ -6,6 +6,10 @@ from scipy import stats
 from src.plot_settings import set_plot_style
 colors = set_plot_style()
 
+# ===============================================================================================
+# ==================================== Empirical PDFs ===========================================
+# ===============================================================================================
+
 def plot_empirical_pdfs(df_acc_clean, bins=100, log_scale=False, normalized=True, output_dir='../figures/pdf_single'):
     
     os.makedirs(output_dir, exist_ok=True)
@@ -44,6 +48,11 @@ def plot_empirical_pdfs(df_acc_clean, bins=100, log_scale=False, normalized=True
             print(f"  - {f}: {e}")
     else:
         print("All PDFs saved successfully!")
+
+
+# ===============================================================================================
+# ==================================== Gaussian fit analysis ====================================
+# ===============================================================================================
 
 def gaussian_fit_analysis(df_acc_clean, bins=100, log_scale=False, normalized=True,
                           output_dir='../figures/gaussian_fit'):
@@ -208,8 +217,14 @@ def gaussian_fit_analysis(df_acc_clean, bins=100, log_scale=False, normalized=Tr
 
     return df_results
 
-def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/heavy_tail'):
-    
+
+# ===============================================================================================
+# ==================================== Heavy-tail assessment ====================================
+# ===============================================================================================
+
+
+def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/heavy_tail',
+                          resume=False, partial_path='../data/processed/heavy_tail_results_partial.parquet'):
     os.makedirs(output_dir, exist_ok=True)
     col = 'acceleration_normalized' if normalized else 'acceleration'
     xlabel = 'Normalized acceleration' if normalized else 'Acceleration (cm/s²)'
@@ -218,7 +233,25 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
     failed = []
     results = []
 
+    # Resume from partial results if requested
+    if resume:
+        try:
+            df_partial = pd.read_parquet(partial_path)
+            processed_files = set(df_partial['file'].values)
+            results = df_partial.to_dict('records')
+            print(f"Resuming from {len(processed_files)} already processed signals")
+        except Exception:
+            print("No partial results found, starting from scratch")
+            processed_files = set()
+            results = []
+    else:
+        processed_files = set()
+        results = []
+
     for file in df_acc_clean['file'].unique():
+        if file in processed_files:
+            continue
+
         signal = df_acc_clean[df_acc_clean['file'] == file][col].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
@@ -289,7 +322,13 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
             'levy_beta': round(beta_s, 4),
             'power_law_exp': round(hill_exp, 4),
         })
-
+        # Incremental save after each signal
+        df_partial = pd.DataFrame(results)
+        try:
+            df_partial.to_parquet('../data/processed/heavy_tail_results_partial.parquet', index=False)
+        except Exception as e:
+            print(f"Warning: could not save partial results: {e}")
+    
         # --- Plot ---
         try:
             fig, axes = plt.subplots(1, 3, figsize=(18, 5))
@@ -328,15 +367,15 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
             abs_signal_sorted = np.sort(abs_signal)[::-1]
             ccdf = np.arange(1, len(abs_signal_sorted) + 1) / len(abs_signal_sorted)
             axes[2].loglog(abs_signal_sorted, ccdf, color=colors[0],
-                          linewidth=0.8, label='Empirical CCDF')
+                        linewidth=0.8, label='Empirical CCDF')
             # Power law fit line on tail
             x_tail = np.linspace(threshold, abs_signal_sorted.max(), 100)
             c = ccdf[np.searchsorted(-abs_signal_sorted, -threshold)]
             axes[2].loglog(x_tail, c * (x_tail / threshold) ** (-hill_exp),
-                          color=colors[3], linewidth=1.5,
-                          linestyle='--', label=f'Power law (α={hill_exp:.2f})')
+                        color=colors[3], linewidth=1.5,
+                        linestyle='--', label=f'Power law (α={hill_exp:.2f})')
             axes[2].axvline(threshold, color='gray', linewidth=0.8,
-                           linestyle=':', label='Threshold (90th pct)')
+                        linestyle=':', label='Threshold (90th pct)')
             axes[2].set_xlabel(f'|{xlabel}|')
             axes[2].set_ylabel('CCDF')
             axes[2].set_title(f'Log-log CCDF — {station} {stream}')
