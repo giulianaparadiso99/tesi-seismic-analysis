@@ -453,3 +453,710 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
     print(df_results['best_fit_aic'].value_counts())
 
     return df_results
+
+# ===============================================================================================
+# ========================== Computation of q-th order moments ==================================
+# ===============================================================================================
+
+def compute_moment_scaling(df_acc_clean, q_values, tau_values, normalized=True):
+    """
+    Computes q-th order moments of acceleration signals at different time scales tau.
+    
+    For each signal, for each tau, divides the signal into non-overlapping windows
+    of length tau and computes <|a|^q> averaged over all windows.
+    
+    Parameters:
+    -----------
+    df_acc_clean : pd.DataFrame
+    q_values : list of float — moment orders (e.g. [0.5, 1, 1.5, 2, 2.5, 3])
+    tau_values : list of int — window sizes in samples (e.g. [10, 50, 100, 500, 1000])
+    normalized : bool — use acceleration_normalized or acceleration
+    
+    Returns:
+    --------
+    df_moments : pd.DataFrame with columns [file, station, stream, q, tau, moment]
+    """
+    col = 'acceleration_normalized' if normalized else 'acceleration'
+    rows = []
+
+    for file in df_acc_clean['file'].unique():
+        signal = df_acc_clean[df_acc_clean['file'] == file][col].values
+        station = file.split('.')[1]
+        stream = file.split('.')[3]
+
+        for tau in tau_values:
+            # Split signal into non-overlapping windows of length tau
+            n_windows = len(signal) // tau
+            if n_windows == 0:
+                continue
+            windows = signal[:n_windows * tau].reshape(n_windows, tau)
+
+            for q in q_values:
+                moment = np.mean(np.mean(np.abs(windows) ** q, axis=1))
+                rows.append({
+                    'file': file,
+                    'station': station,
+                    'stream': stream,
+                    'q': q,
+                    'tau': tau,
+                    'moment': moment
+                })
+
+    return pd.DataFrame(rows)
+
+# ===============================================================================================
+# ========================== Scaling exponents computation ======================================
+# ===============================================================================================
+
+def compute_scaling_exponents(df_moments, output_dir='../figures/03_single_signal/scaling'):
+    """
+    Estimates scaling exponents zeta(q) for each signal by fitting
+    log(moment) vs log(tau) for each q value.
+    
+    Parameters:
+    -----------
+    df_moments : pd.DataFrame — output of compute_moment_scaling
+    output_dir : str — directory to save figures
+    
+    Returns:
+    --------
+    df_exponents : pd.DataFrame with columns [file, station, stream, q, zeta, r2]
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    rows = []
+    saved = []
+    failed = []
+
+    for file in df_moments['file'].unique():
+        station = df_moments[df_moments['file'] == file]['station'].iloc[0]
+        stream = df_moments[df_moments['file'] == file]['stream'].iloc[0]
+        filepath = f'{output_dir}/scaling_{station}_{stream}.pdf'
+        df_file = df_moments[df_moments['file'] == file]
+
+        q_values = sorted(df_file['q'].unique())
+        zeta_values = []
+        r2_values = []
+
+        try:
+            fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+            # 1. log(moment) vs log(tau) for each q
+            for i, q in enumerate(q_values):
+                df_q = df_file[df_file['q'] == q]
+                log_tau = np.log(df_q['tau'].values)
+                log_moment = np.log(df_q['moment'].values)
+
+                # Linear fit
+                slope, intercept, r, p, se = stats.linregress(log_tau, log_moment)
+                zeta_values.append(slope)
+                r2_values.append(r**2)
+
+                c = colors[i % len(colors)]
+                axes[0].plot(log_tau, log_moment, 'o', color=c, markersize=4, alpha=0.7)
+                axes[0].plot(log_tau, slope * log_tau + intercept, '-',
+                            color=c, linewidth=1.2, label=f'q={q} (ζ={slope:.2f})')
+
+            axes[0].set_xlabel('log(τ)')
+            axes[0].set_ylabel('log(<|a|^q>)')
+            axes[0].set_title(f'Moment scaling — {station} {stream}')
+            axes[0].legend(fontsize=8)
+
+            # 2. zeta(q) vs q — linearity check
+            axes[1].plot(q_values, zeta_values, 'o-', color=colors[0],
+                        linewidth=1.2, markersize=5, label='ζ(q)')
+            # Reference line: linear scaling (normal diffusion)
+            q_arr = np.array(q_values)
+            axes[1].plot(q_arr, 0.5 * q_arr, '--', color='gray',
+                        linewidth=1, label='Linear (normal diffusion)')
+            axes[1].set_xlabel('q')
+            axes[1].set_ylabel('ζ(q)')
+            axes[1].set_title(f'Scaling exponents — {station} {stream}')
+            axes[1].legend()
+
+            plt.suptitle(f'Scaling analysis — {station} {stream}', fontsize=13)
+            plt.tight_layout()
+            plt.savefig(filepath, bbox_inches='tight')
+            plt.close()
+            saved.append(filepath)
+
+        except Exception as e:
+            failed.append((filepath, str(e)))
+            plt.close()
+
+        for q, zeta, r2 in zip(q_values, zeta_values, r2_values):
+            rows.append({
+                'file': file,
+                'station': station,
+                'stream': stream,
+                'q': q,
+                'zeta': round(zeta, 4),
+                'r2': round(r2, 4)
+            })
+
+    # Summary plot — zeta(q) vs q for all signals
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for file in df_moments['file'].unique():
+        station = df_moments[df_moments['file'] == file]['station'].iloc[0]
+        stream = df_moments[df_moments['file'] == file]['stream'].iloc[0]
+        df_file = pd.DataFrame(rows)
+        df_file = df_file[df_file['file'] == file]
+        ax.plot(df_file['q'], df_file['zeta'], '-', linewidth=0.8, alpha=0.5)
+    q_arr = np.array(sorted(df_moments['q'].unique()))
+    ax.plot(q_arr, 0.5 * q_arr, '--', color='black', linewidth=1.5,
+            label='Linear (normal diffusion)')
+    ax.set_xlabel('q')
+    ax.set_ylabel('ζ(q)')
+    ax.set_title('Scaling exponents — all signals')
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/scaling_summary.pdf', bbox_inches='tight')
+    plt.close()
+
+    df_exponents = pd.DataFrame(rows)
+
+    print(f"Saved: {len(saved)}/{df_moments['file'].nunique()} individual plots")
+    if failed:
+        print("Failed:")
+        for f, e in failed:
+            print(f"  - {f}: {e}")
+    else:
+        print("All individual plots saved successfully!")
+
+    return df_exponents
+
+# ===============================================================================================
+# ========================== Linearity test for scaling exponents ===============================
+# ===============================================================================================
+
+def test_scaling_linearity(df_exponents, output_dir='../figures/03_single_signal/scaling'):
+    """
+    Tests linearity of zeta(q) vs q by comparing linear and quadratic fits
+    using AIC/BIC.
+    
+    Parameters:
+    -----------
+    df_exponents : pd.DataFrame — output of compute_scaling_exponents
+    output_dir : str — directory to save figures
+    
+    Returns:
+    --------
+    df_linearity : pd.DataFrame with columns [file, station, stream, 
+                   aic_linear, aic_quadratic, bic_linear, bic_quadratic,
+                   best_fit, nonlinear]
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    rows = []
+    saved = []
+    failed = []
+
+    for file in df_exponents['file'].unique():
+        station = df_exponents[df_exponents['file'] == file]['station'].iloc[0]
+        stream = df_exponents[df_exponents['file'] == file]['stream'].iloc[0]
+        df_file = df_exponents[df_exponents['file'] == file]
+
+        q = df_file['q'].values
+        zeta = df_file['zeta'].values
+        n = len(q)
+
+        # Linear fit: zeta(q) = a*q
+        slope_l, intercept_l, r_l, _, _ = stats.linregress(q, zeta)
+        residuals_l = zeta - (slope_l * q + intercept_l)
+        loglik_l = -n/2 * np.log(np.sum(residuals_l**2) / n)
+        aic_l = 2*2 - 2*loglik_l
+        bic_l = 2*np.log(n) - 2*loglik_l
+
+        # Quadratic fit: zeta(q) = a*q + b*q^2
+        coeffs_q = np.polyfit(q, zeta, 2)
+        zeta_pred_q = np.polyval(coeffs_q, q)
+        residuals_q = zeta - zeta_pred_q
+        loglik_q = -n/2 * np.log(np.sum(residuals_q**2) / n)
+        aic_q = 2*3 - 2*loglik_q
+        bic_q = 3*np.log(n) - 2*loglik_q
+
+        best_fit = 'linear' if aic_l < aic_q else 'quadratic'
+        nonlinear = best_fit == 'quadratic'
+
+        rows.append({
+            'file': file,
+            'station': station,
+            'stream': stream,
+            'aic_linear': round(aic_l, 4),
+            'aic_quadratic': round(aic_q, 4),
+            'bic_linear': round(bic_l, 4),
+            'bic_quadratic': round(bic_q, 4),
+            'best_fit': best_fit,
+            'nonlinear': nonlinear,
+            'slope_linear': round(slope_l, 4),
+            'quad_coeff_a': round(coeffs_q[1], 4),
+            'quad_coeff_b': round(coeffs_q[0], 4),
+        })
+
+        # Plot
+        try:
+            fig, ax = plt.subplots(figsize=(7, 5))
+            ax.plot(q, zeta, 'o', color=colors[0], markersize=6, label='ζ(q)')
+            q_fine = np.linspace(q.min(), q.max(), 100)
+            ax.plot(q_fine, slope_l * q_fine + intercept_l, '-',
+                   color=colors[1], linewidth=1.5, label=f'Linear (AIC={aic_l:.2f})')
+            ax.plot(q_fine, np.polyval(coeffs_q, q_fine), '--',
+                   color=colors[2], linewidth=1.5, label=f'Quadratic (AIC={aic_q:.2f})')
+            ax.plot(q_fine, 0.5 * q_fine, ':', color='gray',
+                   linewidth=1, label='Normal diffusion (slope=0.5)')
+            ax.set_xlabel('q')
+            ax.set_ylabel('ζ(q)')
+            ax.set_title(f'Linearity test — {station} {stream}\nBest fit: {best_fit}')
+            ax.legend()
+            plt.tight_layout()
+            plt.savefig(f'{output_dir}/linearity_{station}_{stream}.pdf', bbox_inches='tight')
+            plt.close()
+            saved.append(file)
+        except Exception as e:
+            failed.append((file, str(e)))
+            plt.close()
+
+    df_linearity = pd.DataFrame(rows)
+
+    # Summary plot
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # AIC linear vs quadratic
+    x = np.arange(len(df_linearity))
+    width = 0.35
+    axes[0].bar(x - width/2, df_linearity['aic_linear'], width,
+               color=colors[0], label='Linear')
+    axes[0].bar(x + width/2, df_linearity['aic_quadratic'], width,
+               color=colors[1], label='Quadratic')
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels([f"{r['station']}\n{r['stream']}"
+                              for _, r in df_linearity.iterrows()],
+                             rotation=90, fontsize=7)
+    axes[0].set_title('AIC: linear vs quadratic fit')
+    axes[0].set_ylabel('AIC')
+    axes[0].legend()
+
+    # Nonlinear count
+    counts = df_linearity['best_fit'].value_counts()
+    axes[1].bar(counts.index, counts.values, color=[colors[0], colors[2]],
+               edgecolor='none')
+    axes[1].set_title('Best fit by AIC')
+    axes[1].set_ylabel('Count')
+
+    plt.suptitle('Scaling linearity test summary', fontsize=13)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/linearity_summary.pdf', bbox_inches='tight')
+    plt.close()
+
+    print(f"Saved: {len(saved)}/{df_exponents['file'].nunique()} individual plots")
+    if failed:
+        print("Failed:")
+        for f, e in failed:
+            print(f"  - {f}: {e}")
+    else:
+        print("All individual plots saved successfully!")
+    print(f"\nBest fit by AIC:")
+    print(df_linearity['best_fit'].value_counts())
+
+    return df_linearity
+
+# ===============================================================================================
+# ========================== Piecewise scaling fit ==============================================
+# ===============================================================================================
+
+
+def fit_piecewise_scaling(df_exponents, output_dir='../figures/03_single_signal/scaling'):
+    """
+    Fits a piecewise linear model to zeta(q) vs q to detect strong anomalous diffusion.
+    Finds the optimal breakpoint q* that separates two linear regimes.
+    
+    Parameters:
+    -----------
+    df_exponents : pd.DataFrame — output of compute_scaling_exponents
+    output_dir : str — directory to save figures
+    
+    Returns:
+    --------
+    df_piecewise : pd.DataFrame with columns [file, station, stream,
+                   q_break, slope_low, slope_high, r2_low, r2_high]
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    rows = []
+    saved = []
+    failed = []
+
+    for file in df_exponents['file'].unique():
+        station = df_exponents[df_exponents['file'] == file]['station'].iloc[0]
+        stream = df_exponents[df_exponents['file'] == file]['stream'].iloc[0]
+        df_file = df_exponents[df_exponents['file'] == file]
+
+        q = df_file['q'].values
+        zeta = df_file['zeta'].values
+
+        # Find optimal breakpoint by minimizing total residual sum of squares
+        best_rss = np.inf
+        best_break = None
+        best_slope_low = None
+        best_slope_high = None
+        best_r2_low = None
+        best_r2_high = None
+
+        for i in range(2, len(q) - 2):  # at least 2 points on each side
+            q_low, zeta_low = q[:i], zeta[:i]
+            q_high, zeta_high = q[i:], zeta[i:]
+
+            slope_l, intercept_l, r_l, _, _ = stats.linregress(q_low, zeta_low)
+            slope_h, intercept_h, r_h, _, _ = stats.linregress(q_high, zeta_high)
+
+            rss = np.sum((zeta_low - (slope_l * q_low + intercept_l))**2) + \
+                  np.sum((zeta_high - (slope_h * q_high + intercept_h))**2)
+
+            if rss < best_rss:
+                best_rss = rss
+                best_break = q[i]
+                best_slope_low = slope_l
+                best_slope_high = slope_h
+                best_r2_low = r_l**2
+                best_r2_high = r_h**2
+                best_intercept_low = intercept_l
+                best_intercept_high = intercept_h
+
+        rows.append({
+            'file': file,
+            'station': station,
+            'stream': stream,
+            'q_break': round(best_break, 4),
+            'slope_low': round(best_slope_low, 4),
+            'slope_high': round(best_slope_high, 4),
+            'r2_low': round(best_r2_low, 4),
+            'r2_high': round(best_r2_high, 4),
+        })
+
+        # Plot
+        try:
+            fig, ax = plt.subplots(figsize=(7, 5))
+            ax.plot(q, zeta, 'o', color=colors[0], markersize=6, label='ζ(q)')
+
+            q_low = q[q < best_break]
+            q_high = q[q >= best_break]
+            ax.plot(q_low, best_slope_low * q_low + best_intercept_low, '-',
+                   color=colors[1], linewidth=1.5,
+                   label=f'Low q (slope={best_slope_low:.2f})')
+            ax.plot(q_high, best_slope_high * q_high + best_intercept_high, '-',
+                   color=colors[2], linewidth=1.5,
+                   label=f'High q (slope={best_slope_high:.2f})')
+            ax.axvline(best_break, color='gray', linewidth=0.8,
+                      linestyle=':', label=f'q* = {best_break:.2f}')
+            ax.plot(q, 0.5 * q, '--', color='gray', linewidth=1,
+                   label='Normal diffusion (slope=0.5)')
+            ax.set_xlabel('q')
+            ax.set_ylabel('ζ(q)')
+            ax.set_title(f'Piecewise linear fit — {station} {stream}\n'
+                        f'q*={best_break:.2f}, slope_low={best_slope_low:.2f}, '
+                        f'slope_high={best_slope_high:.2f}')
+            ax.legend()
+            plt.tight_layout()
+            plt.savefig(f'{output_dir}/piecewise_{station}_{stream}.pdf', bbox_inches='tight')
+            plt.close()
+            saved.append(file)
+        except Exception as e:
+            failed.append((file, str(e)))
+            plt.close()
+
+    df_piecewise = pd.DataFrame(rows)
+
+    # Summary plot
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+    # 1. slope_low vs slope_high
+    axes[0].scatter(df_piecewise['slope_low'], df_piecewise['slope_high'],
+                   color=colors[0], edgecolors='white', linewidths=0.5, s=60)
+    axes[0].axline((0, 0), slope=1, color='gray', linewidth=0.8,
+                  linestyle='--', label='slope_low = slope_high')
+    axes[0].set_xlabel('Slope (low q)')
+    axes[0].set_ylabel('Slope (high q)')
+    axes[0].set_title('Slope comparison')
+    axes[0].legend()
+
+    # 2. q_break distribution
+    axes[1].hist(df_piecewise['q_break'], bins=10, color=colors[1], edgecolor='none')
+    axes[1].set_xlabel('q*')
+    axes[1].set_ylabel('Count')
+    axes[1].set_title('Breakpoint distribution')
+
+    # 3. slope_low and slope_high per signal
+    x = np.arange(len(df_piecewise))
+    axes[2].bar(x - 0.2, df_piecewise['slope_low'], 0.4,
+               color=colors[0], label='Low q slope')
+    axes[2].bar(x + 0.2, df_piecewise['slope_high'], 0.4,
+               color=colors[2], label='High q slope')
+    axes[2].axhline(0.5, color='gray', linewidth=0.8, linestyle='--',
+                   label='Normal diffusion (0.5)')
+    axes[2].set_xticks(x)
+    axes[2].set_xticklabels([f"{r['station']}\n{r['stream']}"
+                              for _, r in df_piecewise.iterrows()],
+                             rotation=90, fontsize=7)
+    axes[2].set_title('Slopes by signal')
+    axes[2].set_ylabel('Slope')
+    axes[2].legend()
+
+    plt.suptitle('Piecewise linear fit summary', fontsize=13)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/piecewise_summary.pdf', bbox_inches='tight')
+    plt.close()
+
+    print(f"Saved: {len(saved)}/{df_exponents['file'].nunique()} individual plots")
+    if failed:
+        print("Failed:")
+        for f, e in failed:
+            print(f"  - {f}: {e}")
+    else:
+        print("All individual plots saved successfully!")
+
+    return df_piecewise
+
+# ===============================================================================================
+# ========================== Displacement autocorrelation =======================================
+# ===============================================================================================
+
+def compute_displacement_autocorrelation(df_acc_clean, n_points=50, normalized=True,
+                                          output_dir='../figures/03_single_signal/autocorrelation'):
+    """
+    Computes displacement autocorrelation functions C(t1, t2) = <(a(t1)-a0)(a(t2)-a0)>
+    on a logarithmic grid of (t1, t2) pairs, following Vollmer et al. 2021.
+    
+    Parameters:
+    -----------
+    df_acc_clean : pd.DataFrame
+    n_points : int — number of points in the logarithmic grid for t1 and t2
+    normalized : bool — use acceleration_normalized or acceleration
+    output_dir : str — directory to save figures
+    
+    Returns:
+    --------
+    df_autocorr : pd.DataFrame with columns [file, station, stream, t1, t2, C]
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    col = 'acceleration_normalized' if normalized else 'acceleration'
+    rows = []
+    saved = []
+    failed = []
+
+    for file in df_acc_clean['file'].unique():
+        signal = df_acc_clean[df_acc_clean['file'] == file][col].values
+        station = file.split('.')[1]
+        stream = file.split('.')[3]
+        filepath = f'{output_dir}/autocorr_{station}_{stream}.pdf'
+
+        n = len(signal)
+        a0 = signal[0]
+
+        # Logarithmic grid of t1 and t2
+        t_grid = np.unique(np.logspace(0, np.log10(n - 1), n_points).astype(int))
+        t_grid = t_grid[t_grid < n]
+
+        # Compute C(t1, t2) for all pairs in the grid
+        C_matrix = np.zeros((len(t_grid), len(t_grid)))
+        for i, t1 in enumerate(t_grid):
+            for j, t2 in enumerate(t_grid):
+                C_matrix[i, j] = (signal[t1] - a0) * (signal[t2] - a0)
+
+        for i, t1 in enumerate(t_grid):
+            for j, t2 in enumerate(t_grid):
+                rows.append({
+                    'file': file,
+                    'station': station,
+                    'stream': stream,
+                    't1': t1,
+                    't2': t2,
+                    'C': C_matrix[i, j]
+                })
+
+        # Plot
+        try:
+            fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+            # 1. Heatmap of C(t1, t2)
+            im = axes[0].pcolormesh(t_grid, t_grid, C_matrix,
+                                    cmap='inferno', shading='auto')
+            plt.colorbar(im, ax=axes[0], label='C(t1, t2)')
+            axes[0].set_xlabel('t1')
+            axes[0].set_ylabel('t2')
+            axes[0].set_title(f'Autocorrelation C(t1, t2) — {station} {stream}')
+            axes[0].set_xscale('log')
+            axes[0].set_yscale('log')
+
+            # 2. C(t, t) diagonal — scaling behavior
+            diag = np.diag(C_matrix)
+            axes[1].loglog(t_grid, np.abs(diag), color=colors[0],
+                          linewidth=1.2, label='C(t, t)')
+            axes[1].set_xlabel('t')
+            axes[1].set_ylabel('|C(t, t)|')
+            axes[1].set_title(f'Diagonal scaling — {station} {stream}')
+            axes[1].legend()
+
+            plt.suptitle(f'Displacement autocorrelation — {station} {stream}', fontsize=13)
+            plt.tight_layout()
+            plt.savefig(filepath, bbox_inches='tight')
+            plt.close()
+            saved.append(filepath)
+
+        except Exception as e:
+            failed.append((filepath, str(e)))
+            plt.close()
+
+    df_autocorr = pd.DataFrame(rows)
+
+    print(f"Saved: {len(saved)}/{df_acc_clean['file'].nunique()} individual plots")
+    if failed:
+        print("Failed:")
+        for f, e in failed:
+            print(f"  - {f}: {e}")
+    else:
+        print("All individual plots saved successfully!")
+
+    # Build dictionary of C matrices for scaling analysis
+    C_matrices = {}
+    for file in df_acc_clean['file'].unique():
+        station = df_acc_clean[df_acc_clean['file'] == file]['station'].iloc[0] if 'station' in df_acc_clean.columns else file.split('.')[1]
+        stream = file.split('.')[3]
+        df_file = df_autocorr[df_autocorr['file'] == file]
+        t_grid = sorted(df_file['t1'].unique())
+        n = len(t_grid)
+        C = df_file.pivot(index='t1', columns='t2', values='C').values
+        C_matrices[file] = {'C': C, 't_grid': np.array(t_grid), 
+                            'station': station, 'stream': stream}
+
+    return df_autocorr, C_matrices
+
+# ===============================================================================================
+# ========================== Autocorrelation scaling =======================================
+# ===============================================================================================
+
+def analyze_autocorrelation_scaling(C_matrices, output_dir='../figures/03_single_signal/autocorrelation'):
+    """
+    Analyzes the scaling behavior of displacement autocorrelation functions.
+    Estimates the scaling exponent beta from C(t, t) ~ t^beta.
+    
+    Parameters:
+    -----------
+    C_matrices : dict — output of compute_displacement_autocorrelation
+    output_dir : str — directory to save figures
+    
+    Returns:
+    --------
+    df_scaling : pd.DataFrame with columns [file, station, stream, beta, r2]
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    rows = []
+    saved = []
+    failed = []
+
+    for file, data in C_matrices.items():
+        C = data['C']
+        t_grid = data['t_grid']
+        station = data['station']
+        stream = data['stream']
+        filepath = f'{output_dir}/autocorr_scaling_{station}_{stream}.pdf'
+
+        # Diagonal C(t, t)
+        diag = np.diag(C)
+        abs_diag = np.abs(diag)
+
+        # Keep only positive values for log-log fit
+        mask = abs_diag > 0
+        t_fit = t_grid[mask]
+        diag_fit = abs_diag[mask]
+
+        # Estimate scaling exponent beta: C(t,t) ~ t^beta
+        slope, intercept, r, _, _ = stats.linregress(np.log(t_fit), np.log(diag_fit))
+        beta = slope
+
+        rows.append({
+            'file': file,
+            'station': station,
+            'stream': stream,
+            'beta': round(beta, 4),
+            'r2': round(r**2, 4)
+        })
+
+        # Plot
+        try:
+            fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+            # 1. C(t,t) with power law fit
+            axes[0].loglog(t_grid, abs_diag, 'o', color=colors[0],
+                          markersize=4, alpha=0.7, label='|C(t, t)|')
+            t_fine = np.linspace(t_fit.min(), t_fit.max(), 100)
+            axes[0].loglog(t_fine, np.exp(intercept) * t_fine**beta, '-',
+                          color=colors[2], linewidth=1.5,
+                          label=f'Power law fit (β={beta:.2f})')
+            # Reference lines for normal diffusion (beta=1)
+            axes[0].loglog(t_fine, np.exp(intercept) * t_fine**1, '--',
+                          color='gray', linewidth=1, label='β=1 (normal diffusion)')
+            axes[0].set_xlabel('t')
+            axes[0].set_ylabel('|C(t, t)|')
+            axes[0].set_title(f'Diagonal scaling — {station} {stream}\nβ={beta:.2f}, R²={r**2:.4f}')
+            axes[0].legend()
+
+            # 2. C(t1, t2) heatmap
+            im = axes[1].pcolormesh(t_grid, t_grid, C, cmap='inferno', shading='auto')
+            plt.colorbar(im, ax=axes[1], label='C(t1, t2)')
+            axes[1].set_xscale('log')
+            axes[1].set_yscale('log')
+            axes[1].set_xlabel('t1')
+            axes[1].set_ylabel('t2')
+            axes[1].set_title(f'C(t1, t2) heatmap — {station} {stream}')
+
+            plt.suptitle(f'Autocorrelation scaling — {station} {stream}', fontsize=13)
+            plt.tight_layout()
+            plt.savefig(filepath, bbox_inches='tight')
+            plt.close()
+            saved.append(filepath)
+
+        except Exception as e:
+            failed.append((filepath, str(e)))
+            plt.close()
+
+    df_scaling = pd.DataFrame(rows)
+
+    # Summary plot
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # 1. Beta distribution
+    df_sorted = df_scaling.sort_values('beta')
+    axes[0].bar(range(len(df_sorted)), df_sorted['beta'],
+               color=[colors[0] if b > 0 else colors[3] for b in df_sorted['beta']],
+               edgecolor='none')
+    axes[0].axhline(1, color='gray', linewidth=0.8, linestyle='--',
+                   label='β=1 (normal diffusion)')
+    axes[0].set_xticks(range(len(df_sorted)))
+    axes[0].set_xticklabels([f"{r['station']}\n{r['stream']}"
+                              for _, r in df_sorted.iterrows()],
+                             rotation=90, fontsize=7)
+    axes[0].set_title('Scaling exponent β by signal')
+    axes[0].set_ylabel('β')
+    axes[0].legend()
+
+    # 2. Beta vs R²
+    axes[1].scatter(df_scaling['beta'], df_scaling['r2'],
+                   color=colors[0], edgecolors='white', linewidths=0.5, s=60)
+    axes[1].axvline(1, color='gray', linewidth=0.8, linestyle='--',
+                   label='β=1 (normal diffusion)')
+    axes[1].set_xlabel('β')
+    axes[1].set_ylabel('R²')
+    axes[1].set_title('β vs R²')
+    axes[1].legend()
+
+    plt.suptitle('Autocorrelation scaling summary', fontsize=13)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/autocorr_scaling_summary.pdf', bbox_inches='tight')
+    plt.close()
+
+    print(f"Saved: {len(saved)}/{len(C_matrices)} individual plots")
+    if failed:
+        print("Failed:")
+        for f, e in failed:
+            print(f"  - {f}: {e}")
+    else:
+        print("All individual plots saved successfully!")
+
+    return df_scaling
