@@ -454,71 +454,30 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
 
     return df_results
 
-# ===============================================================================================
-# ========================== Computation of q-th order moments ==================================
-# ===============================================================================================
-
-def compute_moment_scaling(df_acc_clean, q_values, tau_values, normalized=True,
-                           dt=0.005, min_increments=10):
+def compute_moment_scaling_acc(df_acc_clean, q_values, tau_values, normalized=True):
     """
-    Computes q-th order moments of displacement increments at different
-    time scales tau, following the framework of Vollmer et al. (2024).
+    Computes q-th order moments of acceleration increments at different
+    time scales tau.
 
-    The displacement is obtained by integrating the acceleration signal:
+    The process is the acceleration signal a(t) itself. Increments are
+    defined as:
 
-        x(t) = sum_{k=0}^{t} a(k) * dt
+        Delta_a(tau, t0) = a(t0 + tau) - a(t0)
 
-    For each time scale tau, displacement increments are computed using a
-    sliding window over all possible starting points t0:
+    The q-th order moment is the temporal average:
 
-        Delta_x(tau, t0) = x(t0 + tau) - x(t0)
-
-    The q-th order moment is then the temporal average:
-
-        M_q(tau) = < |Delta_x(tau, t0)|^q >_{t0}
-                 = (1 / (N - tau)) * sum_{t0=0}^{N-tau-1} |x(t0+tau) - x(t0)|^q
-
-    If the underlying process exhibits (strong) anomalous diffusion,
-    M_q(tau) scales as a power law in tau:
-
-        M_q(tau) ~ tau^{zeta(q)}
-
-    For normal diffusion zeta(q) = q/2 (linear in q). Strong anomalous
-    diffusion is characterized by a piecewise-linear zeta(q) with a
-    crossover at q = alpha (Eq. 1b of Vollmer et al. 2024).
-
-    Using a sliding window (overlapping increments) rather than
-    non-overlapping windows maximizes the number of available samples
-    for each tau, producing more stable moment estimates especially
-    at large tau values.
-
-    tau values that would yield fewer than min_increments increments
-    are automatically skipped. This prevents unreliable moment estimates
-    for short signals (e.g. SURF, BRZ, BHB, CRI, SLZ, SAV with ~6000
-    samples) where large tau values leave too few increments to average.
+        M_q(tau) = < |Delta_a(tau, t0)|^q >_{t0}
 
     Parameters
     ----------
     df_acc_clean : pd.DataFrame
-        Must contain columns 'file', 'acceleration', 'acceleration_normalized'.
     q_values : list of float
-        Moment orders, e.g. [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0].
     tau_values : list of int
-        Window sizes in samples, e.g. [10, 50, 100, 200, 500, 1000, 2000, 5000].
     normalized : bool
-        If True, use 'acceleration_normalized'; otherwise use 'acceleration'.
-    dt : float
-        Sampling interval in seconds (default: 0.005 s = 200 Hz).
-    min_increments : int
-        Minimum number of increments required to include a tau value.
-        tau is skipped if N - tau < min_increments, i.e. if tau > N - min_increments.
-        Default is 10, which effectively caps tau at N / 10 for large signals.
 
     Returns
     -------
-    df_moments : pd.DataFrame
-        Long-format DataFrame with columns:
-            file, station, stream, q, tau, moment
+    df_moments : pd.DataFrame with columns [file, station, stream, q, tau, moment]
     """
     col = 'acceleration_normalized' if normalized else 'acceleration'
     rows = []
@@ -527,33 +486,140 @@ def compute_moment_scaling(df_acc_clean, q_values, tau_values, normalized=True,
         signal = df_acc_clean[df_acc_clean['file'] == file][col].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
-
-        # Build cumulative displacement by integrating acceleration
-        # x(t) = cumsum(a) * dt
-        x = np.cumsum(signal) * dt   # shape: (N,)
-        N = len(x)
+        N = len(signal)
 
         for tau in tau_values:
-            # Skip tau values that leave fewer than min_increments increments.
-            # This guards against unreliable estimates from short signals or
-            # excessively large tau values.
-            if (N - tau) < min_increments:
+            if (N - tau) < 10:
                 continue
 
-            # Sliding window: compute all increments Delta_x(tau, t0)
-            # x[t0 + tau] - x[t0] for t0 = 0, 1, ..., N - tau - 1
-            increments = x[tau:] - x[:-tau]   # shape: (N - tau,)
+            # Increments of acceleration: a(t0 + tau) - a(t0)
+            increments = signal[tau:] - signal[:-tau]
 
             for q in q_values:
-                # q-th order moment of the displacement increment distribution
                 moment = np.mean(np.abs(increments) ** q)
                 rows.append({
-                    'file': file,
-                    'station': station,
-                    'stream': stream,
-                    'q': q,
-                    'tau': tau,
-                    'moment': moment
+                    'file': file, 'station': station, 'stream': stream,
+                    'q': q, 'tau': tau, 'moment': moment
+                })
+
+    return pd.DataFrame(rows)
+
+
+def compute_moment_scaling_vel(df_acc_clean, q_values, tau_values, normalized=True,
+                               dt=0.005):
+    """
+    Computes q-th order moments of velocity increments at different
+    time scales tau.
+
+    The velocity is obtained by integrating the acceleration once:
+
+        v(t) = cumsum(a(t)) * dt
+
+    Increments are defined as:
+
+        Delta_v(tau, t0) = v(t0 + tau) - v(t0)
+
+    The q-th order moment is the temporal average:
+
+        M_q(tau) = < |Delta_v(tau, t0)|^q >_{t0}
+
+    Parameters
+    ----------
+    df_acc_clean : pd.DataFrame
+    q_values : list of float
+    tau_values : list of int
+    normalized : bool
+    dt : float — sampling interval in seconds (default: 0.005 s = 200 Hz)
+
+    Returns
+    -------
+    df_moments : pd.DataFrame with columns [file, station, stream, q, tau, moment]
+    """
+    col = 'acceleration_normalized' if normalized else 'acceleration'
+    rows = []
+
+    for file in df_acc_clean['file'].unique():
+        signal = df_acc_clean[df_acc_clean['file'] == file][col].values
+        station = file.split('.')[1]
+        stream = file.split('.')[3]
+        N = len(signal)
+
+        # Integrate acceleration once to get velocity
+        v = np.cumsum(signal) * dt
+
+        for tau in tau_values:
+            if (N - tau) < 10:
+                continue
+
+            # Increments of velocity: v(t0 + tau) - v(t0)
+            increments = v[tau:] - v[:-tau]
+
+            for q in q_values:
+                moment = np.mean(np.abs(increments) ** q)
+                rows.append({
+                    'file': file, 'station': station, 'stream': stream,
+                    'q': q, 'tau': tau, 'moment': moment
+                })
+
+    return pd.DataFrame(rows)
+
+
+def compute_moment_scaling_disp(df_acc_clean, q_values, tau_values, normalized=True,
+                                dt=0.005):
+    """
+    Computes q-th order moments of displacement increments at different
+    time scales tau.
+
+    The displacement is obtained by integrating the acceleration twice:
+
+        v(t) = cumsum(a(t)) * dt        (velocity)
+        x(t) = cumsum(v(t)) * dt        (displacement)
+
+    Increments are defined as:
+
+        Delta_x(tau, t0) = x(t0 + tau) - x(t0)
+
+    The q-th order moment is the temporal average:
+
+        M_q(tau) = < |Delta_x(tau, t0)|^q >_{t0}
+
+    Parameters
+    ----------
+    df_acc_clean : pd.DataFrame
+    q_values : list of float
+    tau_values : list of int
+    normalized : bool
+    dt : float — sampling interval in seconds (default: 0.005 s = 200 Hz)
+
+    Returns
+    -------
+    df_moments : pd.DataFrame with columns [file, station, stream, q, tau, moment]
+    """
+    col = 'acceleration_normalized' if normalized else 'acceleration'
+    rows = []
+
+    for file in df_acc_clean['file'].unique():
+        signal = df_acc_clean[df_acc_clean['file'] == file][col].values
+        station = file.split('.')[1]
+        stream = file.split('.')[3]
+        N = len(signal)
+
+        # Integrate acceleration twice to get displacement
+        v = np.cumsum(signal) * dt
+        x = np.cumsum(v) * dt
+
+        for tau in tau_values:
+            if (N - tau) < 10:
+                continue
+
+            # Increments of displacement: x(t0 + tau) - x(t0)
+            increments = x[tau:] - x[:-tau]
+
+            for q in q_values:
+                moment = np.mean(np.abs(increments) ** q)
+                rows.append({
+                    'file': file, 'station': station, 'stream': stream,
+                    'q': q, 'tau': tau, 'moment': moment
                 })
 
     return pd.DataFrame(rows)
