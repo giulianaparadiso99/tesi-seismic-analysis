@@ -1,3 +1,28 @@
+"""
+cleaning_metadata.py
+--------------------
+Preprocessing pipeline for the seismic event metadata extracted from
+the .ASC file headers. Each file contains 64 header rows in the format
+FEATURE: VALUE, covering both event-level fields (constant across all
+66 files, e.g. EVENT_DATE, EVENT_LATITUDE_DEGREE) and station-level
+fields (varying per file, e.g. STATION_CODE, EPICENTRAL_DISTANCE_KM).
+
+The pipeline is organised as a set of private helper functions, each
+responsible for a single preprocessing step, composed by the public
+entry point clean_metadata():
+
+    1. _replace_missing  — replace empty strings and 'None' with NaN
+    2. _drop_columns     — remove uninformative, constant, or irrelevant columns
+    3. _convert_types    — cast numeric columns to float64 and date columns
+                           to datetime
+    4. _normalize_strings — strip leading/trailing whitespace from string columns
+    5. _remove_duplicates — drop duplicate rows
+
+Usage:
+    from src.cleaning_metadata import clean_metadata
+    df_meta_clean = clean_metadata(df_meta_raw)
+"""
+
 import pandas as pd
 import numpy as np
 

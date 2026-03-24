@@ -1,3 +1,40 @@
+"""
+io.py
+-----
+Input/output utilities for loading the raw seismic dataset from the
+.ASC archive. The dataset is distributed as a single zip file containing
+66 .ASC files, one per station-component pair. Each file consists of a
+64-row header (FEATURE: VALUE format) followed by numerical acceleration
+data (one value per row, in cm/s²).
+
+This module provides three public functions:
+
+    build_metadata(zip_path)
+        Parses the header rows of all .ASC files and returns a single
+        long-format DataFrame (df_meta) with one row per file and one
+        column per metadata field.
+
+    build_accelerations(zip_path)
+        Parses the numerical data rows of all .ASC files and returns a
+        long-format DataFrame (df_acc) with columns:
+            'file'         — source filename
+            'sample'       — integer sample index (0-based)
+            'acceleration' — raw acceleration value (cm/s²)
+
+    build_dataframes(zip_path)
+        Convenience wrapper that calls both functions above and returns
+        (df_meta, df_acc) as a tuple. Kept for backwards compatibility.
+
+All three functions accept either a string path or a pathlib.Path object.
+
+Usage:
+    from src.io import build_metadata, build_accelerations, build_dataframes
+
+    df_meta          = build_metadata('../data/raw/query.zip')
+    df_acc           = build_accelerations('../data/raw/query.zip')
+    df_meta, df_acc  = build_dataframes('../data/raw/query.zip')
+"""
+
 from pathlib import Path
 import zipfile
 import pandas as pd

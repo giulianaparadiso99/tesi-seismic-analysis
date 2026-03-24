@@ -1,3 +1,41 @@
+"""
+cleaning_signals.py
+-------------------
+Preprocessing pipelines for the seismic acceleration time series loaded
+from the .ASC files. Each file contains a single signal recorded by one
+station on one component (HNE, HNN, or HNZ). The raw acceleration values
+(in cm/s²) are stored in a long-format DataFrame with one row per sample.
+
+Two separate pipelines are provided depending on the downstream analysis:
+
+    preprocess_signals_single()
+        For single-signal analysis (Notebook 3). Applies to all 66 files.
+        Steps:
+            1. _baseline_correction — subtract per-signal mean (zero baseline)
+            2. _normalize           — divide by per-signal standard deviation
+
+    preprocess_signals_aggregated()
+        For aggregated analysis (Notebook 4). Requires equal-length signals.
+        Steps:
+            1. _truncate            — retain only files with >= min_samples
+                                      samples and truncate all to min_samples
+                                      (default: 48 000); excludes 6 near-field
+                                      stations (SURF, BRZ, BHB, CRI, SLZ, SAV)
+            2. _baseline_correction — same as above
+            3. _normalize           — same as above
+
+Both pipelines return a DataFrame with two acceleration columns:
+    'acceleration'            — baseline-corrected (cm/s²)
+    'acceleration_normalized' — baseline-corrected and unit-std normalized
+
+Usage:
+    from src.cleaning_signals import preprocess_signals_single
+    from src.cleaning_signals import preprocess_signals_aggregated
+
+    df_acc_clean  = preprocess_signals_single(df_acc_raw)
+    df_acc_agg    = preprocess_signals_aggregated(df_acc_raw, min_samples=48000)
+"""
+
 import pandas as pd
 
 

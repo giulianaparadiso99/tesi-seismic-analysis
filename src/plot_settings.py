@@ -1,3 +1,31 @@
+"""
+plot_settings.py
+----------------
+Global matplotlib style configuration for the project. Defines a
+consistent visual theme applied across all notebooks and figures,
+ensuring uniformity in font sizes, colours, grid style, and spine
+visibility throughout the analysis.
+
+The module exposes a single public function:
+
+    set_plot_style()
+        Applies the project-wide rcParams settings to the current
+        matplotlib session and returns a list of four colours sampled
+        from the 'inferno' colormap at evenly spaced intervals.
+        The returned colour list is intended to be used directly in
+        plotting functions (e.g. for distinguishing components HNE,
+        HNN, HNZ, or distance groups Near, Mid, Far).
+
+Usage:
+    from src.plot_settings import set_plot_style
+    colors = set_plot_style()
+
+    # colors[0] -> HNE / Near
+    # colors[1] -> HNN / Mid
+    # colors[2] -> HNZ / Far
+    # colors[3] -> auxiliary / highlight
+"""
+
 import matplotlib as mpl
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
