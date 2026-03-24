@@ -458,23 +458,67 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
 # ========================== Computation of q-th order moments ==================================
 # ===============================================================================================
 
-def compute_moment_scaling(df_acc_clean, q_values, tau_values, normalized=True):
+def compute_moment_scaling(df_acc_clean, q_values, tau_values, normalized=True,
+                           dt=0.005, min_increments=10):
     """
-    Computes q-th order moments of acceleration signals at different time scales tau.
-    
-    For each signal, for each tau, divides the signal into non-overlapping windows
-    of length tau and computes <|a|^q> averaged over all windows.
-    
-    Parameters:
-    -----------
+    Computes q-th order moments of displacement increments at different
+    time scales tau, following the framework of Vollmer et al. (2024).
+
+    The displacement is obtained by integrating the acceleration signal:
+
+        x(t) = sum_{k=0}^{t} a(k) * dt
+
+    For each time scale tau, displacement increments are computed using a
+    sliding window over all possible starting points t0:
+
+        Delta_x(tau, t0) = x(t0 + tau) - x(t0)
+
+    The q-th order moment is then the temporal average:
+
+        M_q(tau) = < |Delta_x(tau, t0)|^q >_{t0}
+                 = (1 / (N - tau)) * sum_{t0=0}^{N-tau-1} |x(t0+tau) - x(t0)|^q
+
+    If the underlying process exhibits (strong) anomalous diffusion,
+    M_q(tau) scales as a power law in tau:
+
+        M_q(tau) ~ tau^{zeta(q)}
+
+    For normal diffusion zeta(q) = q/2 (linear in q). Strong anomalous
+    diffusion is characterized by a piecewise-linear zeta(q) with a
+    crossover at q = alpha (Eq. 1b of Vollmer et al. 2024).
+
+    Using a sliding window (overlapping increments) rather than
+    non-overlapping windows maximizes the number of available samples
+    for each tau, producing more stable moment estimates especially
+    at large tau values.
+
+    tau values that would yield fewer than min_increments increments
+    are automatically skipped. This prevents unreliable moment estimates
+    for short signals (e.g. SURF, BRZ, BHB, CRI, SLZ, SAV with ~6000
+    samples) where large tau values leave too few increments to average.
+
+    Parameters
+    ----------
     df_acc_clean : pd.DataFrame
-    q_values : list of float — moment orders (e.g. [0.5, 1, 1.5, 2, 2.5, 3])
-    tau_values : list of int — window sizes in samples (e.g. [10, 50, 100, 500, 1000])
-    normalized : bool — use acceleration_normalized or acceleration
-    
-    Returns:
-    --------
-    df_moments : pd.DataFrame with columns [file, station, stream, q, tau, moment]
+        Must contain columns 'file', 'acceleration', 'acceleration_normalized'.
+    q_values : list of float
+        Moment orders, e.g. [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0].
+    tau_values : list of int
+        Window sizes in samples, e.g. [10, 50, 100, 200, 500, 1000, 2000, 5000].
+    normalized : bool
+        If True, use 'acceleration_normalized'; otherwise use 'acceleration'.
+    dt : float
+        Sampling interval in seconds (default: 0.005 s = 200 Hz).
+    min_increments : int
+        Minimum number of increments required to include a tau value.
+        tau is skipped if N - tau < min_increments, i.e. if tau > N - min_increments.
+        Default is 10, which effectively caps tau at N / 10 for large signals.
+
+    Returns
+    -------
+    df_moments : pd.DataFrame
+        Long-format DataFrame with columns:
+            file, station, stream, q, tau, moment
     """
     col = 'acceleration_normalized' if normalized else 'acceleration'
     rows = []
@@ -484,15 +528,25 @@ def compute_moment_scaling(df_acc_clean, q_values, tau_values, normalized=True):
         station = file.split('.')[1]
         stream = file.split('.')[3]
 
+        # Build cumulative displacement by integrating acceleration
+        # x(t) = cumsum(a) * dt
+        x = np.cumsum(signal) * dt   # shape: (N,)
+        N = len(x)
+
         for tau in tau_values:
-            # Split signal into non-overlapping windows of length tau
-            n_windows = len(signal) // tau
-            if n_windows == 0:
+            # Skip tau values that leave fewer than min_increments increments.
+            # This guards against unreliable estimates from short signals or
+            # excessively large tau values.
+            if (N - tau) < min_increments:
                 continue
-            windows = signal[:n_windows * tau].reshape(n_windows, tau)
+
+            # Sliding window: compute all increments Delta_x(tau, t0)
+            # x[t0 + tau] - x[t0] for t0 = 0, 1, ..., N - tau - 1
+            increments = x[tau:] - x[:-tau]   # shape: (N - tau,)
 
             for q in q_values:
-                moment = np.mean(np.mean(np.abs(windows) ** q, axis=1))
+                # q-th order moment of the displacement increment distribution
+                moment = np.mean(np.abs(increments) ** q)
                 rows.append({
                     'file': file,
                     'station': station,
