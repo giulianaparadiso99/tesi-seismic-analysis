@@ -624,6 +624,75 @@ def compute_moment_scaling_disp(df_acc, q_values, tau_values, normalized=True,
 
     return pd.DataFrame(rows)
 
+def detect_event_onset(signal, threshold_factor=0.05, min_consecutive=10):
+    """
+    Detects the onset of the seismic event as the first sample where
+    |signal| exceeds threshold_factor * max(|signal|) for at least
+    min_consecutive consecutive samples.
+
+    Parameters
+    ----------
+    signal : np.ndarray
+    threshold_factor : float — fraction of max(|signal|) used as threshold
+    min_consecutive : int — minimum number of consecutive samples above threshold
+
+    Returns
+    -------
+    onset : int — index of the first sample of the event window
+    """
+    threshold = threshold_factor * np.max(np.abs(signal))
+    above = np.abs(signal) > threshold
+    for i in range(len(signal) - min_consecutive):
+        if np.all(above[i:i + min_consecutive]):
+            return i
+    return 0  # fallback: use full signal
+
+
+def trim_to_event_window(df, threshold_factor=0.05, min_consecutive=10,
+                         normalized=True):
+    """
+    Trims each signal in df to the event window, starting from the
+    detected onset of the seismic event.
+
+    Parameters
+    ----------
+    df : pd.DataFrame — preprocessed acceleration data
+    threshold_factor : float — passed to detect_event_onset
+    min_consecutive : int — passed to detect_event_onset
+    normalized : bool — whether to use acceleration_normalized or acceleration
+
+    Returns
+    -------
+    df_trimmed : pd.DataFrame — same structure as df, with signals trimmed
+    df_onsets : pd.DataFrame — onset indices per file [file, station, stream, onset]
+    """
+    col = 'acceleration_normalized' if normalized else 'acceleration'
+    trimmed = []
+    onset_rows = []
+
+    for file in df['file'].unique():
+        df_file = df[df['file'] == file].copy()
+        signal = df_file[col].values
+        station = file.split('.')[1]
+        stream = file.split('.')[3]
+
+        onset = detect_event_onset(signal, threshold_factor, min_consecutive)
+
+        df_trimmed = df_file.iloc[onset:].reset_index(drop=True)
+        trimmed.append(df_trimmed)
+        onset_rows.append({
+            'file': file,
+            'station': station,
+            'stream': stream,
+            'onset': onset,
+            'samples_before': onset,
+            'samples_after': len(signal) - onset
+        })
+
+    df_trimmed = pd.concat(trimmed, ignore_index=True)
+    df_onsets = pd.DataFrame(onset_rows)
+    return df_trimmed, df_onsets
+
 # ===============================================================================================
 # ========================== Scaling exponents computation ======================================
 # ===============================================================================================
