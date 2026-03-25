@@ -454,7 +454,7 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
 
     return df_results
 
-def compute_moment_scaling_acc(df_acc_clean, q_values, tau_values, normalized=True):
+def compute_moment_scaling_acc(df_acc, q_values, tau_values, normalized=True):
     """
     Computes q-th order moments of acceleration increments at different
     time scales tau.
@@ -470,7 +470,7 @@ def compute_moment_scaling_acc(df_acc_clean, q_values, tau_values, normalized=Tr
 
     Parameters
     ----------
-    df_acc_clean : pd.DataFrame
+    df_acc : pd.DataFrame
     q_values : list of float
     tau_values : list of int
     normalized : bool
@@ -482,8 +482,8 @@ def compute_moment_scaling_acc(df_acc_clean, q_values, tau_values, normalized=Tr
     col = 'acceleration_normalized' if normalized else 'acceleration'
     rows = []
 
-    for file in df_acc_clean['file'].unique():
-        signal = df_acc_clean[df_acc_clean['file'] == file][col].values
+    for file in df_acc['file'].unique():
+        signal = df_acc[df_acc['file'] == file][col].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
         N = len(signal)
@@ -564,7 +564,7 @@ def compute_moment_scaling_vel(df_acc_clean, q_values, tau_values, normalized=Tr
     return pd.DataFrame(rows)
 
 
-def compute_moment_scaling_disp(df_acc_clean, q_values, tau_values, normalized=True,
+def compute_moment_scaling_disp(df_acc, q_values, tau_values, normalized=True,
                                 dt=0.005):
     """
     Computes q-th order moments of displacement increments at different
@@ -585,7 +585,7 @@ def compute_moment_scaling_disp(df_acc_clean, q_values, tau_values, normalized=T
 
     Parameters
     ----------
-    df_acc_clean : pd.DataFrame
+    df_acc : pd.DataFrame
     q_values : list of float
     tau_values : list of int
     normalized : bool
@@ -598,8 +598,8 @@ def compute_moment_scaling_disp(df_acc_clean, q_values, tau_values, normalized=T
     col = 'acceleration_normalized' if normalized else 'acceleration'
     rows = []
 
-    for file in df_acc_clean['file'].unique():
-        signal = df_acc_clean[df_acc_clean['file'] == file][col].values
+    for file in df_acc['file'].unique():
+        signal = df_acc[df_acc['file'] == file][col].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
         N = len(signal)
@@ -1037,7 +1037,7 @@ def fit_piecewise_scaling(df_exponents, output_dir='../figures/03_single_signal/
 # ========================== Displacement autocorrelation =======================================
 # ===============================================================================================
 
-def compute_displacement_autocorrelation(df_acc_clean, n_points=50, normalized=True,
+def compute_displacement_autocorrelation(df_acc, n_points=50, normalized=True,
                                           output_dir='../figures/03_single_signal/autocorrelation'):
     """
     Computes displacement autocorrelation functions C(t1, t2) = <(a(t1)-a0)(a(t2)-a0)>
@@ -1045,7 +1045,7 @@ def compute_displacement_autocorrelation(df_acc_clean, n_points=50, normalized=T
     
     Parameters:
     -----------
-    df_acc_clean : pd.DataFrame
+    df_acc : pd.DataFrame
     n_points : int — number of points in the logarithmic grid for t1 and t2
     normalized : bool — use acceleration_normalized or acceleration
     output_dir : str — directory to save figures
@@ -1060,8 +1060,8 @@ def compute_displacement_autocorrelation(df_acc_clean, n_points=50, normalized=T
     saved = []
     failed = []
 
-    for file in df_acc_clean['file'].unique():
-        signal = df_acc_clean[df_acc_clean['file'] == file][col].values
+    for file in df_acc['file'].unique():
+        signal = df_acc[df_acc['file'] == file][col].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
         filepath = f'{output_dir}/autocorr_{station}_{stream}.pdf'
@@ -1125,7 +1125,7 @@ def compute_displacement_autocorrelation(df_acc_clean, n_points=50, normalized=T
 
     df_autocorr = pd.DataFrame(rows)
 
-    print(f"Saved: {len(saved)}/{df_acc_clean['file'].nunique()} individual plots")
+    print(f"Saved: {len(saved)}/{df_acc['file'].nunique()} individual plots")
     if failed:
         print("Failed:")
         for f, e in failed:
@@ -1135,8 +1135,8 @@ def compute_displacement_autocorrelation(df_acc_clean, n_points=50, normalized=T
 
     # Build dictionary of C matrices for scaling analysis
     C_matrices = {}
-    for file in df_acc_clean['file'].unique():
-        station = df_acc_clean[df_acc_clean['file'] == file]['station'].iloc[0] if 'station' in df_acc_clean.columns else file.split('.')[1]
+    for file in df_acc['file'].unique():
+        station = df_acc[df_acc['file'] == file]['station'].iloc[0] if 'station' in df_acc.columns else file.split('.')[1]
         stream = file.split('.')[3]
         df_file = df_autocorr[df_autocorr['file'] == file]
         t_grid = sorted(df_file['t1'].unique())
