@@ -218,16 +218,16 @@ def plot_increment_distributions(df_increments, df_tail,
                 ax.loglog(abs_inc, ccdf_y, color=tau_colors[ci], linewidth=0.8,
                           alpha=0.7, label=f'τ={tau}')
 
-                # Tail fit line
+                # Tail fit line — computed in log space to avoid overflow
                 tail_row = df_tail[(df_tail['file'] == file) & (df_tail['tau'] == tau)]
                 if not tail_row.empty:
                     fit_exp = tail_row['fit_exp'].values[0]
                     k = max(2, int(top_fraction * n))
                     threshold = abs_inc[k - 1]
-                    c = ccdf_y[k - 1] * threshold ** fit_exp
                     x_fit = np.linspace(threshold, abs_inc[0], 50)
-                    ax.loglog(x_fit, c * x_fit ** (-fit_exp), '--',
-                              color=tau_colors[ci], linewidth=1.2, alpha=0.9)
+                    log_c = np.log(ccdf_y[k - 1]) + fit_exp * np.log(threshold)
+                    y_fit = np.exp(log_c - fit_exp * np.log(x_fit))
+                    ax.loglog(x_fit, y_fit, '--', color=tau_colors[ci], linewidth=1.2, alpha=0.9)
 
             ax.set_xlabel('|Δx(τ)|')
             ax.set_ylabel('P(|Δx| > x)')
