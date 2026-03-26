@@ -412,7 +412,7 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
 # ==================================== Moment scaling - Acceleration ============================
 # ===============================================================================================
 
-def compute_moment_scaling_acc(df_acc_clean, q_values, tau_values, normalized=True,
+def compute_moment_scaling_acc(df_acc, q_values, tau_values, normalized=True,
                                save_increments=False):
     """
     Computes q-th order moments of acceleration increments at different
@@ -429,7 +429,7 @@ def compute_moment_scaling_acc(df_acc_clean, q_values, tau_values, normalized=Tr
  
     Parameters
     ----------
-    df_acc_clean : pd.DataFrame
+    df_acc : pd.DataFrame
     q_values : list of float
     tau_values : list of int
     normalized : bool
@@ -446,8 +446,8 @@ def compute_moment_scaling_acc(df_acc_clean, q_values, tau_values, normalized=Tr
     rows = []
     inc_rows = []
  
-    for file in df_acc_clean['file'].unique():
-        signal = df_acc_clean[df_acc_clean['file'] == file][col].values
+    for file in df_acc['file'].unique():
+        signal = df_acc[df_acc['file'] == file][col].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
         N = len(signal)
@@ -482,7 +482,7 @@ def compute_moment_scaling_acc(df_acc_clean, q_values, tau_values, normalized=Tr
 # ==================================== Moment scaling - Velocity ================================
 # ===============================================================================================
 
-def compute_moment_scaling_vel(df_acc_clean, q_values, tau_values, normalized=True,
+def compute_moment_scaling_vel(df_acc, q_values, tau_values, normalized=True,
                                dt=0.005, save_increments=False):
     """
     Computes q-th order moments of velocity increments at different
@@ -502,7 +502,7 @@ def compute_moment_scaling_vel(df_acc_clean, q_values, tau_values, normalized=Tr
  
     Parameters
     ----------
-    df_acc_clean : pd.DataFrame
+    df_acc : pd.DataFrame
     q_values : list of float
     tau_values : list of int
     normalized : bool
@@ -520,8 +520,8 @@ def compute_moment_scaling_vel(df_acc_clean, q_values, tau_values, normalized=Tr
     rows = []
     inc_rows = []
  
-    for file in df_acc_clean['file'].unique():
-        signal = df_acc_clean[df_acc_clean['file'] == file][col].values
+    for file in df_acc['file'].unique():
+        signal = df_acc[df_acc['file'] == file][col].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
         N = len(signal)
