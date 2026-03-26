@@ -7,50 +7,6 @@ from src.plot_settings import set_plot_style
 colors = set_plot_style()
 
 # ===============================================================================================
-# ==================================== Empirical PDFs ===========================================
-# ===============================================================================================
-
-def plot_empirical_pdfs(df_acc_clean, bins=100, log_scale=False, normalized=True, output_dir='../figures/pdf_single'):
-    
-    os.makedirs(output_dir, exist_ok=True)
-    
-    col = 'acceleration_normalized' if normalized else 'acceleration'
-    saved = []
-    failed = []
-    
-    for file in df_acc_clean['file'].unique():
-        signal = df_acc_clean[df_acc_clean['file'] == file][col].values
-        station = file.split('.')[1]
-        stream = file.split('.')[3]
-        filepath = f'{output_dir}/pdf_{station}_{stream}.pdf'
-        
-        try:
-            fig, ax = plt.subplots(figsize=(7, 5))
-            ax.hist(signal, bins=bins, color=colors[0], edgecolor='none', density=True)
-            if log_scale:
-                ax.set_yscale('log')
-            ax.set_xlabel('Normalized acceleration' if normalized else 'Acceleration (cm/s²)')
-            ax.set_ylabel('Probability density')
-            ax.set_title(f'Empirical PDF — {station} {stream}')
-            plt.tight_layout()
-            plt.savefig(filepath, bbox_inches='tight')
-            plt.close()
-            saved.append(filepath)
-        except Exception as e:
-            failed.append((filepath, str(e)))
-            plt.close()
-    
-    # Check
-    print(f"Saved: {len(saved)}/{df_acc_clean['file'].nunique()} PDFs")
-    if failed:
-        print("Failed:")
-        for f, e in failed:
-            print(f"  - {f}: {e}")
-    else:
-        print("All PDFs saved successfully!")
-
-
-# ===============================================================================================
 # ==================================== Gaussian fit analysis ====================================
 # ===============================================================================================
 
@@ -217,11 +173,9 @@ def gaussian_fit_analysis(df_acc_clean, bins=100, log_scale=False, normalized=Tr
 
     return df_results
 
-
 # ===============================================================================================
 # ==================================== Heavy-tail assessment ====================================
 # ===============================================================================================
-
 
 def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/heavy_tail',
                           resume=False, partial_path='../data/processed/heavy_tail_results_partial.parquet'):
@@ -454,75 +408,98 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
 
     return df_results
 
-def compute_moment_scaling_acc(df_acc, q_values, tau_values, normalized=True):
+# ===============================================================================================
+# ==================================== Moment scaling - Acceleration ============================
+# ===============================================================================================
+
+def compute_moment_scaling_acc(df_acc_clean, q_values, tau_values, normalized=True,
+                               save_increments=False):
     """
     Computes q-th order moments of acceleration increments at different
     time scales tau.
-
+ 
     The process is the acceleration signal a(t) itself. Increments are
     defined as:
-
+ 
         Delta_a(tau, t0) = a(t0 + tau) - a(t0)
-
+ 
     The q-th order moment is the temporal average:
-
+ 
         M_q(tau) = < |Delta_a(tau, t0)|^q >_{t0}
-
+ 
     Parameters
     ----------
-    df_acc : pd.DataFrame
+    df_acc_clean : pd.DataFrame
     q_values : list of float
     tau_values : list of int
     normalized : bool
-
+    save_increments : bool
+        If True, also return a DataFrame with all raw increments.
+ 
     Returns
     -------
     df_moments : pd.DataFrame with columns [file, station, stream, q, tau, moment]
+    df_increments : pd.DataFrame with columns [file, station, stream, tau, increment]
+        Only returned if save_increments=True.
     """
     col = 'acceleration_normalized' if normalized else 'acceleration'
     rows = []
-
-    for file in df_acc['file'].unique():
-        signal = df_acc[df_acc['file'] == file][col].values
+    inc_rows = []
+ 
+    for file in df_acc_clean['file'].unique():
+        signal = df_acc_clean[df_acc_clean['file'] == file][col].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
         N = len(signal)
-
+ 
         for tau in tau_values:
             if (N - tau) < 10:
                 continue
-
+ 
             # Increments of acceleration: a(t0 + tau) - a(t0)
             increments = signal[tau:] - signal[:-tau]
-
+ 
+            if save_increments:
+                for inc in increments:
+                    inc_rows.append({
+                        'file': file, 'station': station, 'stream': stream,
+                        'tau': tau, 'increment': inc
+                    })
+ 
             for q in q_values:
                 moment = np.mean(np.abs(increments) ** q)
                 rows.append({
                     'file': file, 'station': station, 'stream': stream,
                     'q': q, 'tau': tau, 'moment': moment
                 })
+ 
+    df_moments = pd.DataFrame(rows)
+    if save_increments:
+        return df_moments, pd.DataFrame(inc_rows)
+    return df_moments
 
-    return pd.DataFrame(rows)
-
+# ===============================================================================================
+# ==================================== Moment scaling - Velocity ================================
+# ===============================================================================================
 
 def compute_moment_scaling_vel(df_acc_clean, q_values, tau_values, normalized=True,
-                               dt=0.005):
+                               dt=0.005, save_increments=False):
     """
     Computes q-th order moments of velocity increments at different
     time scales tau.
-
+ 
     The velocity is obtained by integrating the acceleration once:
-
+ 
         v(t) = cumsum(a(t)) * dt
-
+ 
     Increments are defined as:
-
+ 
         Delta_v(tau, t0) = v(t0 + tau) - v(t0)
-
+ 
     The q-th order moment is the temporal average:
-
+ 
         M_q(tau) = < |Delta_v(tau, t0)|^q >_{t0}
-
+ 
     Parameters
     ----------
     df_acc_clean : pd.DataFrame
@@ -530,59 +507,77 @@ def compute_moment_scaling_vel(df_acc_clean, q_values, tau_values, normalized=Tr
     tau_values : list of int
     normalized : bool
     dt : float — sampling interval in seconds (default: 0.005 s = 200 Hz)
-
+    save_increments : bool
+        If True, also return a DataFrame with all raw increments.
+ 
     Returns
     -------
     df_moments : pd.DataFrame with columns [file, station, stream, q, tau, moment]
+    df_increments : pd.DataFrame with columns [file, station, stream, tau, increment]
+        Only returned if save_increments=True.
     """
     col = 'acceleration_normalized' if normalized else 'acceleration'
     rows = []
-
+    inc_rows = []
+ 
     for file in df_acc_clean['file'].unique():
         signal = df_acc_clean[df_acc_clean['file'] == file][col].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
         N = len(signal)
-
+ 
         # Integrate acceleration once to get velocity
         v = np.cumsum(signal) * dt
-
+ 
         for tau in tau_values:
             if (N - tau) < 10:
                 continue
-
+ 
             # Increments of velocity: v(t0 + tau) - v(t0)
             increments = v[tau:] - v[:-tau]
-
+ 
+            if save_increments:
+                for inc in increments:
+                    inc_rows.append({
+                        'file': file, 'station': station, 'stream': stream,
+                        'tau': tau, 'increment': inc
+                    })
+ 
             for q in q_values:
                 moment = np.mean(np.abs(increments) ** q)
                 rows.append({
                     'file': file, 'station': station, 'stream': stream,
                     'q': q, 'tau': tau, 'moment': moment
                 })
+ 
+    df_moments = pd.DataFrame(rows)
+    if save_increments:
+        return df_moments, pd.DataFrame(inc_rows)
+    return df_moments
 
-    return pd.DataFrame(rows)
-
+# ===============================================================================================
+# ==================================== Moment scaling - Displacement ============================
+# ===============================================================================================
 
 def compute_moment_scaling_disp(df_acc, q_values, tau_values, normalized=True,
-                                dt=0.005):
+                                dt=0.005, save_increments=False):
     """
     Computes q-th order moments of displacement increments at different
     time scales tau.
-
+ 
     The displacement is obtained by integrating the acceleration twice:
-
+ 
         v(t) = cumsum(a(t)) * dt        (velocity)
         x(t) = cumsum(v(t)) * dt        (displacement)
-
+ 
     Increments are defined as:
-
+ 
         Delta_x(tau, t0) = x(t0 + tau) - x(t0)
-
+ 
     The q-th order moment is the temporal average:
-
+ 
         M_q(tau) = < |Delta_x(tau, t0)|^q >_{t0}
-
+ 
     Parameters
     ----------
     df_acc : pd.DataFrame
@@ -590,39 +585,58 @@ def compute_moment_scaling_disp(df_acc, q_values, tau_values, normalized=True,
     tau_values : list of int
     normalized : bool
     dt : float — sampling interval in seconds (default: 0.005 s = 200 Hz)
-
+    save_increments : bool
+        If True, also return a DataFrame with all raw increments.
+ 
     Returns
     -------
     df_moments : pd.DataFrame with columns [file, station, stream, q, tau, moment]
+    df_increments : pd.DataFrame with columns [file, station, stream, tau, increment]
+        Only returned if save_increments=True.
     """
     col = 'acceleration_normalized' if normalized else 'acceleration'
     rows = []
-
+    inc_rows = []
+ 
     for file in df_acc['file'].unique():
         signal = df_acc[df_acc['file'] == file][col].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
         N = len(signal)
-
+ 
         # Integrate acceleration twice to get displacement
         v = np.cumsum(signal) * dt
         x = np.cumsum(v) * dt
-
+ 
         for tau in tau_values:
             if (N - tau) < 10:
                 continue
-
+ 
             # Increments of displacement: x(t0 + tau) - x(t0)
             increments = x[tau:] - x[:-tau]
-
+ 
+            if save_increments:
+                for inc in increments:
+                    inc_rows.append({
+                        'file': file, 'station': station, 'stream': stream,
+                        'tau': tau, 'increment': inc
+                    })
+ 
             for q in q_values:
                 moment = np.mean(np.abs(increments) ** q)
                 rows.append({
                     'file': file, 'station': station, 'stream': stream,
                     'q': q, 'tau': tau, 'moment': moment
                 })
+ 
+    df_moments = pd.DataFrame(rows)
+    if save_increments:
+        return df_moments, pd.DataFrame(inc_rows)
+    return df_moments
 
-    return pd.DataFrame(rows)
+# ===============================================================================================
+# ==================================== Event onset detection ====================================
+# ===============================================================================================
 
 def detect_event_onset(signal, threshold_factor=0.05, min_consecutive=10):
     """
@@ -646,6 +660,10 @@ def detect_event_onset(signal, threshold_factor=0.05, min_consecutive=10):
         if np.all(above[i:i + min_consecutive]):
             return i
     return 0  # fallback: use full signal
+
+# ===============================================================================================
+# ==================================== Event window trimming ====================================
+# ===============================================================================================
 
 
 def trim_to_event_window(df, threshold_factor=0.05, min_consecutive=10,
@@ -1101,6 +1119,77 @@ def fit_piecewise_scaling(df_exponents, output_dir='../figures/03_single_signal/
         print("All individual plots saved successfully!")
 
     return df_piecewise
+
+# ===============================================================================================
+# ========================== Increment tail exponents ===========================================
+# ===============================================================================================
+
+def compute_increment_tail_exponents(df_increments, tau_values_plot=None, top_fraction=0.1):
+    """
+    Estimates the tail exponent of the increment distribution |Delta x(tau)|
+    for each signal and each tau value, using two methods:
+ 
+        1. Hill estimator: alpha_hill = (mean of log(x_i / x_k))^{-1}
+           where x_1 >= ... >= x_n are the ordered |increments| and
+           k = floor(top_fraction * n) is the number of tail observations.
+ 
+        2. Linear fit on the log-log CCDF tail: fits a line to
+           log P(|Delta x| > u) vs log u on the top top_fraction of values.
+           The slope gives -fit_exp (so fit_exp > 0 means heavy tail).
+ 
+    Parameters
+    ----------
+    df_increments : pd.DataFrame
+        Output of compute_moment_scaling_* with save_increments=True.
+        Must contain columns [file, station, stream, tau, increment].
+    tau_values_plot : list of int or None
+        Subset of tau values to use. If None, uses all tau values in df_increments.
+    top_fraction : float
+        Fraction of largest |increment| values used for tail estimation (default: 0.1).
+ 
+    Returns
+    -------
+    df_tail : pd.DataFrame
+        Columns: [file, station, stream, tau, hill_exp, fit_exp, r2_fit, n_tail]
+    """
+    if tau_values_plot is not None:
+        df_increments = df_increments[df_increments['tau'].isin(tau_values_plot)]
+ 
+    rows = []
+    for (file, tau), group in df_increments.groupby(['file', 'tau']):
+        station = group['station'].iloc[0]
+        stream = group['stream'].iloc[0]
+        abs_inc = np.abs(group['increment'].values)
+        abs_inc = abs_inc[abs_inc > 0]
+        if len(abs_inc) < 20:
+            continue
+ 
+        sorted_inc = np.sort(abs_inc)[::-1]
+        k = max(2, int(top_fraction * len(sorted_inc)))
+        tail = sorted_inc[:k]
+ 
+        # Hill estimator
+        hill_exp = 1.0 / np.mean(np.log(tail / tail[-1]))
+ 
+        # Log-log CCDF fit
+        n = len(abs_inc)
+        threshold = tail[-1]
+        ccdf_x = tail
+        ccdf_y = np.arange(1, k + 1) / n
+        log_x = np.log(ccdf_x)
+        log_y = np.log(ccdf_y)
+        slope, _, r, _, _ = stats.linregress(log_x, log_y)
+        fit_exp = -slope  # positive value = heavy tail
+        r2_fit = r ** 2
+ 
+        rows.append({
+            'file': file, 'station': station, 'stream': stream,
+            'tau': tau, 'hill_exp': round(hill_exp, 4),
+            'fit_exp': round(fit_exp, 4), 'r2_fit': round(r2_fit, 4),
+            'n_tail': k
+        })
+ 
+    return pd.DataFrame(rows)
 
 # ===============================================================================================
 # ========================== Displacement autocorrelation =======================================
