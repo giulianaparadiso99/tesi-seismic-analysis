@@ -472,6 +472,291 @@ def plot_pga_correlation_by_group(df_pga_corr, groups, group_colors, output_dir=
     plt.close()
 
 # ===============================================================================================
+# ========================= Signals — signal length distribution ================================
+# ===============================================================================================
+ 
+def plot_signal_length_distribution(signal_lengths, output_dir=None):
+    """
+    Histogram of signal lengths (number of samples) across all files.
+ 
+    Parameters
+    ----------
+    signal_lengths : pd.Series
+        Series with one entry per file, values = number of samples.
+        Typically: df_acc.groupby('file')['sample'].max() + 1
+    output_dir : str or Path or None
+    """
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.hist(signal_lengths, bins=15, color=colors[0], edgecolor='white', linewidth=0.5)
+    ax.set_title('Signal length distribution')
+    ax.set_xlabel('Number of samples')
+    ax.set_ylabel('Count')
+    plt.tight_layout()
+ 
+    if output_dir is not None:
+        os.makedirs(output_dir, exist_ok=True)
+        path = os.path.join(output_dir, 'signal_length_distribution.pdf')
+        plt.savefig(path, bbox_inches='tight')
+        print(f"Saved: {path}")
+ 
+    plt.show()
+    plt.close()
+ 
+ 
+# ===============================================================================================
+# ============================= Signals — example signals =======================================
+# ===============================================================================================
+ 
+def plot_example_signals(df_acc, df_meta_clean, streams=('HNE', 'HNN', 'HNZ'), output_dir=None):
+    """
+    One subplot per stream showing a representative acceleration time series.
+ 
+    Parameters
+    ----------
+    df_acc : pd.DataFrame
+        Must contain columns [file, sample, acceleration].
+    df_meta_clean : pd.DataFrame
+        Must contain columns [file, STREAM].
+    streams : tuple of str
+        Stream codes to plot, one panel each.
+    output_dir : str or Path or None
+    """
+    fig, axes = plt.subplots(len(streams), 1, figsize=(12, 3 * len(streams)),
+                             sharex=False)
+    if len(streams) == 1:
+        axes = [axes]
+ 
+    for i, stream in enumerate(streams):
+        example_file = df_meta_clean[df_meta_clean['STREAM'] == stream]['file'].iloc[0]
+        signal = df_acc[df_acc['file'] == example_file]
+        axes[i].plot(signal['sample'], signal['acceleration'],
+                     color=colors[i], linewidth=0.5)
+        axes[i].set_title(f'Example signal — {stream}')
+        axes[i].set_ylabel('Acceleration (cm/s²)')
+ 
+    axes[-1].set_xlabel('Sample')
+    plt.tight_layout()
+ 
+    if output_dir is not None:
+        os.makedirs(output_dir, exist_ok=True)
+        path = os.path.join(output_dir, 'example_signals.pdf')
+        plt.savefig(path, bbox_inches='tight')
+        print(f"Saved: {path}")
+ 
+    plt.show()
+    plt.close()
+ 
+ 
+# ===============================================================================================
+# ==================== Signals — raw acceleration distributions =================================
+# ===============================================================================================
+ 
+def plot_acceleration_distributions(df_acc, df_meta_clean,
+                                     streams=('HNE', 'HNN', 'HNZ'), output_dir=None):
+    """
+    Two plots: global acceleration distribution (log y-scale) and
+    per-component overlay (log y-scale).
+ 
+    Parameters
+    ----------
+    df_acc : pd.DataFrame
+        Must contain columns [file, acceleration].
+    df_meta_clean : pd.DataFrame
+        Must contain columns [file, STREAM].
+    streams : tuple of str
+    output_dir : str or Path or None
+    """
+    if output_dir is not None:
+        os.makedirs(output_dir, exist_ok=True)
+ 
+    # Global distribution
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.hist(df_acc['acceleration'], bins=100, color=colors[1], edgecolor='none')
+    ax.set_yscale('log')
+    ax.set_title('Acceleration distribution (log scale)')
+    ax.set_xlabel('Acceleration (cm/s²)')
+    ax.set_ylabel('Count (log scale)')
+    plt.tight_layout()
+    if output_dir is not None:
+        path = os.path.join(output_dir, 'acceleration_distribution.pdf')
+        plt.savefig(path, bbox_inches='tight')
+        print(f"Saved: {path}")
+    plt.show()
+    plt.close()
+ 
+    # Per-component overlay
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for i, stream in enumerate(streams):
+        files = df_meta_clean[df_meta_clean['STREAM'] == stream]['file'].values
+        acc_values = df_acc[df_acc['file'].isin(files)]['acceleration'].values
+        ax.hist(acc_values, bins=100, color=colors[i], alpha=0.6,
+                label=stream, edgecolor='none')
+    ax.set_yscale('log')
+    ax.set_title('Acceleration distribution by component (log scale)')
+    ax.set_xlabel('Acceleration (cm/s²)')
+    ax.set_ylabel('Count (log scale)')
+    ax.legend(title='Component')
+    plt.tight_layout()
+    if output_dir is not None:
+        path = os.path.join(output_dir, 'acceleration_by_component.pdf')
+        plt.savefig(path, bbox_inches='tight')
+        print(f"Saved: {path}")
+    plt.show()
+    plt.close()
+ 
+ 
+# ===============================================================================================
+# ================= Signals — post-preprocessing check (single pipeline) =======================
+# ===============================================================================================
+ 
+def plot_postcheck_single(df_acc_raw, df_acc_clean, output_dir=None):
+    """
+    2x2 summary figure for the single signal preprocessing pipeline:
+    residual means, std distribution, baseline correction example,
+    normalized signal example.
+ 
+    Parameters
+    ----------
+    df_acc_raw : pd.DataFrame
+        Raw accelerations before preprocessing. Must contain [file, acceleration].
+    df_acc_clean : pd.DataFrame
+        Preprocessed accelerations. Must contain
+        [file, acceleration, acceleration_normalized].
+    output_dir : str or Path or None
+    """
+    baseline_check = df_acc_clean.groupby('file')['acceleration'].mean()
+    norm_check     = df_acc_clean.groupby('file')['acceleration_normalized'].std()
+ 
+    example_file  = df_acc_clean['file'].unique()[0]
+    example_raw   = df_acc_raw[df_acc_raw['file'] == example_file]['acceleration'].values
+    example_bc    = df_acc_clean[df_acc_clean['file'] == example_file]['acceleration'].values
+    example_norm  = df_acc_clean[df_acc_clean['file'] == example_file]['acceleration_normalized'].values
+    station_label = example_file.split('.')[1] + ' ' + example_file.split('.')[3]
+ 
+    fig, axes = plt.subplots(2, 2, figsize=(14, 9))
+    t = np.arange(len(example_raw))
+ 
+    # Residual means
+    axes[0, 0].hist(baseline_check.values, bins=30, color=colors[0], edgecolor='none')
+    axes[0, 0].axvline(0, color='black', linewidth=1, linestyle='--', label='Expected: 0')
+    axes[0, 0].set_title('Residual mean per signal\n(after baseline correction)')
+    axes[0, 0].set_xlabel('Mean (cm/s²)')
+    axes[0, 0].set_ylabel('Count')
+    axes[0, 0].legend()
+ 
+    # Std distribution
+    axes[0, 1].hist(norm_check.values, bins=30, color=colors[1], edgecolor='none')
+    axes[0, 1].axvline(1, color='black', linewidth=1, linestyle='--', label='Expected: 1')
+    axes[0, 1].set_title('Standard deviation per signal\n(after normalization)')
+    axes[0, 1].set_xlabel('Std')
+    axes[0, 1].set_ylabel('Count')
+    axes[0, 1].legend()
+ 
+    # Baseline correction example
+    axes[1, 0].plot(t, example_raw, color=colors[2], linewidth=0.5,
+                    alpha=0.7, label='Raw')
+    axes[1, 0].plot(t, example_bc,  color=colors[0], linewidth=0.5,
+                    alpha=0.9, label='Baseline-corrected')
+    axes[1, 0].axhline(0, color='black', linewidth=0.5, linestyle='--')
+    axes[1, 0].set_title(f'Baseline correction — {station_label}')
+    axes[1, 0].set_xlabel('Sample')
+    axes[1, 0].set_ylabel('Acceleration (cm/s²)')
+    axes[1, 0].legend(fontsize=9)
+ 
+    # Normalized signal example
+    axes[1, 1].plot(t, example_norm, color=colors[1], linewidth=0.5,
+                    alpha=0.8, label='Normalized signal')
+    axes[1, 1].axhline( 0, color='black',   linewidth=1,   linestyle='--', label='Mean = 0')
+    axes[1, 1].axhline( 1, color=colors[3], linewidth=0.8, linestyle=':',  label='±1 std')
+    axes[1, 1].axhline(-1, color=colors[3], linewidth=0.8, linestyle=':')
+    axes[1, 1].set_title(f'Normalized signal — {station_label}')
+    axes[1, 1].set_xlabel('Sample')
+    axes[1, 1].set_ylabel('Normalized acceleration')
+    axes[1, 1].legend(fontsize=9)
+ 
+    plt.suptitle('Post-preprocessing check — single signal pipeline', fontsize=14)
+    plt.tight_layout()
+ 
+    if output_dir is not None:
+        os.makedirs(output_dir, exist_ok=True)
+        path = os.path.join(output_dir, 'postcheck_single.pdf')
+        plt.savefig(path, bbox_inches='tight')
+        print(f"Saved: {path}")
+ 
+    plt.show()
+    plt.close()
+ 
+ 
+# ===============================================================================================
+# ================ Signals — post-preprocessing check (aggregated pipeline) ====================
+# ===============================================================================================
+ 
+def plot_postcheck_long(df_acc_raw, df_acc_long, threshold=48000, output_dir=None):
+    """
+    1x3 summary figure for the aggregated (long signals) preprocessing pipeline:
+    signal length distribution before/after truncation, residual means, std distribution.
+ 
+    Parameters
+    ----------
+    df_acc_raw : pd.DataFrame
+        Raw accelerations before preprocessing. Must contain [file, sample].
+    df_acc_long : pd.DataFrame
+        Preprocessed long-signal accelerations. Must contain
+        [file, sample, acceleration, acceleration_normalized].
+    threshold : int
+        Truncation threshold in samples (default: 48000).
+    output_dir : str or Path or None
+    """
+    signal_lengths_raw  = df_acc_raw.groupby('file')['sample'].max() + 1
+    signal_lengths_long = df_acc_long.groupby('file')['sample'].max() + 1
+    baseline_check_agg  = df_acc_long.groupby('file')['acceleration'].mean()
+    norm_check_agg      = df_acc_long.groupby('file')['acceleration_normalized'].std()
+ 
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+ 
+    # Signal lengths before and after truncation
+    axes[0].hist(signal_lengths_raw.values, bins=20, color=colors[2],
+                 edgecolor='none', alpha=0.7,
+                 label=f'Before (n={len(signal_lengths_raw)})')
+    axes[0].hist(signal_lengths_long.values, bins=5, color=colors[0],
+                 edgecolor='none', alpha=0.9,
+                 label=f'After (n={len(signal_lengths_long)})')
+    axes[0].axvline(threshold, color='black', linewidth=1, linestyle='--',
+                    label=f'Threshold: {threshold:,}')
+    axes[0].set_title('Signal lengths before and after truncation')
+    axes[0].set_xlabel('Number of samples')
+    axes[0].set_ylabel('Count')
+    axes[0].legend(fontsize=9)
+ 
+    # Residual mean distribution
+    axes[1].hist(baseline_check_agg.values, bins=20, color=colors[0], edgecolor='none')
+    axes[1].axvline(0, color='black', linewidth=1, linestyle='--', label='Expected: 0')
+    axes[1].set_title('Residual mean per signal\n(aggregated, after baseline correction)')
+    axes[1].set_xlabel('Mean (cm/s²)')
+    axes[1].set_ylabel('Count')
+    axes[1].legend()
+ 
+    # Std distribution
+    axes[2].hist(norm_check_agg.values, bins=20, color=colors[1], edgecolor='none')
+    axes[2].axvline(1, color='black', linewidth=1, linestyle='--', label='Expected: 1')
+    axes[2].set_title('Standard deviation per signal\n(aggregated, after normalization)')
+    axes[2].set_xlabel('Std')
+    axes[2].set_ylabel('Count')
+    axes[2].legend()
+ 
+    plt.suptitle('Post-preprocessing check — long signals pipeline', fontsize=14)
+    plt.tight_layout()
+ 
+    if output_dir is not None:
+        os.makedirs(output_dir, exist_ok=True)
+        path = os.path.join(output_dir, 'postcheck_long.pdf')
+        plt.savefig(path, bbox_inches='tight')
+        print(f"Saved: {path}")
+ 
+    plt.show()
+    plt.close()
+
+# ===============================================================================================
 # ==================================== Empirical PDFs ===========================================
 # ===============================================================================================
 
