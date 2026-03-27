@@ -1078,3 +1078,217 @@ def plot_increment_distributions(df_increments, df_tail,
     except Exception as e:
         print(f"Error saving Hill vs fit scatter: {e}")
         plt.close()
+
+# ===============================================================================================
+# =================== Scaling — R² diagnostic for log-log fit quality ==========================
+# ===============================================================================================
+
+def plot_r2_diagnostic(df_exponents, title_suffix='', threshold=0.9, output_path=None):
+    """
+    Two-panel diagnostic of the log-log fit quality for moment scaling.
+
+    Left panel: boxplot of R² distribution across all signals, by moment order q.
+    Right panel: fraction of signals with R² above threshold, by moment order q.
+
+    Parameters
+    ----------
+    df_exponents : pd.DataFrame
+        Output of compute_scaling_exponents. Must contain columns [q, r2].
+    title_suffix : str
+        Appended to the figure title, e.g. 'displacement, event window'.
+    threshold : float
+        R² threshold for the fraction plot (default: 0.9).
+    output_path : str or Path or None
+    """
+    q_values = sorted(df_exponents['q'].unique())
+    r2_by_q  = [df_exponents[df_exponents['q'] == q]['r2'].values for q in q_values]
+    frac_good = [(r2 > threshold).mean() for r2 in r2_by_q]
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # Left — boxplot of R² by q
+    bp = axes[0].boxplot(r2_by_q,
+                         tick_labels=[str(q) for q in q_values],
+                         patch_artist=True, widths=0.5,
+                         medianprops={'color': 'white', 'linewidth': 2},
+                         whiskerprops={'linewidth': 1.2},
+                         capprops={'linewidth': 1.2},
+                         flierprops={'marker': 'o', 'markersize': 4,
+                                     'markeredgecolor': 'gray',
+                                     'markerfacecolor': 'none'})
+    for patch in bp['boxes']:
+        patch.set_facecolor(colors[0])
+        patch.set_alpha(0.8)
+    axes[0].axhline(threshold, color='crimson', linewidth=1,
+                    linestyle='--', label=f'R² = {threshold}')
+    axes[0].set_xlabel('q')
+    axes[0].set_ylabel('R²')
+    axes[0].set_title(f'R² of log $M_q(\\tau)$ vs log $\\tau$ fit\nby moment order $q$')
+    axes[0].set_ylim(0, 1.05)
+    axes[0].legend(fontsize=9)
+
+    # Right — fraction of signals above threshold
+    axes[1].bar([str(q) for q in q_values], frac_good,
+                color=colors[1], edgecolor='white', linewidth=0.5)
+    axes[1].axhline(1.0, color='black', linewidth=0.8, linestyle='--')
+    axes[1].set_xlabel('q')
+    axes[1].set_ylabel(f'Fraction of signals with R² > {threshold}')
+    axes[1].set_title(f'Fraction of signals with good fit (R² > {threshold})\n'
+                      f'by moment order $q$')
+    axes[1].set_ylim(0, 1.1)
+
+    title = 'Log-log fit quality'
+    if title_suffix:
+        title += f' — {title_suffix}'
+    plt.suptitle(title, fontsize=13)
+    plt.tight_layout()
+
+    if output_path is not None:
+        os.makedirs(os.path.dirname(str(output_path)), exist_ok=True)
+        plt.savefig(output_path, bbox_inches='tight')
+        print(f"Saved: {output_path}")
+
+    plt.show()
+    plt.close()
+
+    # Summary printed to stdout for logging in the notebook
+    print(f"R² summary by q (threshold = {threshold}):")
+    for q, r2 in zip(q_values, r2_by_q):
+        print(f"  q={q}: median R² = {np.median(r2):.3f} — "
+              f"fraction > {threshold} = {(r2 > threshold).mean():.2f}")
+
+# ===============================================================================================
+# ========================= Scaling — Universal rescaling plot ==================================
+# ===============================================================================================
+
+def plot_universal_rescaling(df_exponents, df_piecewise, df_heavy_tail,
+                              title_suffix='', output_path=None):
+    """
+    Universal rescaling plot following Vollmer et al. (2024), Eq. (10).
+
+    For each signal and each moment order q, computes the rescaled exponent:
+        y(q) = (zeta(q) - q/2) / (zeta_high - slope_low)
+    and plots it against x = alpha / q, where:
+        - slope_low  = xi  (low-q slope from piecewise fit)
+        - slope_high = zeta (high-q slope from piecewise fit)
+        - alpha      = Hill power-law exponent from heavy-tail assessment
+
+    Under strong anomalous diffusion, all points should collapse onto the
+    universal curve y = min(alpha/q, 1).
+
+    Parameters
+    ----------
+    df_exponents : pd.DataFrame
+        Output of compute_scaling_exponents.
+        Must contain columns [file, station, stream, q, zeta].
+    df_piecewise : pd.DataFrame
+        Output of fit_piecewise_scaling.
+        Must contain columns [file, station, stream, slope_low, slope_high].
+    df_heavy_tail : pd.DataFrame
+        Output of heavy_tail_assessment.
+        Must contain columns [station, stream, power_law_exp].
+    title_suffix : str
+        Appended to the figure title, e.g. 'displacement, event window'.
+    output_path : str or Path or None
+    """
+    # --- Merge all ingredients per signal ---
+    df = df_exponents.merge(
+        df_piecewise[['file', 'station', 'stream', 'slope_low', 'slope_high']],
+        on=['file', 'station', 'stream']
+    ).merge(
+        df_heavy_tail[['station', 'stream', 'power_law_exp']],
+        on=['station', 'stream']
+    )
+
+    # Drop signals where the denominator (slope_high - slope_low) is zero
+    # or where alpha is not finite — avoids division errors
+    df = df[np.isfinite(df['power_law_exp'])]
+    df = df[df['slope_high'] != df['slope_low']].copy()
+
+    # --- Compute rescaled quantities ---
+    # x = alpha / q
+    df['x'] = df['power_law_exp'] / df['q']
+    # y = (zeta(q) - q/2) / (slope_high - slope_low)
+    df['y'] = (df['zeta'] - df['q'] / 2) / (df['slope_high'] - df['slope_low'])
+
+    # --- Universal curve ---
+    x_theory = np.linspace(0.01, 3.0, 500)
+    y_theory = np.minimum(x_theory, 1.0)
+
+    # --- Plot ---
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # Left — all signals overlaid, colored by q
+    q_values = sorted(df['q'].unique())
+    cmap = plt.cm.viridis(np.linspace(0, 0.9, len(q_values)))
+
+    for ci, q in enumerate(q_values):
+        subset = df[df['q'] == q]
+        axes[0].scatter(subset['x'], subset['y'],
+                        color=cmap[ci], s=25, alpha=0.6,
+                        edgecolors='none', label=f'q={q}')
+
+    axes[0].plot(x_theory, y_theory, 'k-', linewidth=2,
+                 label='Universal curve', zorder=10)
+    axes[0].axhline(1, color='gray', linewidth=0.8, linestyle='--')
+    axes[0].axvline(1, color='gray', linewidth=0.8, linestyle='--')
+    axes[0].set_xlabel(r'$\alpha / q$')
+    axes[0].set_ylabel(r'$(\zeta(q) - q/2)\,/\,(\zeta - \xi)$')
+    axes[0].set_title('Universal rescaling — all signals\n(colored by $q$)')
+    axes[0].legend(fontsize=7, ncol=2)
+    axes[0].set_xlim(0, 3)
+    axes[0].set_ylim(-0.5, 2.5)
+
+    # Right — median ± IQR across signals for each q
+    median_y = df.groupby('x')['y'].median()  # not ideal, use q-based grouping
+    grouped = df.groupby('q').agg(
+        x_med=('x', 'median'),
+        y_med=('y', 'median'),
+        y_q25=('y', lambda v: v.quantile(0.25)),
+        y_q75=('y', lambda v: v.quantile(0.75))
+    ).reset_index()
+
+    axes[1].plot(x_theory, y_theory, 'k-', linewidth=2,
+                 label='Universal curve', zorder=10)
+    axes[1].errorbar(
+        grouped['x_med'], grouped['y_med'],
+        yerr=[grouped['y_med'] - grouped['y_q25'],
+              grouped['y_q75'] - grouped['y_med']],
+        fmt='o', color=colors[0], capsize=4, linewidth=1.5,
+        markersize=6, label='Median ± IQR across signals'
+    )
+    for _, row in grouped.iterrows():
+        axes[1].annotate(f"q={row['q']:.1f}",
+                         (row['x_med'], row['y_med']),
+                         textcoords='offset points', xytext=(6, 4),
+                         fontsize=7, color='gray')
+    axes[1].axhline(1, color='gray', linewidth=0.8, linestyle='--')
+    axes[1].axvline(1, color='gray', linewidth=0.8, linestyle='--')
+    axes[1].set_xlabel(r'$\alpha / q$')
+    axes[1].set_ylabel(r'$(\zeta(q) - q/2)\,/\,(\zeta - \xi)$')
+    axes[1].set_title('Universal rescaling — median ± IQR across signals\n(by $q$)')
+    axes[1].legend(fontsize=9)
+    axes[1].set_xlim(0, 3)
+    axes[1].set_ylim(-0.5, 2.5)
+
+    title = 'Universal rescaling plot'
+    if title_suffix:
+        title += f' — {title_suffix}'
+    plt.suptitle(title, fontsize=13)
+    plt.tight_layout()
+
+    if output_path is not None:
+        os.makedirs(os.path.dirname(str(output_path)), exist_ok=True)
+        plt.savefig(output_path, bbox_inches='tight')
+        print(f"Saved: {output_path}")
+
+    plt.show()
+    plt.close()
+
+    # Summary: fraction of points within tolerance of the universal curve
+    df['y_theory'] = np.minimum(df['x'], 1.0)
+    df['residual'] = np.abs(df['y'] - df['y_theory'])
+    tol = 0.2
+    frac_close = (df['residual'] < tol).mean()
+    print(f"Fraction of points within {tol} of universal curve: {frac_close:.2f}")
+    print(f"Median residual from universal curve: {df['residual'].median():.3f}")
