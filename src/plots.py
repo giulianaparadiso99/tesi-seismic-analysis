@@ -1161,21 +1161,25 @@ def plot_r2_diagnostic(df_exponents, title_suffix='', threshold=0.9, output_path
 # ========================= Scaling — Universal rescaling plot ==================================
 # ===============================================================================================
 
-def plot_universal_rescaling(df_exponents, df_piecewise, df_heavy_tail,
+def plot_universal_rescaling(df_exponents, df_piecewise, df_alpha,
                               title_suffix='', output_path=None):
     """
     Universal rescaling plot following Vollmer et al. (2024), Eq. (10).
-
+ 
     For each signal and each moment order q, computes the rescaled exponent:
-        y(q) = (zeta(q) - q/2) / (zeta_high - slope_low)
+        y(q) = (zeta(q) - q/2) / (slope_high - slope_low)
     and plots it against x = alpha / q, where:
         - slope_low  = xi  (low-q slope from piecewise fit)
         - slope_high = zeta (high-q slope from piecewise fit)
-        - alpha      = Hill power-law exponent from heavy-tail assessment
-
+        - alpha      = Hill exponent of displacement increments at small tau
+                       (column 'power_law_exp' in df_alpha)
+ 
+    Only signals where slope_high > slope_low are retained, to avoid
+    inverting the sign of the rescaled y due to an unphysical piecewise fit.
+ 
     Under strong anomalous diffusion, all points should collapse onto the
     universal curve y = min(alpha/q, 1).
-
+ 
     Parameters
     ----------
     df_exponents : pd.DataFrame
@@ -1184,9 +1188,12 @@ def plot_universal_rescaling(df_exponents, df_piecewise, df_heavy_tail,
     df_piecewise : pd.DataFrame
         Output of fit_piecewise_scaling.
         Must contain columns [file, station, stream, slope_low, slope_high].
-    df_heavy_tail : pd.DataFrame
-        Output of heavy_tail_assessment.
+    df_alpha : pd.DataFrame
         Must contain columns [station, stream, power_law_exp].
+        Recommended source: df_tail_disp_event filtered to a small tau
+        (e.g. tau=10), using the hill_exp column renamed to power_law_exp.
+        Using the Hill exponent of displacement increments is physically
+        more appropriate than using the exponent of the acceleration PDF.
     title_suffix : str
         Appended to the figure title, e.g. 'displacement, event window'.
     output_path : str or Path or None
@@ -1196,38 +1203,48 @@ def plot_universal_rescaling(df_exponents, df_piecewise, df_heavy_tail,
         df_piecewise[['file', 'station', 'stream', 'slope_low', 'slope_high']],
         on=['file', 'station', 'stream']
     ).merge(
-        df_heavy_tail[['station', 'stream', 'power_law_exp']],
+        df_alpha[['station', 'stream', 'power_law_exp']],
         on=['station', 'stream']
     )
-
-    # Drop signals where the denominator (slope_high - slope_low) is zero
-    # or where alpha is not finite — avoids division errors
-    df = df[np.isfinite(df['power_law_exp'])]
-    df = df[df['slope_high'] != df['slope_low']].copy()
-
+ 
+    # Keep only signals with finite alpha and physically consistent piecewise fit
+    df = df[np.isfinite(df['power_law_exp'])].copy()
+    n_before = df['file'].nunique()
+    df = df[df['slope_high'] > df['slope_low']].copy()
+    n_after = df['file'].nunique()
+    if n_before != n_after:
+        print(f"Note: {n_before - n_after} signals excluded "
+              f"(slope_high <= slope_low — unphysical piecewise fit)")
+ 
     # --- Compute rescaled quantities ---
-    # x = alpha / q
     df['x'] = df['power_law_exp'] / df['q']
-    # y = (zeta(q) - q/2) / (slope_high - slope_low)
     df['y'] = (df['zeta'] - df['q'] / 2) / (df['slope_high'] - df['slope_low'])
-
+ 
     # --- Universal curve ---
-    x_theory = np.linspace(0.01, 3.0, 500)
-    y_theory = np.minimum(x_theory, 1.0)
-
+    x_theory = np.linspace(0.0, 3.0, 500)
+    y_theory  = np.minimum(x_theory, 1.0)
+ 
+    # --- Grouped statistics (median ± IQR per q) ---
+    grouped = df.groupby('q').agg(
+        x_med=('x',  'median'),
+        x_q25=('x',  lambda v: v.quantile(0.25)),
+        x_q75=('x',  lambda v: v.quantile(0.75)),
+        y_med=('y',  'median'),
+        y_q25=('y',  lambda v: v.quantile(0.25)),
+        y_q75=('y',  lambda v: v.quantile(0.75))
+    ).reset_index()
+ 
     # --- Plot ---
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-    # Left — all signals overlaid, colored by q
     q_values = sorted(df['q'].unique())
     cmap = plt.cm.viridis(np.linspace(0, 0.9, len(q_values)))
-
+ 
+    # Left — all signals overlaid, colored by q
     for ci, q in enumerate(q_values):
         subset = df[df['q'] == q]
         axes[0].scatter(subset['x'], subset['y'],
                         color=cmap[ci], s=25, alpha=0.6,
                         edgecolors='none', label=f'q={q}')
-
     axes[0].plot(x_theory, y_theory, 'k-', linewidth=2,
                  label='Universal curve', zorder=10)
     axes[0].axhline(1, color='gray', linewidth=0.8, linestyle='--')
@@ -1238,20 +1255,14 @@ def plot_universal_rescaling(df_exponents, df_piecewise, df_heavy_tail,
     axes[0].legend(fontsize=7, ncol=2)
     axes[0].set_xlim(0, 3)
     axes[0].set_ylim(-0.5, 2.5)
-
-    # Right — median ± IQR across signals for each q
-    median_y = df.groupby('x')['y'].median()  # not ideal, use q-based grouping
-    grouped = df.groupby('q').agg(
-        x_med=('x', 'median'),
-        y_med=('y', 'median'),
-        y_q25=('y', lambda v: v.quantile(0.25)),
-        y_q75=('y', lambda v: v.quantile(0.75))
-    ).reset_index()
-
+ 
+    # Right — median ± IQR per q, with error bars on both axes
     axes[1].plot(x_theory, y_theory, 'k-', linewidth=2,
                  label='Universal curve', zorder=10)
     axes[1].errorbar(
         grouped['x_med'], grouped['y_med'],
+        xerr=[grouped['x_med'] - grouped['x_q25'],
+              grouped['x_q75'] - grouped['x_med']],
         yerr=[grouped['y_med'] - grouped['y_q25'],
               grouped['y_q75'] - grouped['y_med']],
         fmt='o', color=colors[0], capsize=4, linewidth=1.5,
@@ -1270,25 +1281,27 @@ def plot_universal_rescaling(df_exponents, df_piecewise, df_heavy_tail,
     axes[1].legend(fontsize=9)
     axes[1].set_xlim(0, 3)
     axes[1].set_ylim(-0.5, 2.5)
-
+ 
     title = 'Universal rescaling plot'
     if title_suffix:
         title += f' — {title_suffix}'
     plt.suptitle(title, fontsize=13)
     plt.tight_layout()
-
+ 
     if output_path is not None:
         os.makedirs(os.path.dirname(str(output_path)), exist_ok=True)
         plt.savefig(output_path, bbox_inches='tight')
         print(f"Saved: {output_path}")
-
+ 
     plt.show()
     plt.close()
-
-    # Summary: fraction of points within tolerance of the universal curve
+ 
+    # --- Summary ---
     df['y_theory'] = np.minimum(df['x'], 1.0)
     df['residual'] = np.abs(df['y'] - df['y_theory'])
     tol = 0.2
     frac_close = (df['residual'] < tol).mean()
+    n_signals   = df['file'].nunique()
+    print(f"Signals used: {n_signals}")
     print(f"Fraction of points within {tol} of universal curve: {frac_close:.2f}")
     print(f"Median residual from universal curve: {df['residual'].median():.3f}")
