@@ -362,7 +362,7 @@ def compute_scaling_exponents(df_moments, output_dir='../figures/03_single_signa
                             color=c, linewidth=1.2, label=f'q={q} (ζ={slope:.2f})')
 
             axes[0].set_xlabel('log(τ)')
-            axes[0].set_ylabel('log(<|a|^q>)')
+            axes[0].set_ylabel('log(M_q(τ))')
             axes[0].set_title(f'Moment scaling — {station} {stream}')
             axes[0].legend(fontsize=8)
 
