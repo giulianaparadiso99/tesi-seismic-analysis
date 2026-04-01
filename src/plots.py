@@ -687,6 +687,7 @@ def plot_postcheck_single(df_acc_raw, df_acc_clean, output_dir=None):
  
     plt.show()
     plt.close()
+
  
  
 # ===============================================================================================
@@ -1254,3 +1255,149 @@ def plot_universal_rescaling(df_exponents, df_piecewise, df_alpha,
     print(f"Signals used: {n_signals}")
     print(f"Fraction of points within {tol} of universal curve: {frac_close:.2f}")
     print(f"Median residual from universal curve: {df['residual'].median():.3f}")
+
+
+
+def plot_increments_histograms_dual_view(df_increments, bins=50, normalized=True, 
+                                         output_dir='../figures/03_increments'):
+    """
+    Plots dual-view histograms of increment distributions for each tau value.
+    For each tau, creates one PDF with 2 subplots:
+      - Left: full range of increments
+      - Right: zoomed view (x-axis limited to [-4, 4])
+    
+    Parameters
+    ----------
+    df_increments : pd.DataFrame
+        DataFrame with columns [file, station, stream, tau, increment]
+    bins : int
+        Number of histogram bins
+    normalized : bool
+        If True, labels indicate normalized signals
+    output_dir : str
+        Directory to save figures
+    
+    Returns
+    -------
+    None (saves individual PDF files to disk)
+    """
+    import os
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from src.plot_settings import set_plot_style
+    colors = set_plot_style()
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Get all tau values
+    tau_values = sorted(df_increments['tau'].unique())
+    
+    print(f"Plotting dual-view histograms for {len(tau_values)} tau values...")
+    print("Each plot has 2 subplots: full range (left) + zoomed [-4,4] (right)\n")
+    
+    for idx, tau in enumerate(tau_values):
+        # Get ALL increments for this tau (aggregated across all files)
+        increments = df_increments[df_increments['tau'] == tau]['increment'].values
+        abs_increments = np.abs(increments)
+        
+        # Statistics
+        mean_inc = np.mean(abs_increments)
+        median_inc = np.median(abs_increments)
+        std_inc = np.std(abs_increments)
+        min_inc = np.min(increments)
+        max_inc = np.max(increments)
+        n_zeros = np.sum(increments == 0)
+        pct_zeros = 100 * n_zeros / len(increments)
+        frac_less_1 = np.mean(abs_increments < 1)
+        
+        # Create figure with 2 subplots side by side
+        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+        
+        # --- SUBPLOT 1: FULL RANGE ---
+        axes[0].hist(increments, bins=bins, color=colors[idx % len(colors)],
+                    edgecolor='black', linewidth=0.5, alpha=0.7, density=True)
+        
+        # Reference lines
+        axes[0].axvline(0, color='black', linewidth=2, linestyle='--', 
+                       alpha=0.7, label='Zero', zorder=10)
+        axes[0].axvline(-1, color='red', linewidth=1.5, linestyle=':', 
+                       alpha=0.7, label='|Δ|=1', zorder=10)
+        axes[0].axvline(1, color='red', linewidth=1.5, linestyle=':', 
+                       alpha=0.7, zorder=10)
+        
+        # Labels
+        signal_type = 'normalized' if normalized else 'raw'
+        unit = 'normalized' if normalized else 'cm/s²'
+        axes[0].set_xlabel('Δa(τ)', fontsize=13)
+        axes[0].set_ylabel('Probability density', fontsize=13)
+        axes[0].set_title(f'Full range: [{min_inc:.2f}, {max_inc:.2f}]', fontsize=12)
+        axes[0].legend(fontsize=11)
+        axes[0].grid(True, alpha=0.3, axis='y')
+        
+        # --- SUBPLOT 2: ZOOMED TO [-4, 4] ---
+        axes[1].hist(increments, bins=bins, color=colors[idx % len(colors)],
+                    edgecolor='black', linewidth=0.5, alpha=0.7, density=True)
+        
+        # Reference lines
+        axes[1].axvline(0, color='black', linewidth=2, linestyle='--', 
+                       alpha=0.7, label='Zero', zorder=10)
+        axes[1].axvline(-1, color='red', linewidth=1.5, linestyle=':', 
+                       alpha=0.7, label='|Δ|=1', zorder=10)
+        axes[1].axvline(1, color='red', linewidth=1.5, linestyle=':', 
+                       alpha=0.7, zorder=10)
+        
+        # ZOOM TO [-4, 4]
+        axes[1].set_xlim(-4, 4)
+        
+        # Labels
+        axes[1].set_xlabel('Δa(τ)', fontsize=13)
+        axes[1].set_ylabel('Probability density', fontsize=13)
+        axes[1].set_title('Zoomed view: [-4, 4]', fontsize=12)
+        axes[1].legend(fontsize=11)
+        axes[1].grid(True, alpha=0.3, axis='y')
+        
+        # --- MAIN TITLE ---
+        main_title = (f'Increment distribution — τ = {tau} — {signal_type}\n'
+                     f'⟨|Δ|⟩ = {mean_inc:.3f}, median = {median_inc:.3f}, '
+                     f'std = {std_inc:.3f} | '
+                     f'Zeros: {pct_zeros:.1f}% | '
+                     f'|Δ| < 1: {frac_less_1:.1%}')
+        fig.suptitle(main_title, fontsize=13, y=0.98)
+        
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        
+        # Save
+        filename = f'increment_histogram_tau_{tau:05d}.pdf'
+        filepath = os.path.join(output_dir, filename)
+        plt.savefig(filepath, bbox_inches='tight', dpi=150)
+        plt.close()
+        
+        if (idx + 1) % 5 == 0 or (idx + 1) == len(tau_values):
+            print(f"  Progress: {idx+1}/{len(tau_values)} dual-view plots saved")
+    
+    print(f"\n✅ All {len(tau_values)} dual-view plots saved to: {output_dir}/")
+    print(f"   Each PDF contains 2 subplots: full range + zoomed [-4,4]")
+    
+    # Print summary table
+    print("\n" + "="*80)
+    print("SUMMARY STATISTICS ACROSS ALL TAU:")
+    print("="*80)
+    print(f"{'Tau':<8} {'N_incr':<10} {'Min':<10} {'Max':<10} {'Mean|Δ|':<10} "
+      f"{'%Δ=0':<10} {'%|Δ|<1':<10}")
+    print("-"*80)
+    
+    for tau in tau_values:
+        increments = df_increments[df_increments['tau'] == tau]['increment'].values
+        abs_increments = np.abs(increments)
+        
+        n_incr = len(increments)
+        min_inc = np.min(increments)
+        max_inc = np.max(increments)
+        mean_abs = np.mean(abs_increments)
+        pct_zeros = 100 * np.sum(increments == 0) / len(increments)
+        pct_less_1 = 100 * np.mean(abs_increments < 1)
+        
+        print(f"{tau:<8} {n_incr:<10} {min_inc:<10.3f} {max_inc:<10.3f} "
+              f"{mean_abs:<10.3f} {pct_zeros:<10.1f} {pct_less_1:<10.1f}")
+    
+    print("="*80)
