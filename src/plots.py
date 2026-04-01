@@ -1,5 +1,7 @@
 import os
 import numpy as np
+import pandas as pd
+from scipy import stats
 import matplotlib.pyplot as plt
 import seaborn as sns
 import contextily as ctx
@@ -800,6 +802,201 @@ def plot_empirical_pdfs(df_acc_clean, bins=100, log_scale=False, normalized=True
         print("All PDFs saved successfully!")
 
 # ===============================================================================================
+# ================================ Increment distribution =======================================
+# ===============================================================================================
+
+def plot_increments_distribution(df_increments, tau_values=None, bins=100, 
+                                 normalized=True, output_dir='../figures/03_increments'):
+    """
+    Plots the distribution of increments for different tau values.
+    
+    Parameters
+    ----------
+    df_increments : pd.DataFrame
+        DataFrame with columns [file, station, stream, tau, increment]
+    tau_values : list of int, optional
+        Specific tau values to plot. If None, selects representative values.
+    bins : int
+        Number of histogram bins
+    normalized : bool
+        If True, plots are for normalized signals
+    output_dir : str
+        Directory to save figures
+    
+    Returns
+    -------
+    None (saves figures to disk)
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Select tau values if not provided
+    if tau_values is None:
+        all_tau = sorted(df_increments['tau'].unique())
+        # Select ~6 representative values (log-spaced if possible)
+        if len(all_tau) > 6:
+            indices = np.linspace(0, len(all_tau)-1, 6, dtype=int)
+            tau_values = [all_tau[i] for i in indices]
+        else:
+            tau_values = all_tau
+    
+    # 1. Histogram for different tau values
+    n_tau = len(tau_values)
+    n_cols = 3
+    n_rows = int(np.ceil(n_tau / n_cols))
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5*n_cols, 4*n_rows))
+    axes = axes.flatten() if n_tau > 1 else [axes]
+    
+    for i, tau in enumerate(tau_values):
+        increments = df_increments[df_increments['tau'] == tau]['increment'].values
+        abs_increments = np.abs(increments)
+        
+        # Statistics
+        mean_inc = np.mean(abs_increments)
+        median_inc = np.median(abs_increments)
+        frac_less_1 = np.mean(abs_increments < 1)
+        
+        # Histogram
+        axes[i].hist(increments, bins=bins, color=colors[i % len(colors)],
+                    edgecolor='none', alpha=0.7, density=True)
+        axes[i].axvline(0, color='black', linewidth=1, linestyle='--', alpha=0.5)
+        axes[i].axvline(-1, color='red', linewidth=1, linestyle=':', alpha=0.5, label='|Δ|=1')
+        axes[i].axvline(1, color='red', linewidth=1, linestyle=':', alpha=0.5)
+        axes[i].set_xlabel('Increment')
+        axes[i].set_ylabel('Probability density')
+        axes[i].set_title(f'τ = {tau}\n⟨|Δ|⟩={mean_inc:.3f}, frac(|Δ|<1)={frac_less_1:.2%}')
+        axes[i].legend()
+    
+    # Hide unused subplots
+    for i in range(n_tau, len(axes)):
+        axes[i].set_visible(False)
+    
+    signal_type = 'normalized' if normalized else 'raw'
+    plt.suptitle(f'Increments distribution ({signal_type})', fontsize=14)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/increments_histogram.pdf', bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_dir}/increments_histogram.pdf")
+    
+    # 2. Log-scale histogram (to see tails better)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5*n_cols, 4*n_rows))
+    axes = axes.flatten() if n_tau > 1 else [axes]
+    
+    for i, tau in enumerate(tau_values):
+        increments = df_increments[df_increments['tau'] == tau]['increment'].values
+        abs_increments = np.abs(increments)
+        
+        axes[i].hist(abs_increments, bins=bins, color=colors[i % len(colors)],
+                    edgecolor='none', alpha=0.7, density=True)
+        axes[i].axvline(1, color='red', linewidth=1.5, linestyle='--', label='|Δ|=1')
+        axes[i].set_xlabel('|Increment|')
+        axes[i].set_ylabel('Probability density')
+        axes[i].set_yscale('log')
+        axes[i].set_title(f'τ = {tau}')
+        axes[i].legend()
+    
+    for i in range(n_tau, len(axes)):
+        axes[i].set_visible(False)
+    
+    plt.suptitle(f'|Increments| distribution - log scale ({signal_type})', fontsize=14)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/increments_histogram_log.pdf', bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_dir}/increments_histogram_log.pdf")
+    
+    # 3. Evolution of statistics with tau
+    tau_all = sorted(df_increments['tau'].unique())
+    stats_by_tau = []
+    
+    for tau in tau_all:
+        increments = df_increments[df_increments['tau'] == tau]['increment'].values
+        abs_increments = np.abs(increments)
+        
+        stats_by_tau.append({
+            'tau': tau,
+            'mean': np.mean(abs_increments),
+            'median': np.median(abs_increments),
+            'std': np.std(abs_increments),
+            'frac_less_1': np.mean(abs_increments < 1)
+        })
+    
+    df_stats = pd.DataFrame(stats_by_tau)
+    
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    
+    # Mean vs tau
+    axes[0, 0].plot(df_stats['tau'], df_stats['mean'], 'o-', color=colors[0], linewidth=2)
+    axes[0, 0].axhline(1, color='red', linestyle='--', linewidth=1, label='threshold = 1')
+    axes[0, 0].set_xlabel('τ')
+    axes[0, 0].set_ylabel('⟨|Increment|⟩')
+    axes[0, 0].set_title('Mean absolute increment vs τ')
+    axes[0, 0].set_xscale('log')
+    axes[0, 0].set_yscale('log')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    # Median vs tau
+    axes[0, 1].plot(df_stats['tau'], df_stats['median'], 'o-', color=colors[1], linewidth=2)
+    axes[0, 1].axhline(1, color='red', linestyle='--', linewidth=1, label='threshold = 1')
+    axes[0, 1].set_xlabel('τ')
+    axes[0, 1].set_ylabel('Median |Increment|')
+    axes[0, 1].set_title('Median absolute increment vs τ')
+    axes[0, 1].set_xscale('log')
+    axes[0, 1].set_yscale('log')
+    axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    # Std vs tau
+    axes[1, 0].plot(df_stats['tau'], df_stats['std'], 'o-', color=colors[2], linewidth=2)
+    axes[1, 0].set_xlabel('τ')
+    axes[1, 0].set_ylabel('Std(|Increment|)')
+    axes[1, 0].set_title('Standard deviation vs τ')
+    axes[1, 0].set_xscale('log')
+    axes[1, 0].set_yscale('log')
+    axes[1, 0].grid(True, alpha=0.3)
+    
+    # Fraction < 1 vs tau
+    axes[1, 1].plot(df_stats['tau'], df_stats['frac_less_1'], 'o-', color=colors[3], linewidth=2)
+    axes[1, 1].axhline(0.5, color='gray', linestyle='--', linewidth=1, alpha=0.5)
+    axes[1, 1].set_xlabel('τ')
+    axes[1, 1].set_ylabel('Fraction with |Δ| < 1')
+    axes[1, 1].set_title('Fraction of increments < 1 vs τ')
+    axes[1, 1].set_xscale('log')
+    axes[1, 1].grid(True, alpha=0.3)
+    
+    plt.suptitle(f'Increment statistics evolution ({signal_type})', fontsize=14)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/increments_statistics_vs_tau.pdf', bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_dir}/increments_statistics_vs_tau.pdf")
+    
+    # 4. Q-Q plot to check distribution shape
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+    axes = axes.flatten()
+    
+    for i, tau in enumerate(tau_values[:6]):  # Max 6 for this plot
+        increments = df_increments[df_increments['tau'] == tau]['increment'].values
+        
+        # Q-Q plot vs Gaussian
+        (osm, osr), (slope, intercept, r) = stats.probplot(increments, dist='norm')
+        axes[i].scatter(osm, osr, color=colors[i % len(colors)], s=10, alpha=0.5)
+        axes[i].plot(osm, slope * np.array(osm) + intercept, 
+                    color='red', linewidth=2, label=f'R²={r**2:.3f}')
+        axes[i].set_xlabel('Theoretical quantiles')
+        axes[i].set_ylabel('Sample quantiles')
+        axes[i].set_title(f'Q-Q plot (τ={tau})')
+        axes[i].legend()
+        axes[i].grid(True, alpha=0.3)
+    
+    plt.suptitle(f'Q-Q plots vs Gaussian ({signal_type})', fontsize=14)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/increments_qq_plots.pdf', bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_dir}/increments_qq_plots.pdf")
+    
+    print(f"\nAll plots saved to: {output_dir}/")
+
+# ===============================================================================================
 # ================================ Event onset diagnostic =======================================
 # ===============================================================================================
 
@@ -908,254 +1105,6 @@ def plot_onset_distribution(df_onsets,
     print(f"Mean window length: {df_onsets['samples_after'].mean():.0f} samples")
     print(f"Min window length:  {df_onsets['samples_after'].min():.0f} samples")
 
-# ===============================================================================================
-# ================================ Increment distributions ======================================
-# ===============================================================================================
-
-def plot_increment_distributions(df_increments, df_tail,
-                                  tau_values_plot=None, top_fraction=0.1,
-                                  output_dir='../figures/03_single_signal/scaling/displacement/event_window/increments'):
-    """
-    Plots the empirical CCDF of |Delta x(tau)| in log-log scale for each signal
-    and for selected tau values, with tail exponent fits overlaid.
-    Also produces three summary plots:
-        1. Median CCDF across all signals for each tau.
-        2. Tail exponents (Hill and fit) as a function of tau.
-        3. Hill vs fit exponent scatter.
-
-    Parameters
-    ----------
-    df_increments : pd.DataFrame
-        Output of compute_moment_scaling_* with save_increments=True.
-        Must contain columns [file, station, stream, tau, increment].
-    df_tail : pd.DataFrame
-        Output of compute_increment_tail_exponents.
-        Must contain columns [file, station, stream, tau, hill_exp, fit_exp, r2_fit].
-    tau_values_plot : list of int or None
-        Subset of tau values to plot. If None, uses all tau values in df_increments.
-    top_fraction : float
-        Fraction of largest values used for the tail fit lines (default: 0.1).
-    output_dir : str or Path
-        Directory to save figures.
-    """
-    os.makedirs(output_dir, exist_ok=True)
-
-    if tau_values_plot is None:
-        tau_values_plot = sorted(df_increments['tau'].unique())
-
-    df_increments = df_increments[df_increments['tau'].isin(tau_values_plot)]
-    df_tail = df_tail[df_tail['tau'].isin(tau_values_plot)]
-
-    tau_colors = plt.cm.viridis(np.linspace(0, 0.9, len(tau_values_plot)))
-    files = df_increments['file'].unique()
-    saved, failed = [], []
-
-    # ------------------------------------------------------------------
-    # Individual plots — one per signal
-    # ------------------------------------------------------------------
-    for file in files:
-        station = df_increments[df_increments['file'] == file]['station'].iloc[0]
-        stream = df_increments[df_increments['file'] == file]['stream'].iloc[0]
-
-        try:
-            fig, ax = plt.subplots(figsize=(8, 5))
-            for ci, tau in enumerate(tau_values_plot):
-                grp = df_increments[(df_increments['file'] == file) & (df_increments['tau'] == tau)]
-                if grp.empty:
-                    continue
-                abs_inc = np.sort(np.abs(grp['increment'].values))[::-1]
-                abs_inc = abs_inc[abs_inc > 0]
-                n = len(abs_inc)
-                ccdf_y = np.arange(1, n + 1) / n
-                ax.loglog(abs_inc, ccdf_y, color=tau_colors[ci], linewidth=0.8,
-                          alpha=0.7, label=f'τ={tau}')
-
-                # Tail fit line — computed in log space to avoid overflow
-                tail_row = df_tail[(df_tail['file'] == file) & (df_tail['tau'] == tau)]
-                if not tail_row.empty:
-                    fit_exp = tail_row['fit_exp'].values[0]
-                    k = max(2, int(top_fraction * n))
-                    threshold = abs_inc[k - 1]
-                    x_fit = np.linspace(threshold, abs_inc[0], 50)
-                    log_c = np.log(ccdf_y[k - 1]) + fit_exp * np.log(threshold)
-                    y_fit = np.exp(log_c - fit_exp * np.log(x_fit))
-                    ax.loglog(x_fit, y_fit, '--', color=tau_colors[ci], linewidth=1.2, alpha=0.9)
-
-            ax.set_xlabel('|Δx(τ)|')
-            ax.set_ylabel('P(|Δx| > x)')
-            ax.set_title(f'Increment CCDF — {station} {stream}')
-            ax.legend(fontsize=7, ncol=2)
-            plt.tight_layout()
-            plt.savefig(os.path.join(output_dir, f'increments_{station}_{stream}.pdf'), bbox_inches='tight')
-            plt.close()
-            saved.append(file)
-        except Exception as e:
-            failed.append((file, str(e)))
-            plt.close()
-
-    print(f"Individual plots saved: {len(saved)}/{len(files)}")
-    if failed:
-        for f, e in failed:
-            print(f"  Failed: {f} — {e}")
-
-    # ------------------------------------------------------------------
-    # Summary plot 1 — median CCDF across all signals for each tau
-    # ------------------------------------------------------------------
-    try:
-        fig, ax = plt.subplots(figsize=(8, 5))
-        for ci, tau in enumerate(tau_values_plot):
-            grp = df_increments[df_increments['tau'] == tau]
-            all_abs = np.sort(np.abs(grp['increment'].values))[::-1]
-            all_abs = all_abs[all_abs > 0]
-            n = len(all_abs)
-            ccdf_y = np.arange(1, n + 1) / n
-            ax.loglog(all_abs, ccdf_y, color=tau_colors[ci], linewidth=1.0,
-                      alpha=0.8, label=f'τ={tau}')
-        ax.set_xlabel('|Δx(τ)|')
-        ax.set_ylabel('P(|Δx| > x)')
-        ax.set_title('Increment CCDF — all signals pooled by τ')
-        ax.legend(fontsize=8)
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, 'increments_summary_ccdf.pdf'), bbox_inches='tight')
-        plt.close()
-        print("Summary CCDF saved.")
-    except Exception as e:
-        print(f"Error saving summary CCDF: {e}")
-        plt.close()
-
-    # ------------------------------------------------------------------
-    # Summary plot 2 — tail exponents vs tau (Hill and fit)
-    # ------------------------------------------------------------------
-    try:
-        fig, ax = plt.subplots(figsize=(8, 5))
-        tau_vals = sorted(df_tail['tau'].unique())
-
-        hill_median = df_tail.groupby('tau')['hill_exp'].median()
-        hill_q25 = df_tail.groupby('tau')['hill_exp'].quantile(0.25)
-        hill_q75 = df_tail.groupby('tau')['hill_exp'].quantile(0.75)
-
-        fit_median = df_tail.groupby('tau')['fit_exp'].median()
-        fit_q25 = df_tail.groupby('tau')['fit_exp'].quantile(0.25)
-        fit_q75 = df_tail.groupby('tau')['fit_exp'].quantile(0.75)
-
-        ax.plot(tau_vals, hill_median, 'o-', color=colors[0], linewidth=1.5, label='Hill estimator')
-        ax.fill_between(tau_vals, hill_q25, hill_q75, color=colors[0], alpha=0.2)
-        ax.plot(tau_vals, fit_median, 's-', color=colors[1], linewidth=1.5, label='CCDF fit')
-        ax.fill_between(tau_vals, fit_q25, fit_q75, color=colors[1], alpha=0.2)
-
-        ax.set_xscale('log')
-        ax.set_xlabel('τ (samples)')
-        ax.set_ylabel('Tail exponent')
-        ax.set_title('Tail exponents vs τ — median ± IQR across all signals')
-        ax.legend(fontsize=9)
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, 'increments_summary_exponents.pdf'), bbox_inches='tight')
-        plt.close()
-        print("Summary exponents saved.")
-    except Exception as e:
-        print(f"Error saving summary exponents: {e}")
-        plt.close()
-
-    # ------------------------------------------------------------------
-    # Summary plot 3 — Hill vs fit exponent scatter
-    # ------------------------------------------------------------------
-    try:
-        fig, ax = plt.subplots(figsize=(6, 5))
-        sc = ax.scatter(df_tail['hill_exp'], df_tail['fit_exp'],
-                        c=np.log10(df_tail['tau']), cmap='viridis',
-                        s=20, alpha=0.6, edgecolors='none')
-        plt.colorbar(sc, ax=ax, label='log₁₀(τ)')
-        ax.axline((0, 0), slope=1, color='gray', linewidth=0.8,
-                  linestyle='--', label='Hill = Fit')
-        ax.set_xlabel('Hill exponent')
-        ax.set_ylabel('CCDF fit exponent')
-        ax.set_title('Hill vs CCDF fit exponent\n(colored by log τ)')
-        ax.legend(fontsize=8)
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, 'increments_summary_hill_vs_fit.pdf'), bbox_inches='tight')
-        plt.close()
-        print("Hill vs fit scatter saved.")
-    except Exception as e:
-        print(f"Error saving Hill vs fit scatter: {e}")
-        plt.close()
-
-# ===============================================================================================
-# =================== Scaling — R² diagnostic for log-log fit quality ==========================
-# ===============================================================================================
-
-def plot_r2_diagnostic(df_exponents, title_suffix='', threshold=0.9, output_path=None):
-    """
-    Two-panel diagnostic of the log-log fit quality for moment scaling.
-
-    Left panel: boxplot of R² distribution across all signals, by moment order q.
-    Right panel: fraction of signals with R² above threshold, by moment order q.
-
-    Parameters
-    ----------
-    df_exponents : pd.DataFrame
-        Output of compute_scaling_exponents. Must contain columns [q, r2].
-    title_suffix : str
-        Appended to the figure title, e.g. 'displacement, event window'.
-    threshold : float
-        R² threshold for the fraction plot (default: 0.9).
-    output_path : str or Path or None
-    """
-    q_values = sorted(df_exponents['q'].unique())
-    r2_by_q  = [df_exponents[df_exponents['q'] == q]['r2'].values for q in q_values]
-    frac_good = [(r2 > threshold).mean() for r2 in r2_by_q]
-
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-    # Left — boxplot of R² by q
-    bp = axes[0].boxplot(r2_by_q,
-                         tick_labels=[str(q) for q in q_values],
-                         patch_artist=True, widths=0.5,
-                         medianprops={'color': 'white', 'linewidth': 2},
-                         whiskerprops={'linewidth': 1.2},
-                         capprops={'linewidth': 1.2},
-                         flierprops={'marker': 'o', 'markersize': 4,
-                                     'markeredgecolor': 'gray',
-                                     'markerfacecolor': 'none'})
-    for patch in bp['boxes']:
-        patch.set_facecolor(colors[0])
-        patch.set_alpha(0.8)
-    axes[0].axhline(threshold, color='crimson', linewidth=1,
-                    linestyle='--', label=f'R² = {threshold}')
-    axes[0].set_xlabel('q')
-    axes[0].set_ylabel('R²')
-    axes[0].set_title(f'R² of log $M_q(\\tau)$ vs log $\\tau$ fit\nby moment order $q$')
-    axes[0].set_ylim(0, 1.05)
-    axes[0].legend(fontsize=9)
-
-    # Right — fraction of signals above threshold
-    axes[1].bar([str(q) for q in q_values], frac_good,
-                color=colors[1], edgecolor='white', linewidth=0.5)
-    axes[1].axhline(1.0, color='black', linewidth=0.8, linestyle='--')
-    axes[1].set_xlabel('q')
-    axes[1].set_ylabel(f'Fraction of signals with R² > {threshold}')
-    axes[1].set_title(f'Fraction of signals with good fit (R² > {threshold})\n'
-                      f'by moment order $q$')
-    axes[1].set_ylim(0, 1.1)
-
-    title = 'Log-log fit quality'
-    if title_suffix:
-        title += f' — {title_suffix}'
-    plt.suptitle(title, fontsize=13)
-    plt.tight_layout()
-
-    if output_path is not None:
-        os.makedirs(os.path.dirname(str(output_path)), exist_ok=True)
-        plt.savefig(output_path, bbox_inches='tight')
-        print(f"Saved: {output_path}")
-
-    plt.show()
-    plt.close()
-
-    # Summary printed to stdout for logging in the notebook
-    print(f"R² summary by q (threshold = {threshold}):")
-    for q, r2 in zip(q_values, r2_by_q):
-        print(f"  q={q}: median R² = {np.median(r2):.3f} — "
-              f"fraction > {threshold} = {(r2 > threshold).mean():.2f}")
 
 # ===============================================================================================
 # ========================= Scaling — Universal rescaling plot ==================================

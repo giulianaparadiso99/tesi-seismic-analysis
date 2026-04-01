@@ -118,6 +118,6 @@ def preprocess_signals_long(df_acc: pd.DataFrame, min_samples: int = 48000) -> p
     and 'acceleration_normalized' columns.
     """
     df = _filter_long(df_acc, min_samples)
-    df = _baseline_correction(df)
-    df = _normalize(df)
+    #df = _baseline_correction(df)
+    #df = _normalize(df)
     return df

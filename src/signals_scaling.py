@@ -233,6 +233,71 @@ def compute_moment_scaling_disp(df_acc, q_values, tau_values, normalized=True,
     return df_moments
 
 # ===============================================================================================
+# ==================================== Increments distribution check ============================
+# ===============================================================================================
+
+def check_increments_distribution(df_increments, tau_values=None):
+    """
+    Analyzes the distribution of increments: counts how many are < 1 vs > 1.
+    
+    Parameters
+    ----------
+    df_increments : pd.DataFrame
+        DataFrame with columns [file, station, stream, tau, increment]
+    tau_values : list of int, optional
+        Specific tau values to analyze. If None, analyzes all tau values.
+    
+    Returns
+    -------
+    df_summary : pd.DataFrame
+        Summary with columns [tau, total_increments, abs_less_than_1, 
+        abs_greater_than_1, frac_less_than_1, frac_greater_than_1, 
+        mean_abs_increment, median_abs_increment]
+    """
+    if tau_values is None:
+        tau_values = sorted(df_increments['tau'].unique())
+    
+    results = []
+    
+    for tau in tau_values:
+        increments = df_increments[df_increments['tau'] == tau]['increment'].values
+        abs_increments = np.abs(increments)
+        
+        total = len(increments)
+        less_than_1 = np.sum(abs_increments < 1)
+        greater_than_1 = np.sum(abs_increments >= 1)
+        
+        results.append({
+            'tau': tau,
+            'total_increments': total,
+            'abs_less_than_1': less_than_1,
+            'abs_greater_than_1': greater_than_1,
+            'frac_less_than_1': less_than_1 / total,
+            'frac_greater_than_1': greater_than_1 / total,
+            'mean_abs_increment': np.mean(abs_increments),
+            'median_abs_increment': np.median(abs_increments),
+            'std_abs_increment': np.std(abs_increments),
+            'min_abs_increment': np.min(abs_increments),
+            'max_abs_increment': np.max(abs_increments)
+        })
+    
+    df_summary = pd.DataFrame(results)
+    
+    # Print summary
+    print(f"\n{'='*70}")
+    print(f"INCREMENTS DISTRIBUTION SUMMARY")
+    print(f"{'='*70}")
+    print(f"\nTotal number of tau values analyzed: {len(tau_values)}")
+    print(f"\nOverall statistics:")
+    print(f"  - Average fraction |increment| < 1: {df_summary['frac_less_than_1'].mean():.2%}")
+    print(f"  - Average fraction |increment| >= 1: {df_summary['frac_greater_than_1'].mean():.2%}")
+    print(f"\nBy tau scale:")
+    print(df_summary.to_string(index=False))
+    print(f"{'='*70}\n")
+    
+    return df_summary
+
+# ===============================================================================================
 # ==================================== Event onset detection ====================================
 # ===============================================================================================
 
