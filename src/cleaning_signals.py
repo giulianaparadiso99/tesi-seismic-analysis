@@ -5,39 +5,37 @@ Preprocessing pipelines for the seismic acceleration time series loaded
 from the .ASC files. Each file contains a single signal recorded by one
 station on one component (HNE, HNN, or HNZ). The raw acceleration values
 (in cm/s²) are stored in a long-format DataFrame with one row per sample.
-
-A single baseline preprocessing pipeline is applied to all 66 signals.
-An additional filtered pipeline is provided for analyses that require
-signals of sufficient length (moment scaling analysis).
-
-    preprocess_signals_single()
-        For PDF analysis and heavy-tail assessment (Notebooks 3 and 4).
-        Applies to all 66 files.
-        Steps:
-            1. _baseline_correction — subtract per-signal mean (zero baseline)
-            2. _normalize           — divide by per-signal standard deviation
-
-    preprocess_signals_long()
-        For moment scaling analysis (Notebooks 3 and 4). Excludes the 6
-        near-field stations with short recordings (SURF, BRZ, BHB, CRI,
-        SLZ, SAV), which do not provide enough samples to produce reliable
-        displacement increment estimates at large time scales tau.
-        Steps:
-            1. _filter_long         — retain only files with >= min_samples
-                                      samples (default: 48 000)
-            2. _baseline_correction — same as above
-            3. _normalize           — same as above
-
-Both pipelines return a DataFrame with two acceleration columns:
-    'acceleration'            — baseline-corrected (cm/s²)
-    'acceleration_normalized' — baseline-corrected and unit-std normalized
-
-Usage:
-    from src.cleaning_signals import preprocess_signals_single
-    from src.cleaning_signals import preprocess_signals_long
-
-    df_acc_clean = preprocess_signals_single(df_acc_raw)
-    df_acc_long  = preprocess_signals_long(df_acc_raw, min_samples=48000)
+ 
+Main function:
+    preprocess_signals(df_acc, filter_length=False, baseline_correction=True, 
+                       normalize=False, min_samples=48000)
+    
+    Flexible preprocessing with independent control over each step:
+        - filter_length: Retain only long signals (for moment scaling)
+        - baseline_correction: Subtract per-signal mean (recommended always)
+        - normalize: Divide by per-signal std (ONLY for PDF analysis)
+ 
+Usage examples:
+    from src.cleaning_signals import preprocess_signals
+    
+    # For PDF analysis (all 66 files, normalized)
+    df_pdf = preprocess_signals(df_acc_raw, 
+                                 filter_length=False,
+                                 baseline_correction=True,
+                                 normalize=True)
+    
+    # For moment scaling (48 long files, NOT normalized - preserves physical units)
+    df_scaling = preprocess_signals(df_acc_raw,
+                                     filter_length=True,
+                                     baseline_correction=True,
+                                     normalize=False,
+                                     min_samples=48000)
+    
+    # Raw data with only baseline correction
+    df_baseline = preprocess_signals(df_acc_raw,
+                                      filter_length=False,
+                                      baseline_correction=True,
+                                      normalize=False)
 """
 
 import pandas as pd
@@ -55,6 +53,11 @@ def _baseline_correction(df_acc: pd.DataFrame) -> pd.DataFrame:
     df = df_acc.copy()
     means = df.groupby('file')['acceleration'].transform('mean')
     df['acceleration'] = df['acceleration'] - means
+    
+    # Quality check
+    max_residual = df.groupby('file')['acceleration'].mean().abs().max()
+    print(f"Baseline correction: max residual mean = {max_residual:.2e} cm/s²")
+    
     return df
 
 
@@ -66,6 +69,11 @@ def _normalize(df_acc: pd.DataFrame) -> pd.DataFrame:
     df = df_acc.copy()
     stds = df.groupby('file')['acceleration'].transform('std')
     df['acceleration_normalized'] = df['acceleration'] / stds
+    
+    # Quality check
+    mean_std = df.groupby('file')['acceleration_normalized'].std().mean()
+    print(f"Normalization: mean std = {mean_std:.10f} (expected: 1.0)")
+    
     return df
 
 
@@ -79,45 +87,117 @@ def _filter_long(df_acc: pd.DataFrame, min_samples: int = 48000) -> pd.DataFrame
     """
     signal_lengths = df_acc.groupby('file')['sample'].max() + 1
     long_files = signal_lengths[signal_lengths >= min_samples].index
-    return df_acc[df_acc['file'].isin(long_files)].copy()
+    df_filtered = df_acc[df_acc['file'].isin(long_files)].copy()
+    print(f"Length filtering: retained {len(long_files)}/{len(signal_lengths)} files (>= {min_samples} samples)")
+    return df_filtered
 
 
 # ===============================================================================================
-# ======================================= Public pipelines ======================================
+# ======================================= Main pipeline =========================================
 # ===============================================================================================
-
-def preprocess_signals_single(df_acc: pd.DataFrame) -> pd.DataFrame:
+ 
+def preprocess_signals(df_acc: pd.DataFrame,
+                      filter_length: bool = False,
+                      baseline_correction: bool = True,
+                      normalize: bool = False,
+                      min_samples: int = 48000) -> pd.DataFrame:
     """
-    Preprocessing pipeline for PDF analysis and heavy-tail assessment.
-    Applies to all 66 files — no filtering by signal length.
-
-    Steps:
-        1. Baseline correction — subtract per-signal mean
-        2. Normalization       — divide by per-signal standard deviation
-
-    Returns a DataFrame with both 'acceleration' (baseline-corrected)
-    and 'acceleration_normalized' columns.
+    Flexible preprocessing pipeline for seismic acceleration signals.
+    
+    Parameters
+    ----------
+    df_acc : pd.DataFrame
+        Raw acceleration data with columns ['file', 'sample', 'acceleration']
+        where 'acceleration' is in cm/s²
+    
+    filter_length : bool, default=False
+        If True, retain only files with >= min_samples samples.
+        - True:  For moment scaling analysis (needs long time scales τ)
+        - False: For PDF analysis (use all stations)
+        Excludes 6 near-field stations: SURF, BRZ, BHB, CRI, SLZ, SAV
+    
+    baseline_correction : bool, default=True
+        If True, subtract per-signal mean to ensure zero baseline.
+        RECOMMENDED: Always True, even if already applied in raw data.
+        Essential for integration (velocity/displacement computation).
+    
+    normalize : bool, default=False
+        If True, divide per-signal by its standard deviation.
+        Creates 'acceleration_normalized' column (adimensional).
+        
+        **CRITICAL CHOICE:**
+        - True:  For PDF analysis, heavy-tail assessment only
+        - False: For moment scaling, velocity/displacement, physical units
+        
+        When False, 'acceleration_normalized' column is NOT created.
+    
+    min_samples : int, default=48000
+        Minimum samples required when filter_length=True.
+        Default (48000) excludes 6 near-field stations.
+    
+    Returns
+    -------
+    pd.DataFrame
+        Preprocessed data with columns:
+        - 'file', 'sample': original identifiers
+        - 'acceleration': baseline-corrected (if baseline_correction=True),
+                         in physical units (cm/s²)
+        - 'acceleration_normalized': baseline-corrected and normalized
+                                    (only if normalize=True), adimensional
+    
+    Examples
+    --------
+    # PDF analysis on all 66 signals with normalization
+    >>> df_pdf = preprocess_signals(df_raw, 
+    ...                             filter_length=False,
+    ...                             baseline_correction=True,
+    ...                             normalize=True)
+    >>> # Use: df_pdf['acceleration_normalized']
+    
+    # Moment scaling on 48 long signals WITHOUT normalization
+    >>> df_scaling = preprocess_signals(df_raw,
+    ...                                 filter_length=True,
+    ...                                 baseline_correction=True,
+    ...                                 normalize=False,
+    ...                                 min_samples=48000)
+    >>> # Use: df_scaling['acceleration'] (preserves physical units!)
+    
+    # Only baseline correction, no other processing
+    >>> df_baseline = preprocess_signals(df_raw,
+    ...                                  filter_length=False,
+    ...                                  baseline_correction=True,
+    ...                                  normalize=False)
     """
-    df = _baseline_correction(df_acc)
-    df = _normalize(df)
-    return df
-
-
-def preprocess_signals_long(df_acc: pd.DataFrame, min_samples: int = 48000) -> pd.DataFrame:
-    """
-    Preprocessing pipeline for moment scaling analysis.
-    Retains only files with at least min_samples samples (default: 48 000),
-    excluding the 6 near-field stations with short recordings.
-
-    Steps:
-        1. Filter long signals  — keep only files with >= min_samples samples
-        2. Baseline correction  — subtract per-signal mean
-        3. Normalization        — divide by per-signal standard deviation
-
-    Returns a DataFrame with 'acceleration' (baseline-corrected)
-    and 'acceleration_normalized' columns.
-    """
-    df = _filter_long(df_acc, min_samples)
-    df = _baseline_correction(df)
-    df = _normalize(df)
+    print("\n" + "="*60)
+    print("PREPROCESSING PIPELINE")
+    print("="*60)
+    
+    df = df_acc.copy()
+    
+    # Step 1: Length filtering (optional)
+    if filter_length:
+        df = _filter_long(df, min_samples)
+    else:
+        print(f"Length filtering: DISABLED (using all {df['file'].nunique()} files)")
+    
+    # Step 2: Baseline correction (optional but recommended)
+    if baseline_correction:
+        df = _baseline_correction(df)
+    else:
+        print("Baseline correction: DISABLED")
+        print("WARNING: Non-zero baseline will cause drift in velocity/displacement!")
+    
+    # Step 3: Normalization (optional)
+    if normalize:
+        df = _normalize(df)
+    else:
+        print("Normalization: DISABLED (physical units preserved)")
+        # Do NOT create the column at all if not normalizing
+        # This prevents accidental use of non-existent normalized data
+    
+    print("="*60)
+    print(f"Output: {len(df)} samples from {df['file'].nunique()} files")
+    print(f"Columns: {list(df.columns)}")
+    print("="*60 + "\n")
+    
     return df
