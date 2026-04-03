@@ -853,3 +853,55 @@ def compute_increment_tail_exponents(df_increments, tau_values_plot=None, top_fr
         })
  
     return pd.DataFrame(rows)
+
+def build_scaling_summary(df_exponents, df_piecewise, process_name):
+    """
+    Build summary table for moment scaling analysis of a given process.
+    
+    Parameters
+    ----------
+    df_exponents : pd.DataFrame
+        Scaling exponents from compute_scaling_exponents()
+    df_piecewise : pd.DataFrame
+        Piecewise fit results from fit_piecewise_scaling()
+    process_name : str
+        'acceleration', 'velocity', or 'displacement'
+    
+    Returns
+    -------
+    pd.DataFrame
+        Summary with columns: file, zeta_q2, zeta_q4, q_break, slope_low, 
+        slope_high, r2_scaling
+    """
+    summary_rows = []
+    
+    for file in df_exponents['file'].unique():
+        # Get exponents for this file
+        df_file = df_exponents[df_exponents['file'] == file]
+        
+        # Extract key zeta values
+        zeta_q2 = df_file[df_file['q'] == 2.0]['zeta'].values
+        zeta_q4 = df_file[df_file['q'] == 4.0]['zeta'].values
+        
+        # Get piecewise fit parameters
+        df_pw = df_piecewise[df_piecewise['file'] == file]
+        
+        if len(df_pw) > 0:
+            q_break = df_pw['q_break'].values[0]
+            slope_low = df_pw['slope_low'].values[0]
+            slope_high = df_pw['slope_high'].values[0]
+            r2 = df_pw.get('r2', pd.Series([np.nan])).values[0]  # R² if available
+        else:
+            q_break = slope_low = slope_high = r2 = np.nan
+        
+        summary_rows.append({
+            'file': file,
+            f'zeta_q2_{process_name}': zeta_q2[0] if len(zeta_q2) > 0 else np.nan,
+            f'zeta_q4_{process_name}': zeta_q4[0] if len(zeta_q4) > 0 else np.nan,
+            f'q_break_{process_name}': q_break,
+            f'slope_low_{process_name}': slope_low,
+            f'slope_high_{process_name}': slope_high,
+            f'r2_scaling_{process_name}': r2
+        })
+    
+    return pd.DataFrame(summary_rows)
