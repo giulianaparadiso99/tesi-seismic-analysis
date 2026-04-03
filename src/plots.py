@@ -1,10 +1,11 @@
 import os
 import numpy as np
 import pandas as pd
-from scipy import stats
 import matplotlib.pyplot as plt
 import seaborn as sns
 import contextily as ctx
+from scipy import stats
+from pathlib import Path
 from adjustText import adjust_text
 from src.plot_settings import set_plot_style
 colors = set_plot_style()
@@ -608,10 +609,10 @@ def plot_acceleration_distributions(df_acc, df_meta_clean,
  
  
 # ===============================================================================================
-# ================= Signals — post-preprocessing check (pipeline A) =============================
+# ================= Signals — post-preprocessing check - PDF analysis pipeline ==================
 # ===============================================================================================
  
-def plot_postcheck_single(df_acc_raw, df_acc_clean, output_dir=None):
+def plot_postcheck_pdf(df_acc_raw, df_acc_clean, output_dir=None):
     """
     2x2 summary figure for the single signal preprocessing pipeline:
     residual means, std distribution, baseline correction example,
@@ -690,73 +691,69 @@ def plot_postcheck_single(df_acc_raw, df_acc_clean, output_dir=None):
 
  
 # ===============================================================================================
-# ================ Signals — post-preprocessing check (pipeline B) ==============================
-# ===============================================================================================
+# ================ Signals — post-preprocessing check (moment scaling pipeline) =================
  
-def plot_postcheck_long(df_acc_raw, df_acc_long, threshold=48000, output_dir=None):
+def plot_postcheck_moment_scaling(df_acc_raw, df_acc_long, threshold=48000, output_dir=None):
     """
-    1x3 summary figure for the aggregated (long signals) preprocessing pipeline:
-    signal length distribution before/after truncation, residual means, std distribution.
- 
+    Post-preprocessing check plots for the long signals pipeline.
+    
     Parameters
     ----------
     df_acc_raw : pd.DataFrame
-        Raw accelerations before preprocessing. Must contain [file, sample].
+        Raw acceleration data (before filtering)
     df_acc_long : pd.DataFrame
-        Preprocessed long-signal accelerations. Must contain
-        [file, sample, acceleration, acceleration_normalized].
+        Preprocessed long signals (after filtering, baseline correction, NO normalization)
     threshold : int
-        Truncation threshold in samples (default: 48000).
-    output_dir : str or Path or None
+        Minimum samples threshold used for filtering
+    output_dir : str or Path
+        Directory to save the figure
     """
-    signal_lengths_raw  = df_acc_raw.groupby('file')['sample'].max() + 1
+    from pathlib import Path  # Se non già importato all'inizio del file
+    import numpy as np  # Se non già importato
+    
+    signal_lengths_raw = df_acc_raw.groupby('file')['sample'].max() + 1
     signal_lengths_long = df_acc_long.groupby('file')['sample'].max() + 1
-    baseline_check_agg  = df_acc_long.groupby('file')['acceleration'].mean()
-    norm_check_agg      = df_acc_long.groupby('file')['acceleration_normalized'].std()
- 
+    baseline_check_agg = df_acc_long.groupby('file')['acceleration'].mean()
+    
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
- 
-    # Signal lengths before and after truncation
-    axes[0].hist(signal_lengths_raw.values, bins=20, color=colors[2],
-                 edgecolor='none', alpha=0.7,
-                 label=f'Before (n={len(signal_lengths_raw)})')
-    axes[0].hist(signal_lengths_long.values, bins=5, color=colors[0],
-                 edgecolor='none', alpha=0.9,
-                 label=f'After (n={len(signal_lengths_long)})')
-    axes[0].axvline(threshold, color='black', linewidth=1, linestyle='--',
-                    label=f'Threshold: {threshold:,}')
-    axes[0].set_title('Signal lengths before and after truncation')
+    
+    # Plot 1: Signal lengths before and after filtering
+    axes[0].hist(signal_lengths_raw, bins=20, alpha=0.7, 
+                 label=f'Before (n={len(signal_lengths_raw)})', color=colors[0])
+    axes[0].hist(signal_lengths_long, bins=20, alpha=0.7,
+                 label=f'After (n={len(signal_lengths_long)})', color=colors[1])
+    axes[0].axvline(threshold, color='gray', linestyle='--', linewidth=1,
+                   label=f'Threshold: {threshold:,}')
     axes[0].set_xlabel('Number of samples')
     axes[0].set_ylabel('Count')
-    axes[0].legend(fontsize=9)
- 
-    # Residual mean distribution
-    axes[1].hist(baseline_check_agg.values, bins=20, color=colors[0], edgecolor='none')
-    axes[1].axvline(0, color='black', linewidth=1, linestyle='--', label='Expected: 0')
-    axes[1].set_title('Residual mean per signal\n(aggregated, after baseline correction)')
+    axes[0].set_title('Signal lengths before and after filtering')
+    axes[0].legend()
+    
+    # Plot 2: Residual mean per signal (baseline correction check)
+    axes[1].hist(baseline_check_agg, bins=10, color=colors[2], edgecolor='none')
+    axes[1].axvline(0, color='gray', linestyle='--', linewidth=0.8, label='Expected: 0')
     axes[1].set_xlabel('Mean (cm/s²)')
     axes[1].set_ylabel('Count')
+    axes[1].set_title('Residual mean per signal\n(after baseline correction)\nExpected: 0')
     axes[1].legend()
- 
-    # Std distribution
-    axes[2].hist(norm_check_agg.values, bins=20, color=colors[1], edgecolor='none')
-    axes[2].axvline(1, color='black', linewidth=1, linestyle='--', label='Expected: 1')
-    axes[2].set_title('Standard deviation per signal\n(aggregated, after normalization)')
-    axes[2].set_xlabel('Std')
+    axes[1].ticklabel_format(style='scientific', axis='x', scilimits=(0, 0))
+    
+    # Plot 3: Physical units preserved (show std distribution)
+    std_check = df_acc_long.groupby('file')['acceleration'].std()
+    axes[2].hist(std_check, bins=15, color=colors[3], edgecolor='none')
+    axes[2].set_xlabel('Std (cm/s²)')
     axes[2].set_ylabel('Count')
-    axes[2].legend()
- 
-    plt.suptitle('Post-preprocessing check — long signals pipeline', fontsize=14)
+    axes[2].set_title('Standard deviation per signal\n(physical units preserved)\nNOT normalized')
+    
+    plt.suptitle('Post-preprocessing check — moment scaling pipeline', fontsize=13)
     plt.tight_layout()
- 
-    if output_dir is not None:
-        os.makedirs(output_dir, exist_ok=True)
-        path = os.path.join(output_dir, 'postcheck_long.pdf')
-        plt.savefig(path, bbox_inches='tight')
-        print(f"Saved: {path}")
- 
+    
+    if output_dir:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_dir / '02_postcheck_moment_scaling.pdf', bbox_inches='tight')
+    
     plt.show()
-    plt.close()
 
 # ===============================================================================================
 # ==================================== Empirical PDFs ===========================================

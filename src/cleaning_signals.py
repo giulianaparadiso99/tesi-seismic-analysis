@@ -230,38 +230,38 @@ def validate_preprocessing(df: pd.DataFrame,
     # Check 1: Baseline correction
     max_residual = df.groupby('file')['acceleration'].mean().abs().max()
     assert max_residual < 1e-10, f"Baseline not corrected: max residual = {max_residual:.2e}"
-    logger.info(f"✓ Baseline corrected: max residual = {max_residual:.2e} cm/s²")
+    logger.info(f"Baseline corrected: max residual = {max_residual:.2e} cm/s²")
     
     # Check 2: Normalization (if expected)
     if check_normalized:
         assert 'acceleration_normalized' in df.columns, "Missing acceleration_normalized column"
         mean_std = df.groupby('file')['acceleration_normalized'].std().mean()
         assert abs(mean_std - 1.0) < 1e-6, f"Normalization failed: mean std = {mean_std}"
-        logger.info(f"✓ Normalized: mean std = {mean_std:.10f}")
+        logger.info(f"Normalized: mean std = {mean_std:.10f}")
     else:
         assert 'acceleration_normalized' not in df.columns, "acceleration_normalized should not exist"
-        logger.info("✓ Not normalized (physical units preserved)")
+        logger.info("Not normalized (physical units preserved)")
     
     # Check 3: No NaN
     assert df['acceleration'].isna().sum() == 0, "NaN found in acceleration"
-    logger.info("✓ No NaN in acceleration")
+    logger.info("No NaN in acceleration")
     
     if check_normalized:
         assert df['acceleration_normalized'].isna().sum() == 0, "NaN found in acceleration_normalized"
-        logger.info("✓ No NaN in acceleration_normalized")
+        logger.info("No NaN in acceleration_normalized")
     
     # Check 4: No Inf
     assert np.isinf(df['acceleration']).sum() == 0, "Inf found in acceleration"
-    logger.info("✓ No Inf in acceleration")
+    logger.info("No Inf in acceleration")
     
     if check_normalized:
         assert np.isinf(df['acceleration_normalized']).sum() == 0, "Inf found in acceleration_normalized"
-        logger.info("✓ No Inf in acceleration_normalized")
+        logger.info("No Inf in acceleration_normalized")
     
     # Check 5: Files retained
     n_files = df['file'].nunique()
     assert n_files == expected_files, f"Expected {expected_files} files, got {n_files}"
-    logger.info(f"✓ All {expected_files} files retained")
+    logger.info(f"All {expected_files} files retained")
     
-    logger.info(f"✓ All checks passed. Shape: {df.shape}")
+    logger.info(f"All checks passed. Shape: {df.shape}")
     return True
