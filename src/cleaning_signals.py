@@ -39,6 +39,9 @@ Usage examples:
 """
 
 import pandas as pd
+import numpy as np
+import logging
+logger = logging.getLogger(__name__)
 
 
 # ===============================================================================================
@@ -193,3 +196,72 @@ def preprocess_signals(df_acc: pd.DataFrame,
         # This prevents accidental use of non-existent normalized data
     
     return df
+
+def validate_preprocessing(df: pd.DataFrame,
+                          expected_files: int,
+                          check_normalized: bool = True,
+                          pipeline_name: str = "preprocessing") -> bool:
+    """
+    Validate preprocessing results with quality checks.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Preprocessed dataframe to validate
+    expected_files : int
+        Expected number of files (66 for PDF, 48 for moment scaling)
+    check_normalized : bool
+        If True, checks 'acceleration_normalized' column exists and std=1
+    pipeline_name : str
+        Name for logging (e.g., "PDF analysis", "Moment scaling")
+    
+    Returns
+    -------
+    bool
+        True if all checks pass
+    
+    Raises
+    ------
+    AssertionError
+        If any check fails
+    """
+    logger.info(f"Running quality checks — {pipeline_name} pipeline")
+    
+    # Check 1: Baseline correction
+    max_residual = df.groupby('file')['acceleration'].mean().abs().max()
+    assert max_residual < 1e-10, f"Baseline not corrected: max residual = {max_residual:.2e}"
+    logger.info(f"✓ Baseline corrected: max residual = {max_residual:.2e} cm/s²")
+    
+    # Check 2: Normalization (if expected)
+    if check_normalized:
+        assert 'acceleration_normalized' in df.columns, "Missing acceleration_normalized column"
+        mean_std = df.groupby('file')['acceleration_normalized'].std().mean()
+        assert abs(mean_std - 1.0) < 1e-6, f"Normalization failed: mean std = {mean_std}"
+        logger.info(f"✓ Normalized: mean std = {mean_std:.10f}")
+    else:
+        assert 'acceleration_normalized' not in df.columns, "acceleration_normalized should not exist"
+        logger.info("✓ Not normalized (physical units preserved)")
+    
+    # Check 3: No NaN
+    assert df['acceleration'].isna().sum() == 0, "NaN found in acceleration"
+    logger.info("✓ No NaN in acceleration")
+    
+    if check_normalized:
+        assert df['acceleration_normalized'].isna().sum() == 0, "NaN found in acceleration_normalized"
+        logger.info("✓ No NaN in acceleration_normalized")
+    
+    # Check 4: No Inf
+    assert np.isinf(df['acceleration']).sum() == 0, "Inf found in acceleration"
+    logger.info("✓ No Inf in acceleration")
+    
+    if check_normalized:
+        assert np.isinf(df['acceleration_normalized']).sum() == 0, "Inf found in acceleration_normalized"
+        logger.info("✓ No Inf in acceleration_normalized")
+    
+    # Check 5: Files retained
+    n_files = df['file'].nunique()
+    assert n_files == expected_files, f"Expected {expected_files} files, got {n_files}"
+    logger.info(f"✓ All {expected_files} files retained")
+    
+    logger.info(f"✓ All checks passed. Shape: {df.shape}")
+    return True
