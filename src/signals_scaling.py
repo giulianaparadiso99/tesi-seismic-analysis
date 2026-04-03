@@ -10,7 +10,7 @@ colors = set_plot_style()
 # ==================================== Moment scaling - Acceleration ============================
 # ===============================================================================================
 
-def compute_moment_scaling_acc(df_acc, q_values, tau_values, normalized=True,
+def compute_moment_scaling_acc(df_acc, q_values, tau_values, normalized=False,
                                save_increments=False):
     """
     Computes q-th order moments of acceleration increments at different
@@ -80,7 +80,7 @@ def compute_moment_scaling_acc(df_acc, q_values, tau_values, normalized=True,
 # ==================================== Moment scaling - Velocity ================================
 # ===============================================================================================
 
-def compute_moment_scaling_vel(df_acc, q_values, tau_values, normalized=True,
+def compute_moment_scaling_vel(df_acc, q_values, tau_values, normalized=False,
                                dt=0.005, save_increments=False):
     """
     Computes q-th order moments of velocity increments at different
@@ -157,7 +157,7 @@ def compute_moment_scaling_vel(df_acc, q_values, tau_values, normalized=True,
 # ==================================== Moment scaling - Displacement ============================
 # ===============================================================================================
 
-def compute_moment_scaling_disp(df_acc, q_values, tau_values, normalized=True,
+def compute_moment_scaling_disp(df_acc, q_values, tau_values, normalized=False,
                                 dt=0.005, save_increments=False):
     """
     Computes q-th order moments of displacement increments at different
@@ -330,7 +330,7 @@ def detect_event_onset(signal, threshold_factor=0.05, min_consecutive=10):
 
 
 def trim_to_event_window(df, threshold_factor=0.05, min_consecutive=10,
-                         normalized=True):
+                         normalized=False):
     """
     Trims each signal in df to the event window, starting from the
     detected onset of the seismic event.
