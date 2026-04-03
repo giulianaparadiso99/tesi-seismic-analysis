@@ -7,10 +7,6 @@ from scipy.integrate import cumulative_trapezoid
 from src.plot_settings import set_plot_style
 colors = set_plot_style()
 
-# signals_scaling.py
-
-from scipy.integrate import cumulative_trapezoid
-
 # ===============================================================================================
 # ==================================== Process Integration ======================================
 # ===============================================================================================
@@ -50,7 +46,6 @@ def integrate_to_velocity(df_acc, dt=0.005, normalized=False, method='trapz'):
         raise ValueError(f"method must be 'euler' or 'trapz', got '{method}'")
     
     return df
-
 
 def integrate_to_displacement(df_acc, dt=0.005, normalized=False, method='trapz'):
     """
@@ -96,64 +91,94 @@ def integrate_to_displacement(df_acc, dt=0.005, normalized=False, method='trapz'
     
     return df
 
-
 # ===============================================================================================
 # ==================================== Moment Scaling ===========================================
 # ===============================================================================================
 
-def compute_moment_scaling(df, q_values, tau_values, column='displacement',
+def compute_moment_scaling(df_acc, q_values, tau_values, 
+                          process='displacement',
+                          normalized=False,
+                          dt=0.005, 
                           save_increments=False):
     """
     Compute q-th order moments of increments for a given process.
     
-    The dataframe must already contain the process column (e.g., 'velocity', 
-    'displacement'). Use integrate_to_velocity() or integrate_to_displacement()
-    first if needed.
+    If the process column already exists in the dataframe (e.g., from 
+    integrate_to_velocity() or integrate_to_displacement()), it will be used
+    directly. Otherwise, it will be computed.
     
     Parameters
     ----------
-    df : pd.DataFrame
-        Data with columns ['file', column]
+    df_acc : pd.DataFrame
+        Acceleration data. May already contain 'velocity' and/or 'displacement' columns.
     q_values : list of float
-        Moment orders
+        Moment orders to compute
     tau_values : list of int
         Time lags (in samples)
-    column : str
-        Column name of the process ('acceleration', 'velocity', 'displacement')
-    save_increments : bool
-        If True, also return all increments
+    process : str, default='displacement'
+        Which process to analyze: 'acceleration', 'velocity', or 'displacement'
+    normalized : bool, default=False
+        If True, use 'acceleration_normalized' column (only for acceleration process)
+    dt : float, default=0.005
+        Sampling interval (only used if velocity/displacement need to be computed)
+    save_increments : bool, default=False
+        If True, also return DataFrame with all raw increments
     
     Returns
     -------
     df_moments : pd.DataFrame
         Columns: [file, station, stream, q, tau, moment]
     df_increments : pd.DataFrame (optional)
-        Columns: [file, station, stream, tau, increment]
+        Only returned if save_increments=True
     
     Examples
     --------
-    >>> # Displacement
+    >>> # Method 1: Pre-compute processes (EFFICIENT for multiple uses)
     >>> df = integrate_to_displacement(df_acc_event)
-    >>> df_moments = compute_moment_scaling(df, q_values, tau_values, 
-    ...                                     column='displacement')
+    >>> df_moments_disp = compute_moment_scaling(df, q_values, tau_values, 
+    ...                                          process='displacement')
+    >>> df_moments_vel = compute_moment_scaling(df, q_values, tau_values,
+    ...                                         process='velocity')
     
-    >>> # Velocity
-    >>> df = integrate_to_velocity(df_acc_event)
-    >>> df_moments = compute_moment_scaling(df, q_values, tau_values,
-    ...                                     column='velocity')
-    
-    >>> # Acceleration
+    >>> # Method 2: Auto-compute on-the-fly (CONVENIENT for single use)
     >>> df_moments = compute_moment_scaling(df_acc_event, q_values, tau_values,
-    ...                                     column='acceleration')
+    ...                                     process='displacement')
     """
-    if column not in df.columns:
-        raise ValueError(f"Column '{column}' not found. Available: {df.columns.tolist()}")
+    valid_processes = ['acceleration', 'velocity', 'displacement']
+    if process not in valid_processes:
+        raise ValueError(f"process must be one of {valid_processes}, got '{process}'")
     
+    # Determine which column to use
+    if process == 'acceleration':
+        col = 'acceleration_normalized' if normalized else 'acceleration'
+        df = df_acc.copy()
+        
+    elif process == 'velocity':
+        # Check if velocity already computed
+        if 'velocity' in df_acc.columns:
+            col = 'velocity'
+            df = df_acc.copy()
+        else:
+            # Compute on-the-fly
+            df = integrate_to_velocity(df_acc, dt=dt, normalized=normalized)
+            col = 'velocity'
+    
+    elif process == 'displacement':
+        # Check if displacement already computed
+        if 'displacement' in df_acc.columns:
+            col = 'displacement'
+            df = df_acc.copy()
+        else:
+            # Compute on-the-fly
+            df = integrate_to_displacement(df_acc, dt=dt, normalized=normalized)
+            col = 'displacement'
+    
+    # Compute moments
     rows = []
     inc_rows = []
     
     for file in df['file'].unique():
-        signal = df[df['file'] == file][column].values
+        signal = df[df['file'] == file][col].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
         N = len(signal)
@@ -162,7 +187,6 @@ def compute_moment_scaling(df, q_values, tau_values, column='displacement',
             if (N - tau) < 10:
                 continue
             
-            # Increments
             increments = signal[tau:] - signal[:-tau]
             
             if save_increments:
@@ -857,38 +881,3 @@ def build_scaling_summary(df_exponents, df_piecewise, process_name):
         })
     
     return pd.DataFrame(summary_rows)
-
-def compute_moment_scaling_ensemble(df_acc, q_values, tau_values, **kwargs):
-    """
-    Wrapper: compute moments for each file, then average the moments.
-    
-    This is DIFFERENT from spatial ensemble averaging, but computationally
-    equivalent under ergodicity assumption.
-    """
-    
-    # Compute moments for each file
-    moments_per_file = {}
-    for file in df_acc['file'].unique():
-        df_file = df_acc[df_acc['file'] == file]
-        df_moments_file, _ = compute_moment_scaling_disp(
-            df_file, q_values, tau_values, **kwargs
-        )
-        moments_per_file[file] = df_moments_file
-    
-    # Average moments across files for each (q, tau)
-    df_ensemble = pd.DataFrame()
-    for q in q_values:
-        for tau in tau_values:
-            moments = []
-            for file, df_mom in moments_per_file.items():
-                m = df_mom[(df_mom['q'] == q) & (df_mom['tau'] == tau)]['moment']
-                if len(m) > 0:
-                    moments.append(m.values[0])
-            
-            df_ensemble = pd.concat([df_ensemble, pd.DataFrame({
-                'q': [q],
-                'tau': [tau],
-                'moment': [np.mean(moments)]
-            })], ignore_index=True)
-    
-    return df_ensemble
