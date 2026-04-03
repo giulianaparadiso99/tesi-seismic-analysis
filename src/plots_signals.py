@@ -340,7 +340,7 @@ def plot_empirical_pdfs(df_acc_clean, bins=100, log_scale=False, normalized=True
 # ================================ Event onset diagnostic =======================================
 # ===============================================================================================
 
-def plot_onset_diagnostic(df_acc, df_onsets, n_examples=4, normalized=True,
+def plot_onset_diagnostic(df_acc, df_onsets, n_examples=4, normalized=False,
                            output_dir='../figures/03_single_signal/scaling/event_window'):
     """
     Plots representative signals with the detected event onset marked.
