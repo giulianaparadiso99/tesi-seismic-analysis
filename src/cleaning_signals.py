@@ -168,10 +168,7 @@ def preprocess_signals(df_acc: pd.DataFrame,
     ...                                  baseline_correction=True,
     ...                                  normalize=False)
     """
-    print("\n" + "="*60)
-    print("PREPROCESSING PIPELINE")
-    print("="*60)
-    
+       
     df = df_acc.copy()
     
     # Step 1: Length filtering (optional)
@@ -194,10 +191,5 @@ def preprocess_signals(df_acc: pd.DataFrame,
         print("Normalization: DISABLED (physical units preserved)")
         # Do NOT create the column at all if not normalizing
         # This prevents accidental use of non-existent normalized data
-    
-    print("="*60)
-    print(f"Output: {len(df)} samples from {df['file'].nunique()} files")
-    print(f"Columns: {list(df.columns)}")
-    print("="*60 + "\n")
     
     return df
