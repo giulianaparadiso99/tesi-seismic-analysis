@@ -3,230 +3,182 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats
+from scipy.integrate import cumulative_trapezoid
 from src.plot_settings import set_plot_style
 colors = set_plot_style()
 
+# signals_scaling.py
+
+from scipy.integrate import cumulative_trapezoid
+
 # ===============================================================================================
-# ==================================== Moment scaling - Acceleration ============================
+# ==================================== Process Integration ======================================
 # ===============================================================================================
 
-def compute_moment_scaling_acc(df_acc, q_values, tau_values, normalized=False,
-                               save_increments=False):
+def integrate_to_velocity(df_acc, dt=0.005, normalized=False, method='trapz'):
     """
-    Computes q-th order moments of acceleration increments at different
-    time scales tau.
- 
-    The process is the acceleration signal a(t) itself. Increments are
-    defined as:
- 
-        Delta_a(tau, t0) = a(t0 + tau) - a(t0)
- 
-    The q-th order moment is the temporal average:
- 
-        M_q(tau) = < |Delta_a(tau, t0)|^q >_{t0}
- 
+    Integrate acceleration to obtain velocity: v(t) = ∫a(t)dt
+    
     Parameters
     ----------
     df_acc : pd.DataFrame
-    q_values : list of float
-    tau_values : list of int
-    normalized : bool
-    save_increments : bool
-        If True, also return a DataFrame with all raw increments.
- 
+        Acceleration data with columns ['file', 'sample', 'acceleration']
+    dt : float, default=0.005
+        Sampling interval in seconds (200 Hz)
+    normalized : bool, default=False
+        If True, use 'acceleration_normalized' column
+    method : str, default='trapz'
+        Integration method: 'euler' or 'trapz' (trapezoidal)
+    
     Returns
     -------
-    df_moments : pd.DataFrame with columns [file, station, stream, q, tau, moment]
-    df_increments : pd.DataFrame with columns [file, station, stream, tau, increment]
-        Only returned if save_increments=True.
+    pd.DataFrame
+        Original dataframe with added 'velocity' column (in cm/s)
     """
     col = 'acceleration_normalized' if normalized else 'acceleration'
+    df = df_acc.copy()
+    
+    if method == 'trapz':
+        df['velocity'] = df.groupby('file')[col].transform(
+            lambda a: cumulative_trapezoid(a, dx=dt, initial=0)
+        )
+    elif method == 'euler':
+        df['velocity'] = df.groupby('file')[col].transform(
+            lambda a: np.cumsum(a) * dt
+        )
+    else:
+        raise ValueError(f"method must be 'euler' or 'trapz', got '{method}'")
+    
+    return df
+
+
+def integrate_to_displacement(df_acc, dt=0.005, normalized=False, method='trapz'):
+    """
+    Integrate acceleration twice to obtain displacement: x(t) = ∫∫a(t)dt²
+    
+    Parameters
+    ----------
+    df_acc : pd.DataFrame
+        Acceleration data with columns ['file', 'sample', 'acceleration']
+    dt : float, default=0.005
+        Sampling interval in seconds (200 Hz)
+    normalized : bool, default=False
+        If True, use 'acceleration_normalized' column
+    method : str, default='trapz'
+        Integration method: 'euler' or 'trapz' (trapezoidal)
+    
+    Returns
+    -------
+    pd.DataFrame
+        Original dataframe with added 'velocity' and 'displacement' columns (in cm)
+    """
+    col = 'acceleration_normalized' if normalized else 'acceleration'
+    df = df_acc.copy()
+    
+    if method == 'trapz':
+        # First integration: a → v
+        df['velocity'] = df.groupby('file')[col].transform(
+            lambda a: cumulative_trapezoid(a, dx=dt, initial=0)
+        )
+        # Second integration: v → x
+        df['displacement'] = df.groupby('file')['velocity'].transform(
+            lambda v: cumulative_trapezoid(v, dx=dt, initial=0)
+        )
+    elif method == 'euler':
+        df['velocity'] = df.groupby('file')[col].transform(
+            lambda a: np.cumsum(a) * dt
+        )
+        df['displacement'] = df.groupby('file')['velocity'].transform(
+            lambda v: np.cumsum(v) * dt
+        )
+    else:
+        raise ValueError(f"method must be 'euler' or 'trapz', got '{method}'")
+    
+    return df
+
+
+# ===============================================================================================
+# ==================================== Moment Scaling ===========================================
+# ===============================================================================================
+
+def compute_moment_scaling(df, q_values, tau_values, column='displacement',
+                          save_increments=False):
+    """
+    Compute q-th order moments of increments for a given process.
+    
+    The dataframe must already contain the process column (e.g., 'velocity', 
+    'displacement'). Use integrate_to_velocity() or integrate_to_displacement()
+    first if needed.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Data with columns ['file', column]
+    q_values : list of float
+        Moment orders
+    tau_values : list of int
+        Time lags (in samples)
+    column : str
+        Column name of the process ('acceleration', 'velocity', 'displacement')
+    save_increments : bool
+        If True, also return all increments
+    
+    Returns
+    -------
+    df_moments : pd.DataFrame
+        Columns: [file, station, stream, q, tau, moment]
+    df_increments : pd.DataFrame (optional)
+        Columns: [file, station, stream, tau, increment]
+    
+    Examples
+    --------
+    >>> # Displacement
+    >>> df = integrate_to_displacement(df_acc_event)
+    >>> df_moments = compute_moment_scaling(df, q_values, tau_values, 
+    ...                                     column='displacement')
+    
+    >>> # Velocity
+    >>> df = integrate_to_velocity(df_acc_event)
+    >>> df_moments = compute_moment_scaling(df, q_values, tau_values,
+    ...                                     column='velocity')
+    
+    >>> # Acceleration
+    >>> df_moments = compute_moment_scaling(df_acc_event, q_values, tau_values,
+    ...                                     column='acceleration')
+    """
+    if column not in df.columns:
+        raise ValueError(f"Column '{column}' not found. Available: {df.columns.tolist()}")
+    
     rows = []
     inc_rows = []
- 
-    for file in df_acc['file'].unique():
-        signal = df_acc[df_acc['file'] == file][col].values
+    
+    for file in df['file'].unique():
+        signal = df[df['file'] == file][column].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
         N = len(signal)
- 
+        
         for tau in tau_values:
             if (N - tau) < 10:
                 continue
- 
-            # Increments of acceleration: a(t0 + tau) - a(t0)
+            
+            # Increments
             increments = signal[tau:] - signal[:-tau]
- 
+            
             if save_increments:
                 for inc in increments:
                     inc_rows.append({
                         'file': file, 'station': station, 'stream': stream,
                         'tau': tau, 'increment': inc
                     })
- 
+            
             for q in q_values:
                 moment = np.mean(np.abs(increments) ** q)
                 rows.append({
                     'file': file, 'station': station, 'stream': stream,
                     'q': q, 'tau': tau, 'moment': moment
                 })
- 
-    df_moments = pd.DataFrame(rows)
-    if save_increments:
-        return df_moments, pd.DataFrame(inc_rows)
-    return df_moments
-
-# ===============================================================================================
-# ==================================== Moment scaling - Velocity ================================
-# ===============================================================================================
-
-def compute_moment_scaling_vel(df_acc, q_values, tau_values, normalized=False,
-                               dt=0.005, save_increments=False):
-    """
-    Computes q-th order moments of velocity increments at different
-    time scales tau.
- 
-    The velocity is obtained by integrating the acceleration once:
- 
-        v(t) = cumsum(a(t)) * dt
- 
-    Increments are defined as:
- 
-        Delta_v(tau, t0) = v(t0 + tau) - v(t0)
- 
-    The q-th order moment is the temporal average:
- 
-        M_q(tau) = < |Delta_v(tau, t0)|^q >_{t0}
- 
-    Parameters
-    ----------
-    df_acc : pd.DataFrame
-    q_values : list of float
-    tau_values : list of int
-    normalized : bool
-    dt : float — sampling interval in seconds (default: 0.005 s = 200 Hz)
-    save_increments : bool
-        If True, also return a DataFrame with all raw increments.
- 
-    Returns
-    -------
-    df_moments : pd.DataFrame with columns [file, station, stream, q, tau, moment]
-    df_increments : pd.DataFrame with columns [file, station, stream, tau, increment]
-        Only returned if save_increments=True.
-    """
-    col = 'acceleration_normalized' if normalized else 'acceleration'
-    rows = []
-    inc_rows = []
- 
-    for file in df_acc['file'].unique():
-        signal = df_acc[df_acc['file'] == file][col].values
-        station = file.split('.')[1]
-        stream = file.split('.')[3]
-        N = len(signal)
- 
-        # Integrate acceleration once to get velocity
-        v = np.cumsum(signal) * dt
- 
-        for tau in tau_values:
-            if (N - tau) < 10:
-                continue
- 
-            # Increments of velocity: v(t0 + tau) - v(t0)
-            increments = v[tau:] - v[:-tau]
- 
-            if save_increments:
-                for inc in increments:
-                    inc_rows.append({
-                        'file': file, 'station': station, 'stream': stream,
-                        'tau': tau, 'increment': inc
-                    })
- 
-            for q in q_values:
-                moment = np.mean(np.abs(increments) ** q)
-                rows.append({
-                    'file': file, 'station': station, 'stream': stream,
-                    'q': q, 'tau': tau, 'moment': moment
-                })
- 
-    df_moments = pd.DataFrame(rows)
-    if save_increments:
-        return df_moments, pd.DataFrame(inc_rows)
-    return df_moments
-
-# ===============================================================================================
-# ==================================== Moment scaling - Displacement ============================
-# ===============================================================================================
-
-def compute_moment_scaling_disp(df_acc, q_values, tau_values, normalized=False,
-                                dt=0.005, save_increments=False):
-    """
-    Computes q-th order moments of displacement increments at different
-    time scales tau.
- 
-    The displacement is obtained by integrating the acceleration twice:
- 
-        v(t) = cumsum(a(t)) * dt        (velocity)
-        x(t) = cumsum(v(t)) * dt        (displacement)
- 
-    Increments are defined as:
- 
-        Delta_x(tau, t0) = x(t0 + tau) - x(t0)
- 
-    The q-th order moment is the temporal average:
- 
-        M_q(tau) = < |Delta_x(tau, t0)|^q >_{t0}
- 
-    Parameters
-    ----------
-    df_acc : pd.DataFrame
-    q_values : list of float
-    tau_values : list of int
-    normalized : bool
-    dt : float — sampling interval in seconds (default: 0.005 s = 200 Hz)
-    save_increments : bool
-        If True, also return a DataFrame with all raw increments.
- 
-    Returns
-    -------
-    df_moments : pd.DataFrame with columns [file, station, stream, q, tau, moment]
-    df_increments : pd.DataFrame with columns [file, station, stream, tau, increment]
-        Only returned if save_increments=True.
-    """
-    col = 'acceleration_normalized' if normalized else 'acceleration'
-    rows = []
-    inc_rows = []
- 
-    for file in df_acc['file'].unique():
-        signal = df_acc[df_acc['file'] == file][col].values
-        station = file.split('.')[1]
-        stream = file.split('.')[3]
-        N = len(signal)
- 
-        # Integrate acceleration twice to get displacement
-        v = np.cumsum(signal) * dt
-        x = np.cumsum(v) * dt
- 
-        for tau in tau_values:
-            if (N - tau) < 10:
-                continue
- 
-            # Increments of displacement: x(t0 + tau) - x(t0)
-            increments = x[tau:] - x[:-tau]
- 
-            if save_increments:
-                for inc in increments:
-                    inc_rows.append({
-                        'file': file, 'station': station, 'stream': stream,
-                        'tau': tau, 'increment': inc
-                    })
- 
-            for q in q_values:
-                moment = np.mean(np.abs(increments) ** q)
-                rows.append({
-                    'file': file, 'station': station, 'stream': stream,
-                    'q': q, 'tau': tau, 'moment': moment
-                })
- 
+    
     df_moments = pd.DataFrame(rows)
     if save_increments:
         return df_moments, pd.DataFrame(inc_rows)
@@ -905,3 +857,38 @@ def build_scaling_summary(df_exponents, df_piecewise, process_name):
         })
     
     return pd.DataFrame(summary_rows)
+
+def compute_moment_scaling_ensemble(df_acc, q_values, tau_values, **kwargs):
+    """
+    Wrapper: compute moments for each file, then average the moments.
+    
+    This is DIFFERENT from spatial ensemble averaging, but computationally
+    equivalent under ergodicity assumption.
+    """
+    
+    # Compute moments for each file
+    moments_per_file = {}
+    for file in df_acc['file'].unique():
+        df_file = df_acc[df_acc['file'] == file]
+        df_moments_file, _ = compute_moment_scaling_disp(
+            df_file, q_values, tau_values, **kwargs
+        )
+        moments_per_file[file] = df_moments_file
+    
+    # Average moments across files for each (q, tau)
+    df_ensemble = pd.DataFrame()
+    for q in q_values:
+        for tau in tau_values:
+            moments = []
+            for file, df_mom in moments_per_file.items():
+                m = df_mom[(df_mom['q'] == q) & (df_mom['tau'] == tau)]['moment']
+                if len(m) > 0:
+                    moments.append(m.values[0])
+            
+            df_ensemble = pd.concat([df_ensemble, pd.DataFrame({
+                'q': [q],
+                'tau': [tau],
+                'moment': [np.mean(moments)]
+            })], ignore_index=True)
+    
+    return df_ensemble

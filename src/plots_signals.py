@@ -593,3 +593,53 @@ def plot_increments_histograms_dual_view(df_increments, bins=50, normalized=True
               f"{mean_abs:<10.3f} {pct_zeros:<10.1f} {pct_less_1:<10.1f}")
     
     print("="*80)
+
+def plot_ergodicity_test(df_time_avg, df_ensemble_avg, output_dir=None):
+    """
+    Compare time-averaged vs ensemble-averaged scaling exponents.
+    
+    Parameters
+    ----------
+    df_time_avg : pd.DataFrame
+        Exponents from Notebook 03b (per-file, then averaged)
+    df_ensemble_avg : pd.DataFrame
+        Exponents from Notebook 04b (ensemble average)
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Time average: plot all files + mean
+    for file in df_time_avg['file'].unique():
+        df_file = df_time_avg[df_time_avg['file'] == file]
+        ax.plot(df_file['q'], df_file['zeta'], 
+                alpha=0.2, color='gray', linewidth=0.5)
+    
+    # Time average: mean
+    df_mean = df_time_avg.groupby('q')['zeta'].agg(['mean', 'std']).reset_index()
+    ax.plot(df_mean['q'], df_mean['mean'], 
+            'o-', color='blue', linewidth=2, label='Time avg (03b) - mean')
+    ax.fill_between(df_mean['q'], 
+                     df_mean['mean'] - df_mean['std'],
+                     df_mean['mean'] + df_mean['std'],
+                     alpha=0.3, color='blue')
+    
+    # Ensemble average
+    ax.plot(df_ensemble_avg['q'], df_ensemble_avg['zeta'],
+            's-', color='red', linewidth=2, label='Ensemble avg (04b)')
+    
+    # Reference line
+    q_vals = np.linspace(0.5, 5, 100)
+    ax.plot(q_vals, q_vals/2, '--', color='black', 
+            label='Normal diffusion (ζ=q/2)')
+    
+    ax.set_xlabel('q')
+    ax.set_ylabel('ζ(q)')
+    ax.set_title('Ergodicity Test: Time vs Ensemble Averaging')
+    ax.legend()
+    ax.grid(alpha=0.3)
+    
+    if output_dir:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_dir / 'ergodicity_test.pdf', bbox_inches='tight')
+    
+    plt.show()
