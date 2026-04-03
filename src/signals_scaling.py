@@ -92,7 +92,115 @@ def integrate_to_displacement(df_acc, dt=0.005, normalized=False, method='trapz'
     return df
 
 # ===============================================================================================
-# ==================================== Moment Scaling ===========================================
+# ==================================== Increment Computation ====================================
+# ===============================================================================================
+
+def compute_increments(df, tau_values, column='displacement'):
+    """
+    Compute increments Δx(τ, t₀) = x(t₀ + τ) - x(t₀) for all files and time lags.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Data with columns ['file', column]
+    tau_values : list of int
+        Time lags (in samples)
+    column : str
+        Column name of the process ('acceleration', 'velocity', 'displacement')
+    
+    Returns
+    -------
+    pd.DataFrame
+        Columns: [file, station, stream, tau, t0, increment]
+    
+    Examples
+    --------
+    >>> df = integrate_to_displacement(df_acc_event)
+    >>> df_inc = compute_increments(df, tau_values, column='displacement')
+    >>> print(df_inc.head())
+    """
+    if column not in df.columns:
+        raise ValueError(f"Column '{column}' not found. Available: {df.columns.tolist()}")
+    
+    inc_rows = []
+    
+    for file in df['file'].unique():
+        signal = df[df['file'] == file][column].values
+        station = file.split('.')[1]
+        stream = file.split('.')[3]
+        N = len(signal)
+        
+        for tau in tau_values:
+            if (N - tau) < 10:
+                continue
+            
+            # Increments: x(t0 + tau) - x(t0)
+            increments = signal[tau:] - signal[:-tau]
+            
+            # Save with t0 index
+            for t0, inc in enumerate(increments):
+                inc_rows.append({
+                    'file': file,
+                    'station': station,
+                    'stream': stream,
+                    'tau': tau,
+                    't0': t0,
+                    'increment': inc
+                })
+    
+    return pd.DataFrame(inc_rows)
+
+
+# ===============================================================================================
+# ==================================== Moment Computation =======================================
+# ===============================================================================================
+
+def compute_moments_from_increments(df_increments, q_values):
+    """
+    Compute q-th order moments from pre-computed increments.
+    
+    M_q(τ) = ⟨|Δx(τ, t₀)|^q⟩_{t₀}
+    
+    Parameters
+    ----------
+    df_increments : pd.DataFrame
+        Increments from compute_increments()
+        Must have columns: ['file', 'station', 'stream', 'tau', 'increment']
+    q_values : list of float
+        Moment orders to compute
+    
+    Returns
+    -------
+    pd.DataFrame
+        Columns: [file, station, stream, q, tau, moment]
+    
+    Examples
+    --------
+    >>> df_inc = compute_increments(df, tau_values, column='displacement')
+    >>> df_mom = compute_moments_from_increments(df_inc, q_values)
+    """
+    rows = []
+    
+    # Group by file and tau
+    for (file, station, stream, tau), group in df_increments.groupby(['file', 'station', 'stream', 'tau']):
+        increments = group['increment'].values
+        
+        for q in q_values:
+            moment = np.mean(np.abs(increments) ** q)
+            rows.append({
+                'file': file,
+                'station': station,
+                'stream': stream,
+                'q': q,
+                'tau': tau,
+                'moment': moment
+            })
+    
+    return pd.DataFrame(rows)
+
+
+# ===============================================================================================
+# ==================================== Unified Wrapper ==========================================
 # ===============================================================================================
 
 def compute_moment_scaling(df_acc, q_values, tau_values, 
@@ -103,109 +211,88 @@ def compute_moment_scaling(df_acc, q_values, tau_values,
     """
     Compute q-th order moments of increments for a given process.
     
-    If the process column already exists in the dataframe (e.g., from 
-    integrate_to_velocity() or integrate_to_displacement()), it will be used
-    directly. Otherwise, it will be computed.
+    Wrapper function that:
+    1. Ensures the process column exists (computes if needed)
+    2. Computes increments
+    3. Computes moments from increments
+    
+    For more control, use compute_increments() and compute_moments_from_increments()
+    separately.
     
     Parameters
     ----------
     df_acc : pd.DataFrame
-        Acceleration data. May already contain 'velocity' and/or 'displacement' columns.
+        Acceleration data (may already contain velocity/displacement)
     q_values : list of float
-        Moment orders to compute
+        Moment orders
     tau_values : list of int
         Time lags (in samples)
-    process : str, default='displacement'
-        Which process to analyze: 'acceleration', 'velocity', or 'displacement'
-    normalized : bool, default=False
-        If True, use 'acceleration_normalized' column (only for acceleration process)
-    dt : float, default=0.005
+    process : str
+        'acceleration', 'velocity', or 'displacement'
+    normalized : bool
+        Use normalized acceleration (only for acceleration process)
+    dt : float
         Sampling interval (only used if velocity/displacement need to be computed)
-    save_increments : bool, default=False
-        If True, also return DataFrame with all raw increments
+    save_increments : bool
+        If True, also return increments dataframe
     
     Returns
     -------
     df_moments : pd.DataFrame
         Columns: [file, station, stream, q, tau, moment]
     df_increments : pd.DataFrame (optional)
+        Columns: [file, station, stream, tau, t0, increment]
         Only returned if save_increments=True
     
     Examples
     --------
-    >>> # Method 1: Pre-compute processes (EFFICIENT for multiple uses)
-    >>> df = integrate_to_displacement(df_acc_event)
-    >>> df_moments_disp = compute_moment_scaling(df, q_values, tau_values, 
-    ...                                          process='displacement')
-    >>> df_moments_vel = compute_moment_scaling(df, q_values, tau_values,
-    ...                                         process='velocity')
-    
-    >>> # Method 2: Auto-compute on-the-fly (CONVENIENT for single use)
-    >>> df_moments = compute_moment_scaling(df_acc_event, q_values, tau_values,
+    >>> # Simple usage (auto-compute everything)
+    >>> df_moments = compute_moment_scaling(df_acc, q_values, tau_values,
     ...                                     process='displacement')
+    
+    >>> # With increments
+    >>> df_moments, df_increments = compute_moment_scaling(
+    ...     df_acc, q_values, tau_values, 
+    ...     process='displacement',
+    ...     save_increments=True
+    ... )
+    
+    >>> # Manual control (more efficient for multiple analyses)
+    >>> df = integrate_to_displacement(df_acc)
+    >>> df_inc = compute_increments(df, tau_values, column='displacement')
+    >>> df_mom = compute_moments_from_increments(df_inc, q_values)
     """
     valid_processes = ['acceleration', 'velocity', 'displacement']
     if process not in valid_processes:
         raise ValueError(f"process must be one of {valid_processes}, got '{process}'")
     
-    # Determine which column to use
+    # Ensure process column exists
     if process == 'acceleration':
         col = 'acceleration_normalized' if normalized else 'acceleration'
         df = df_acc.copy()
         
     elif process == 'velocity':
-        # Check if velocity already computed
         if 'velocity' in df_acc.columns:
-            col = 'velocity'
             df = df_acc.copy()
         else:
-            # Compute on-the-fly
             df = integrate_to_velocity(df_acc, dt=dt, normalized=normalized)
-            col = 'velocity'
+        col = 'velocity'
     
     elif process == 'displacement':
-        # Check if displacement already computed
         if 'displacement' in df_acc.columns:
-            col = 'displacement'
             df = df_acc.copy()
         else:
-            # Compute on-the-fly
             df = integrate_to_displacement(df_acc, dt=dt, normalized=normalized)
-            col = 'displacement'
+        col = 'displacement'
+    
+    # Compute increments
+    df_increments = compute_increments(df, tau_values, column=col)
     
     # Compute moments
-    rows = []
-    inc_rows = []
+    df_moments = compute_moments_from_increments(df_increments, q_values)
     
-    for file in df['file'].unique():
-        signal = df[df['file'] == file][col].values
-        station = file.split('.')[1]
-        stream = file.split('.')[3]
-        N = len(signal)
-        
-        for tau in tau_values:
-            if (N - tau) < 10:
-                continue
-            
-            increments = signal[tau:] - signal[:-tau]
-            
-            if save_increments:
-                for inc in increments:
-                    inc_rows.append({
-                        'file': file, 'station': station, 'stream': stream,
-                        'tau': tau, 'increment': inc
-                    })
-            
-            for q in q_values:
-                moment = np.mean(np.abs(increments) ** q)
-                rows.append({
-                    'file': file, 'station': station, 'stream': stream,
-                    'q': q, 'tau': tau, 'moment': moment
-                })
-    
-    df_moments = pd.DataFrame(rows)
     if save_increments:
-        return df_moments, pd.DataFrame(inc_rows)
+        return df_moments, df_increments
     return df_moments
 
 # ===============================================================================================
