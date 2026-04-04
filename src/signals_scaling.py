@@ -296,67 +296,501 @@ def compute_moment_scaling(df_acc, q_values, tau_values,
     return df_moments
 
 # ===============================================================================================
-# ==================================== Increments distribution check ============================
+# ==================================== Moment Validation ========================================
 # ===============================================================================================
 
-def check_increments_distribution(df_increments, tau_values=None):
+def validate_moments(df_moments, process_name='displacement'):
     """
-    Analyzes the distribution of increments: counts how many are < 1 vs > 1.
+    Quick validation and sanity checks for moment data.
+    
+    Checks:
+    - Data quality (NaN, Inf, negative values)
+    - Range analysis
+    - Basic statistics
+    
+    This is a lightweight diagnostic function. For full analysis use:
+    - compute_scaling_exponents() for zeta(q) estimation
+    - test_scaling_linearity() for linearity check
+    - fit_piecewise_scaling() for piecewise fits
+    
+    Parameters
+    ----------
+    df_moments : pd.DataFrame
+        Moments from compute_moments_from_increments()
+        Columns: ['file', 'station', 'stream', 'q', 'tau', 'moment']
+    process_name : str
+        Name for labeling
+    
+    Returns
+    -------
+    dict
+        Summary statistics and quality flags
+    """
+    print(f"\n{'='*80}")
+    print(f"MOMENT VALIDATION - {process_name.upper()}")
+    print('='*80)
+    
+    # Dataset info
+    print(f"\nDataset Info:")
+    print(f"  Total moment values: {len(df_moments):,}")
+    print(f"  Number of files: {df_moments['file'].nunique()}")
+    print(f"  q range: [{df_moments['q'].min()}, {df_moments['q'].max()}]")
+    print(f"  tau range: [{df_moments['tau'].min()}, {df_moments['tau'].max()}]")
+    
+    # Quality checks
+    print(f"\nData Quality Checks:")
+    
+    n_nan = df_moments['moment'].isna().sum()
+    n_inf = np.isinf(df_moments['moment']).sum()
+    n_negative = (df_moments['moment'] < 0).sum()
+    n_zero = (df_moments['moment'] == 0).sum()
+    
+    quality_ok = True
+    
+    if n_nan > 0:
+        print(f"  ERROR: {n_nan} NaN values found")
+        quality_ok = False
+    else:
+        print(f"  OK: No NaN values")
+    
+    if n_inf > 0:
+        print(f"  ERROR: {n_inf} Inf values found")
+        quality_ok = False
+    else:
+        print(f"  OK: No Inf values")
+    
+    if n_negative > 0:
+        print(f"  ERROR: {n_negative} negative moments (impossible!)")
+        quality_ok = False
+    else:
+        print(f"  OK: All moments positive")
+    
+    if n_zero > 0:
+        print(f"  WARNING: {n_zero} zero moments")
+    
+    # Range analysis by q
+    print(f"\nRange Analysis by q:")
+    print(f"  {'q':>5} | {'Min':>12} | {'Max':>12} | {'Median':>12} | {'CV':>8}")
+    print(f"  {'-'*5}|{'-'*14}|{'-'*14}|{'-'*14}|{'-'*10}")
+    
+    q_stats = {}
+    for q in sorted(df_moments['q'].unique()):
+        moments_q = df_moments[df_moments['q'] == q]['moment']
+        
+        q_stats[q] = {
+            'min': moments_q.min(),
+            'max': moments_q.max(),
+            'median': moments_q.median(),
+            'mean': moments_q.mean(),
+            'std': moments_q.std(),
+            'cv': moments_q.std() / moments_q.mean() if moments_q.mean() > 0 else np.nan
+        }
+        
+        print(f"  {q:5.2f} | {q_stats[q]['min']:12.6e} | {q_stats[q]['max']:12.6e} | "
+              f"{q_stats[q]['median']:12.6e} | {q_stats[q]['cv']:8.3f}")
+    
+    # Variability across files
+    print(f"\nVariability Across Files:")
+    
+    # For q=2 (example), compute coefficient of variation across files for each tau
+    df_q2 = df_moments[df_moments['q'] == 2.0]
+    cv_per_tau = []
+    for tau in df_q2['tau'].unique():
+        moments_tau = df_q2[df_q2['tau'] == tau]['moment']
+        if len(moments_tau) > 1:
+            cv = moments_tau.std() / moments_tau.mean()
+            cv_per_tau.append(cv)
+    
+    if cv_per_tau:
+        avg_cv = np.mean(cv_per_tau)
+        print(f"  Average CV across files (q=2): {avg_cv:.3f}")
+        if avg_cv < 0.5:
+            print(f"  Low variability between stations")
+        elif avg_cv < 1.0:
+            print(f"  Moderate variability between stations")
+        else:
+            print(f"  High variability between stations")
+    
+    # Summary
+    print(f"\n{'='*80}")
+    if quality_ok:
+        print("VALIDATION PASSED: Data quality is good")
+    else:
+        print("VALIDATION FAILED: Issues detected, review above")
+    print('='*80)
+    
+    return {
+        'quality_ok': quality_ok,
+        'n_nan': n_nan,
+        'n_inf': n_inf,
+        'n_negative': n_negative,
+        'n_zero': n_zero,
+        'q_stats': q_stats
+    }
+
+# ===============================================================================================
+# ==================================== Processes analysis =======================================
+# ===============================================================================================
+
+def analyze_processes(df, processes=['velocity', 'displacement'], 
+                     output_dir=None, save_plots=True):
+    """
+    Exploratory analysis of integrated processes (velocity and displacement).
+    
+    Analyzes:
+    - Range and distribution statistics
+    - Zero-crossing analysis
+    - Temporal evolution
+    - Cross-file comparison
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe with columns: ['file', 'sample', 'acceleration', 'velocity', 'displacement']
+    processes : list
+        Which processes to analyze
+    output_dir : Path
+        Where to save plots
+    save_plots : bool
+        Whether to save plots
+    
+    Returns
+    -------
+    dict
+        Summary statistics for each process
+    """
+    import matplotlib.pyplot as plt
+    from pathlib import Path
+    
+    results = {}
+    
+    for process in processes:
+        if process not in df.columns:
+            print(f"{process} not found in dataframe")
+            continue
+        
+        print(f"\n{'='*80}")
+        print(f"ANALYZING {process.upper()}")
+        print('='*80)
+        
+        # Overall statistics
+        stats = {
+            'mean': df[process].mean(),
+            'std': df[process].std(),
+            'min': df[process].min(),
+            'max': df[process].max(),
+            'median': df[process].median(),
+            'q25': df[process].quantile(0.25),
+            'q75': df[process].quantile(0.75),
+            'n_zeros': (df[process] == 0).sum(),
+            'n_positive': (df[process] > 0).sum(),
+            'n_negative': (df[process] < 0).sum()
+        }
+        
+        print(f"\nOverall Statistics:")
+        print(f"  Range: [{stats['min']:.6f}, {stats['max']:.6f}]")
+        print(f"  Mean: {stats['mean']:.6f} (should be ≈0 after integration)")
+        print(f"  Std: {stats['std']:.6f}")
+        print(f"  Median: {stats['median']:.6f}")
+        print(f"  Q25-Q75: [{stats['q25']:.6f}, {stats['q75']:.6f}]")
+        print(f"  Positive/Negative: {stats['n_positive']}/{stats['n_negative']}")
+        
+        # Per-file statistics
+        per_file = df.groupby('file')[process].agg(['mean', 'std', 'min', 'max'])
+        
+        print(f"\nPer-File Statistics:")
+        print(f"  Mean range across files: [{per_file['mean'].min():.6f}, {per_file['mean'].max():.6f}]")
+        print(f"  Std range across files: [{per_file['std'].min():.6f}, {per_file['std'].max():.6f}]")
+        print(f"  Global min/max: [{per_file['min'].min():.6f}, {per_file['max'].max():.6f}]")
+        
+        # Sanity checks
+        print(f"\nSanity Checks:")
+        if abs(stats['mean']) > 1e-3:
+            print(f"Mean far from zero: {stats['mean']:.6f} (possible drift!)")
+        else:
+            print(f"Mean close to zero: {stats['mean']:.6e}")
+        
+        if stats['n_positive'] == 0 or stats['n_negative'] == 0:
+            print(f" Only {'positive' if stats['n_positive'] > 0 else 'negative'} values (suspicious!)")
+        else:
+            print(f"Both positive and negative values present")
+        
+        # Check for NaN/Inf
+        n_nan = df[process].isna().sum()
+        n_inf = np.isinf(df[process]).sum()
+        if n_nan > 0:
+            print(f"{n_nan} NaN values found!")
+        if n_inf > 0:
+            print(f"{n_inf} Inf values found!")
+        if n_nan == 0 and n_inf == 0:
+            print(f"No NaN or Inf values")
+        
+        results[process] = stats
+        
+        # Plots
+        if save_plots:
+            fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+            
+            # Plot 1: Overall distribution
+            axes[0, 0].hist(df[process], bins=100, edgecolor='none', alpha=0.7)
+            axes[0, 0].axvline(0, color='red', linestyle='--', linewidth=1, label='Zero')
+            axes[0, 0].set_xlabel(f'{process.capitalize()} ({"cm/s" if process=="velocity" else "cm"})')
+            axes[0, 0].set_ylabel('Count')
+            axes[0, 0].set_title(f'{process.capitalize()} Distribution - All Files')
+            axes[0, 0].legend()
+            axes[0, 0].grid(alpha=0.3)
+            
+            # Plot 2: Per-file statistics
+            per_file_sorted = per_file.sort_values('std', ascending=False)
+            x = np.arange(len(per_file_sorted))
+            axes[0, 1].bar(x, per_file_sorted['std'], alpha=0.7)
+            axes[0, 1].set_xlabel('File (sorted by std)')
+            axes[0, 1].set_ylabel(f'Std ({"cm/s" if process=="velocity" else "cm"})')
+            axes[0, 1].set_title(f'{process.capitalize()} - Standard Deviation per File')
+            axes[0, 1].grid(alpha=0.3)
+            
+            # Plot 3: Time series examples
+            example_files = df['file'].unique()[:4]
+            for file in example_files:
+                df_file = df[df['file'] == file]
+                t = df_file['sample'] * 0.005  # Convert to seconds
+                axes[1, 0].plot(t, df_file[process], alpha=0.7, label=file.split('.')[1])
+            axes[1, 0].axhline(0, color='black', linestyle='--', linewidth=0.5)
+            axes[1, 0].set_xlabel('Time (s)')
+            axes[1, 0].set_ylabel(f'{process.capitalize()} ({"cm/s" if process=="velocity" else "cm"})')
+            axes[1, 0].set_title(f'{process.capitalize()} - Example Time Series')
+            axes[1, 0].legend()
+            axes[1, 0].grid(alpha=0.3)
+            
+            # Plot 4: Q-Q plot (check normality)
+            from scipy import stats as sp_stats
+            sample = df[process].dropna().sample(min(10000, len(df)), random_state=42)
+            sp_stats.probplot(sample, dist="norm", plot=axes[1, 1])
+            axes[1, 1].set_title(f'{process.capitalize()} - Q-Q Plot (Normality Check)')
+            axes[1, 1].grid(alpha=0.3)
+            
+            plt.suptitle(f'Process Analysis: {process.capitalize()}', fontsize=14, y=1.00)
+            plt.tight_layout()
+            
+            if output_dir:
+                output_dir = Path(output_dir)
+                output_dir.mkdir(parents=True, exist_ok=True)
+                plt.savefig(output_dir / f'process_analysis_{process}.pdf', bbox_inches='tight')
+                print(f"\n  Saved plot to {output_dir / f'process_analysis_{process}.pdf'}")
+            
+            plt.show()
+    
+    return results
+
+# ===============================================================================================
+# ==================================== Increments distribution analysis =========================
+# ===============================================================================================
+
+def analyze_increments(df_increments, process_name='displacement',
+                      tau_examples=[100, 1000, 5000],
+                      output_dir=None, save_plots=True):
+    """
+    Comprehensive exploratory analysis of increments.
+    
+    Analyzes:
+    - Distribution statistics (mean, std, median, skew, kurtosis)
+    - Range analysis (min, max)
+    - Fraction |Δx| < 1 vs ≥ 1
+    - Symmetry check
+    - Heavy tails assessment
+    - Scaling with τ
     
     Parameters
     ----------
     df_increments : pd.DataFrame
-        DataFrame with columns [file, station, stream, tau, increment]
-    tau_values : list of int, optional
-        Specific tau values to analyze. If None, analyzes all tau values.
+        Increments with columns ['file', 'station', 'stream', 'tau', 't0', 'increment']
+    process_name : str
+        Name for labeling
+    tau_examples : list
+        Specific τ values for detailed plots
+    output_dir : Path
+        Where to save plots
+    save_plots : bool
+        Whether to generate plots
     
     Returns
     -------
     df_summary : pd.DataFrame
-        Summary with columns [tau, total_increments, abs_less_than_1, 
-        abs_greater_than_1, frac_less_than_1, frac_greater_than_1, 
-        mean_abs_increment, median_abs_increment]
+        Comprehensive summary with all statistics per τ
     """
-    if tau_values is None:
-        tau_values = sorted(df_increments['tau'].unique())
+    from scipy import stats as sp_stats
     
+    print(f"\n{'='*80}")
+    print(f"INCREMENTS ANALYSIS - {process_name.upper()}")
+    print('='*80)
+    
+    tau_values = sorted(df_increments['tau'].unique())
+    
+    print(f"\nDataset Info:")
+    print(f"  Total increments: {len(df_increments):,}")
+    print(f"  Number of files: {df_increments['file'].nunique()}")
+    print(f"  Number of τ values: {len(tau_values)}")
+    print(f"  τ range: [{min(tau_values)}, {max(tau_values)}]")
+    
+    # Compute comprehensive statistics per τ
     results = []
     
     for tau in tau_values:
         increments = df_increments[df_increments['tau'] == tau]['increment'].values
         abs_increments = np.abs(increments)
         
-        total = len(increments)
-        less_than_1 = np.sum(abs_increments < 1)
-        greater_than_1 = np.sum(abs_increments >= 1)
+        n_total = len(increments)
+        n_less_1 = np.sum(abs_increments < 1)
+        n_geq_1 = np.sum(abs_increments >= 1)
         
-        results.append({
+        stats = {
+            # Basic info
             'tau': tau,
-            'total_increments': total,
-            'abs_less_than_1': less_than_1,
-            'abs_greater_than_1': greater_than_1,
-            'frac_less_than_1': less_than_1 / total,
-            'frac_greater_than_1': greater_than_1 / total,
-            'mean_abs_increment': np.mean(abs_increments),
-            'median_abs_increment': np.median(abs_increments),
-            'std_abs_increment': np.std(abs_increments),
-            'min_abs_increment': np.min(abs_increments),
-            'max_abs_increment': np.max(abs_increments)
-        })
+            'n_samples': n_total,
+            
+            # Signed increment statistics (for symmetry check)
+            'mean': np.mean(increments),
+            'std': np.std(increments),
+            'median': np.median(increments),
+            
+            # Absolute increment statistics
+            'mean_abs': np.mean(abs_increments),
+            'median_abs': np.median(abs_increments),
+            'std_abs': np.std(abs_increments),
+            'min_abs': np.min(abs_increments),
+            'max_abs': np.max(abs_increments),
+            
+            # Distribution shape
+            'skewness': sp_stats.skew(increments),
+            'kurtosis': sp_stats.kurtosis(increments),  # Excess kurtosis
+            
+            # Fraction analysis
+            'n_less_than_1': n_less_1,
+            'n_geq_1': n_geq_1,
+            'frac_less_than_1': n_less_1 / n_total,
+            'frac_geq_1': n_geq_1 / n_total
+        }
+        
+        results.append(stats)
     
     df_summary = pd.DataFrame(results)
     
-    # Print summary
-    print(f"\n{'='*70}")
-    print(f"INCREMENTS DISTRIBUTION SUMMARY")
-    print(f"{'='*70}")
-    print(f"\nTotal number of tau values analyzed: {len(tau_values)}")
-    print(f"\nOverall statistics:")
-    print(f"  - Average fraction |increment| < 1: {df_summary['frac_less_than_1'].mean():.2%}")
-    print(f"  - Average fraction |increment| >= 1: {df_summary['frac_greater_than_1'].mean():.2%}")
-    print(f"\nBy tau scale:")
-    print(df_summary.to_string(index=False))
-    print(f"{'='*70}\n")
+    # Print summary table
+    print(f"\n{'='*80}")
+    print(f"SUMMARY TABLE")
+    print('='*80)
+    print(f"\n{'τ':>6} | {'Mean':>10} | {'Std':>10} | {'Skew':>7} | {'Kurt':>7} | "
+          f"{'<1':>7} | {'≥1':>7} | {'Mean|Δx|':>10}")
+    print(f"{'-'*6}|{'-'*12}|{'-'*12}|{'-'*9}|{'-'*9}|{'-'*9}|{'-'*9}|{'-'*12}")
+    
+    for _, row in df_summary.iterrows():
+        print(f"{row['tau']:6.0f} | {row['mean']:10.4e} | {row['std']:10.4e} | "
+              f"{row['skewness']:7.2f} | {row['kurtosis']:7.2f} | "
+              f"{row['frac_less_than_1']:6.1%} | {row['frac_geq_1']:6.1%} | "
+              f"{row['mean_abs']:10.4e}")
+    
+    # Sanity checks
+    print(f"\n{'='*80}")
+    print(f"SANITY CHECKS")
+    print('='*80)
+    
+    # 1. Symmetry check
+    max_mean = df_summary['mean'].abs().max()
+    if max_mean < 1e-6:
+        print(f"Symmetry: All means ≈ 0 (max |mean| = {max_mean:.2e})")
+    else:
+        print(f"Asymmetry detected: max |mean| = {max_mean:.2e}")
+    
+    # 2. Monotonic std increase
+    stds = df_summary['std'].values
+    if all(stds[i] <= stds[i+1] for i in range(len(stds)-1)):
+        print(f"Scaling: Std increases monotonically with τ")
+    else:
+        print(f"Non-monotonic std scaling detected")
+    
+    # 3. Heavy tails
+    heavy_tail_count = (df_summary['kurtosis'] > 3).sum()
+    if heavy_tail_count > 0:
+        print(f"Heavy tails: {heavy_tail_count}/{len(tau_values)} τ values have kurtosis > 3")
+    else:
+        print(f" No heavy tails detected (all kurtosis ≤ 3)")
+    
+    # 4. Fraction < 1
+    avg_frac_less_1 = df_summary['frac_less_than_1'].mean()
+    print(f"Average fraction |Δx| < 1: {avg_frac_less_1:.1%}")
+    
+    # Plots (if requested)
+    if save_plots:
+        import matplotlib.pyplot as plt
+        from pathlib import Path
+        
+        fig, axes = plt.subplots(2, 3, figsize=(16, 10))
+        axes = axes.flatten()
+        
+        # Plot 1-3: Distributions for specific τ
+        for idx, tau in enumerate(tau_examples[:3]):
+            if tau not in tau_values:
+                continue
+            
+            inc_tau = df_increments[df_increments['tau'] == tau]['increment']
+            
+            axes[idx].hist(inc_tau, bins=100, density=True, alpha=0.7, edgecolor='none')
+            axes[idx].axvline(0, color='red', linestyle='--', linewidth=1)
+            axes[idx].set_xlabel(f'Increment ({"cm" if "disp" in process_name else "cm/s"})')
+            axes[idx].set_ylabel('Density (log scale)')
+            axes[idx].set_yscale('log')
+            
+            row = df_summary[df_summary['tau'] == tau].iloc[0]
+            axes[idx].set_title(f'τ={tau} ({tau*0.005:.2f}s)\n'
+                               f'Skew={row["skewness"]:.2f}, Kurt={row["kurtosis"]:.2f}\n'
+                               f'|Δx|<1: {row["frac_less_than_1"]:.1%}')
+            axes[idx].grid(alpha=0.3)
+        
+        # Plot 4: Std scaling
+        tau_array = df_summary['tau'].values
+        std_array = df_summary['std'].values
+        
+        axes[3].loglog(tau_array, std_array, 'o-', linewidth=2, markersize=6)
+        axes[3].set_xlabel('τ (samples)')
+        axes[3].set_ylabel('Std(Δx(τ))')
+        axes[3].set_title('Std Scaling with τ')
+        
+        # Reference: normal diffusion
+        tau_ref = tau_array[len(tau_array)//2]
+        std_ref = std_array[len(std_array)//2]
+        axes[3].loglog(tau_array, std_ref * (tau_array/tau_ref)**0.5, 
+                      '--', alpha=0.7, label='τ^0.5 (normal diffusion)')
+        axes[3].legend()
+        axes[3].grid(alpha=0.3, which='both')
+        
+        # Plot 5: Fraction < 1 vs τ
+        axes[4].semilogx(tau_array, df_summary['frac_less_than_1']*100, 'o-')
+        axes[4].set_xlabel('τ (samples)')
+        axes[4].set_ylabel('% with |Δx| < 1')
+        axes[4].set_title('Fraction of Small Increments vs τ')
+        axes[4].grid(alpha=0.3)
+        
+        # Plot 6: Kurtosis vs τ
+        axes[5].semilogx(tau_array, df_summary['kurtosis'], 'o-', color='red')
+        axes[5].axhline(0, color='gray', linestyle='--', linewidth=0.5, label='Normal')
+        axes[5].axhline(3, color='orange', linestyle='--', linewidth=0.5, label='Heavy tail threshold')
+        axes[5].set_xlabel('τ (samples)')
+        axes[5].set_ylabel('Excess Kurtosis')
+        axes[5].set_title('Heavy Tail Assessment')
+        axes[5].legend()
+        axes[5].grid(alpha=0.3)
+        
+        plt.suptitle(f'Increment Analysis: {process_name.capitalize()}', fontsize=14)
+        plt.tight_layout()
+        
+        if output_dir:
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            plt.savefig(output_dir / f'increment_analysis_{process_name}.pdf', 
+                       bbox_inches='tight')
+            print(f"\n📊 Saved plot to {output_dir / f'increment_analysis_{process_name}.pdf'}")
+        
+        plt.show()
     
     return df_summary
 
@@ -916,6 +1350,10 @@ def compute_increment_tail_exponents(df_increments, tau_values_plot=None, top_fr
         })
  
     return pd.DataFrame(rows)
+
+# ===============================================================================================
+# ========================== Summary ============================================================
+# ===============================================================================================
 
 def build_scaling_summary(df_exponents, df_piecewise, process_name):
     """
