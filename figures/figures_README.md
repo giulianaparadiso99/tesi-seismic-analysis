@@ -1,14 +1,14 @@
 # Analysis Figures
 
-This directory contains all figures generated during the seismic moment scaling analysis.
+This directory contains all figures generated.
 
 **Quick Download Options:**
-- [Download entire figures folder as ZIP](../../archive/refs/heads/main.zip) (extract `figures/` from archive)
+- [Download entire figures folder as ZIP](https://github.com/giulianaparadiso99/tesi-seismic-analysis/archive/refs/heads/main.zip) (extract `figures/` from archive)
 - Browse individual files below
 
 ---
 
-## 📁 Directory Structure
+## Directory Structure
 
 ```
 figures/
@@ -238,7 +238,7 @@ Probability density function analysis for aggregated signals.
 
 ---
 
-## 📊 Exploratory Analysis (NEW)
+## Exploratory Analysis
 
 **Folder:** `exploratory/`
 
@@ -273,7 +273,7 @@ Analysis of increment distributions, symmetry, and scaling.
 
 ---
 
-## 📝 How to Use
+## How to Use
 
 ### Download Individual Files
 Click on any `.pdf` link → File downloads automatically → Open in your PDF viewer
@@ -299,7 +299,7 @@ This README is maintained alongside the analysis code. Files are added automatic
 
 ---
 
-## 📖 Reference
+## Reference
 
 For methodology and theoretical background, see:
 - `notebooks/03b_moment_scaling.ipynb` - Main analysis notebook
@@ -308,8 +308,8 @@ For methodology and theoretical background, see:
 
 ---
 
-## 📧 Contact
+## Contact
 
 For questions about specific figures or analysis methods:
 - Open an issue on GitHub
-- Contact: [your email]
+- Contact: giulianaparadiso99@gmail.com
