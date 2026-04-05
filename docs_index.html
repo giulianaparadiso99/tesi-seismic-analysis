@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seismic Moment Scaling Analysis - Figures</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+            --text: #1e293b;
+            --border: #e2e8f0;
+            --accent: #3b82f6;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: var(--text);
+            background: var(--bg);
+        }
+        
+        .header {
+            background: white;
+            border-bottom: 1px solid var(--border);
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+        
+        h1 {
+            color: var(--primary);
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .subtitle {
+            color: #64748b;
+            font-size: 1.1rem;
+        }
+        
+        nav {
+            background: white;
+            padding: 1rem 0;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        nav ul {
+            list-style: none;
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+        }
+        
+        nav a {
+            color: var(--text);
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            transition: background 0.2s;
+        }
+        
+        nav a:hover {
+            background: var(--bg);
+            color: var(--primary);
+        }
+        
+        .section {
+            background: white;
+            border-radius: 0.75rem;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            border: 1px solid var(--border);
+        }
+        
+        h2 {
+            color: var(--primary);
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--border);
+        }
+        
+        h3 {
+            color: var(--text);
+            font-size: 1.25rem;
+            margin: 1.5rem 0 1rem 0;
+        }
+        
+        .figure-container {
+            margin: 2rem 0;
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+        
+        .figure-header {
+            background: var(--bg);
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .figure-title {
+            font-weight: 600;
+            color: var(--text);
+        }
+        
+        .download-btn {
+            background: var(--primary);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            text-decoration: none;
+            font-size: 0.875rem;
+            transition: background 0.2s;
+        }
+        
+        .download-btn:hover {
+            background: var(--accent);
+        }
+        
+        embed {
+            width: 100%;
+            height: 700px;
+            border: none;
+        }
+        
+        .folder-link {
+            display: inline-block;
+            background: var(--bg);
+            color: var(--primary);
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            text-decoration: none;
+            margin: 0.5rem 0.5rem 0.5rem 0;
+            border: 1px solid var(--border);
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+        
+        .folder-link:hover {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+        
+        .info-box {
+            background: #eff6ff;
+            border-left: 4px solid var(--primary);
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0.375rem;
+        }
+        
+        .subsection {
+            margin-left: 1.5rem;
+            padding-left: 1.5rem;
+            border-left: 2px solid var(--border);
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 2rem;
+            color: #64748b;
+            font-size: 0.875rem;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 0 1rem;
+            }
+            
+            embed {
+                height: 500px;
+            }
+            
+            nav ul {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="container">
+            <h1>Seismic Moment Scaling Analysis</h1>
+            <p class="subtitle">Figure Gallery - View all analysis results</p>
+        </div>
+    </div>
+    
+    <nav>
+        <div class="container">
+            <ul>
+                <li><a href="#exploratory">Exploratory Analysis</a></li>
+                <li><a href="#scaling">Moment Scaling</a></li>
+                <li><a href="#autocorr">Autocorrelation</a></li>
+                <li><a href="#pdf">PDF Analysis</a></li>
+                <li><a href="#aggregated">Aggregated Results</a></li>
+            </ul>
+        </div>
+    </nav>
+    
+    <div class="container">
+        
+        <!-- Exploratory Analysis Section -->
+        <section id="exploratory" class="section">
+            <h2>Exploratory Analysis</h2>
+            
+            <div class="info-box">
+                <strong>Quality Control:</strong> These plots verify data quality before main analysis.
+                Checks for drift, symmetry, and proper integration.
+            </div>
+            
+            <h3>Process Analysis</h3>
+            <a href="https://github.com/giulianaparadiso99/tesi-seismic-analysis/tree/main/figures/exploratory/processes" class="folder-link">📁 View Folder on GitHub</a>
+            
+            <div class="figure-container">
+                <div class="figure-header">
+                    <span class="figure-title">Velocity Analysis</span>
+                    <a href="../figures/exploratory/processes/process_analysis_velocity.pdf" download class="download-btn">⬇ Download PDF</a>
+                </div>
+                <embed src="../figures/exploratory/processes/process_analysis_velocity.pdf" type="application/pdf">
+            </div>
+            
+            <div class="figure-container">
+                <div class="figure-header">
+                    <span class="figure-title">Displacement Analysis</span>
+                    <a href="../figures/exploratory/processes/process_analysis_displacement.pdf" download class="download-btn">⬇ Download PDF</a>
+                </div>
+                <embed src="../figures/exploratory/processes/process_analysis_displacement.pdf" type="application/pdf">
+            </div>
+            
+            <h3>Increment Analysis</h3>
+            <a href="https://github.com/giulianaparadiso99/tesi-seismic-analysis/tree/main/figures/exploratory/increments" class="folder-link">📁 View Folder on GitHub</a>
+            
+            <div class="figure-container">
+                <div class="figure-header">
+                    <span class="figure-title">Displacement Increments - Distribution & Scaling</span>
+                    <a href="../figures/exploratory/increments/increment_analysis_displacement.pdf" download class="download-btn">⬇ Download PDF</a>
+                </div>
+                <embed src="../figures/exploratory/increments/increment_analysis_displacement.pdf" type="application/pdf">
+            </div>
+        </section>
+        
+        <!-- Moment Scaling Section -->
+        <section id="scaling" class="section">
+            <h2>Moment Scaling Analysis</h2>
+            
+            <div class="info-box">
+                <strong>Main Analysis:</strong> Scaling exponents ζ(q), linearity tests, and piecewise fits
+                for acceleration, velocity, and displacement processes.
+            </div>
+            
+            <!-- Acceleration -->
+            <h3>Acceleration</h3>
+            <a href="https://github.com/giulianaparadiso99/tesi-seismic-analysis/tree/main/figures/03_single_signal/scaling/acceleration" class="folder-link">📁 View Acceleration Folder</a>
+            
+            <div class="subsection">
+                <h4>Event Window</h4>
+                
+                <div class="figure-container">
+                    <div class="figure-header">
+                        <span class="figure-title">Scaling Exponents ζ(q)</span>
+                        <a href="../figures/03_single_signal/scaling/acceleration/event_window/exponents/scaling_exponents_overlay.pdf" download class="download-btn">⬇ Download PDF</a>
+                    </div>
+                    <embed src="../figures/03_single_signal/scaling/acceleration/event_window/exponents/scaling_exponents_overlay.pdf" type="application/pdf">
+                </div>
+                
+                <div class="figure-container">
+                    <div class="figure-header">
+                        <span class="figure-title">Linearity Test</span>
+                        <a href="../figures/03_single_signal/scaling/acceleration/event_window/linearity/scaling_linearity_test.pdf" download class="download-btn">⬇ Download PDF</a>
+                    </div>
+                    <embed src="../figures/03_single_signal/scaling/acceleration/event_window/linearity/scaling_linearity_test.pdf" type="application/pdf">
+                </div>
+                
+                <div class="figure-container">
+                    <div class="figure-header">
+                        <span class="figure-title">Piecewise Fit</span>
+                        <a href="../figures/03_single_signal/scaling/acceleration/event_window/piecewise/scaling_piecewise_fit.pdf" download class="download-btn">⬇ Download PDF</a>
+                    </div>
+                    <embed src="../figures/03_single_signal/scaling/acceleration/event_window/piecewise/scaling_piecewise_fit.pdf" type="application/pdf">
+                </div>
+            </div>
+            
+            <!-- Velocity -->
+            <h3>Velocity</h3>
+            <a href="https://github.com/giulianaparadiso99/tesi-seismic-analysis/tree/main/figures/03_single_signal/scaling/velocity" class="folder-link">📁 View Velocity Folder</a>
+            
+            <div class="subsection">
+                <h4>Event Window</h4>
+                
+                <div class="figure-container">
+                    <div class="figure-header">
+                        <span class="figure-title">Scaling Exponents ζ(q)</span>
+                        <a href="../figures/03_single_signal/scaling/velocity/event_window/exponents/scaling_exponents_overlay.pdf" download class="download-btn">⬇ Download PDF</a>
+                    </div>
+                    <embed src="../figures/03_single_signal/scaling/velocity/event_window/exponents/scaling_exponents_overlay.pdf" type="application/pdf">
+                </div>
+                
+                <div class="figure-container">
+                    <div class="figure-header">
+                        <span class="figure-title">Linearity Test</span>
+                        <a href="../figures/03_single_signal/scaling/velocity/event_window/linearity/scaling_linearity_test.pdf" download class="download-btn">⬇ Download PDF</a>
+                    </div>
+                    <embed src="../figures/03_single_signal/scaling/velocity/event_window/linearity/scaling_linearity_test.pdf" type="application/pdf">
+                </div>
+                
+                <div class="figure-container">
+                    <div class="figure-header">
+                        <span class="figure-title">Piecewise Fit</span>
+                        <a href="../figures/03_single_signal/scaling/velocity/event_window/piecewise/scaling_piecewise_fit.pdf" download class="download-btn">⬇ Download PDF</a>
+                    </div>
+                    <embed src="../figures/03_single_signal/scaling/velocity/event_window/piecewise/scaling_piecewise_fit.pdf" type="application/pdf">
+                </div>
+            </div>
+            
+            <!-- Displacement -->
+            <h3>Displacement</h3>
+            <a href="https://github.com/giulianaparadiso99/tesi-seismic-analysis/tree/main/figures/03_single_signal/scaling/displacement" class="folder-link">📁 View Displacement Folder</a>
+            
+            <div class="subsection">
+                <h4>Event Window</h4>
+                
+                <div class="figure-container">
+                    <div class="figure-header">
+                        <span class="figure-title">Scaling Exponents ζ(q)</span>
+                        <a href="../figures/03_single_signal/scaling/displacement/event_window/exponents/scaling_exponents_overlay.pdf" download class="download-btn">⬇ Download PDF</a>
+                    </div>
+                    <embed src="../figures/03_single_signal/scaling/displacement/event_window/exponents/scaling_exponents_overlay.pdf" type="application/pdf">
+                </div>
+                
+                <div class="figure-container">
+                    <div class="figure-header">
+                        <span class="figure-title">Linearity Test</span>
+                        <a href="../figures/03_single_signal/scaling/displacement/event_window/linearity/scaling_linearity_test.pdf" download class="download-btn">⬇ Download PDF</a>
+                    </div>
+                    <embed src="../figures/03_single_signal/scaling/displacement/event_window/linearity/scaling_linearity_test.pdf" type="application/pdf">
+                </div>
+                
+                <div class="figure-container">
+                    <div class="figure-header">
+                        <span class="figure-title">Piecewise Fit</span>
+                        <a href="../figures/03_single_signal/scaling/displacement/event_window/piecewise/scaling_piecewise_fit.pdf" download class="download-btn">⬇ Download PDF</a>
+                    </div>
+                    <embed src="../figures/03_single_signal/scaling/displacement/event_window/piecewise/scaling_piecewise_fit.pdf" type="application/pdf">
+                </div>
+            </div>
+        </section>
+        
+        <!-- Autocorrelation Section -->
+        <section id="autocorr" class="section">
+            <h2>Autocorrelation Analysis</h2>
+            <a href="https://github.com/giulianaparadiso99/tesi-seismic-analysis/tree/main/figures/03_single_signal/autocorrelation" class="folder-link">📁 View Folder on GitHub</a>
+            
+            <div class="info-box">
+                <strong>Temporal Correlation:</strong> Analysis of autocorrelation functions
+                to assess memory effects in seismic signals.
+            </div>
+            
+            <p style="padding: 1rem; color: #64748b;">
+                Figures will appear here as they are generated.
+            </p>
+        </section>
+        
+        <!-- PDF Analysis Section -->
+        <section id="pdf" class="section">
+            <h2>Probability Density Function Analysis</h2>
+            
+            <h3>Single Signal PDFs</h3>
+            <a href="https://github.com/giulianaparadiso99/tesi-seismic-analysis/tree/main/figures/03_single_signal/pdf_single" class="folder-link">📁 View Folder on GitHub</a>
+            
+            <h3>Gaussian Fit</h3>
+            <a href="https://github.com/giulianaparadiso99/tesi-seismic-analysis/tree/main/figures/03_single_signal/gaussian_fit" class="folder-link">📁 View Folder on GitHub</a>
+            
+            <h3>Heavy Tail Analysis</h3>
+            <a href="https://github.com/giulianaparadiso99/tesi-seismic-analysis/tree/main/figures/03_single_signal/heavy_tail" class="folder-link">📁 View Folder on GitHub</a>
+            
+            <p style="padding: 1rem; color: #64748b;">
+                Figures will appear here as they are generated.
+            </p>
+        </section>
+        
+        <!-- Aggregated Analysis Section -->
+        <section id="aggregated" class="section">
+            <h2>Aggregated Analysis</h2>
+            <a href="https://github.com/giulianaparadiso99/tesi-seismic-analysis/tree/main/figures/04_aggregated" class="folder-link">📁 View Folder on GitHub</a>
+            
+            <div class="info-box">
+                <strong>Multi-Signal Analysis:</strong> Results aggregated across multiple seismic events
+                for ensemble statistics and universal scaling behavior.
+            </div>
+            
+            <h3>Aggregated PDFs</h3>
+            <a href="https://github.com/giulianaparadiso99/tesi-seismic-analysis/tree/main/figures/04_aggregated/pdf" class="folder-link">📁 View PDF Folder</a>
+            
+            <h3>Gaussian Fit (Aggregated)</h3>
+            <a href="https://github.com/giulianaparadiso99/tesi-seismic-analysis/tree/main/figures/04_aggregated/gaussian_fit" class="folder-link">📁 View Gaussian Fit Folder</a>
+            
+            <p style="padding: 1rem; color: #64748b;">
+                Figures will appear here as they are generated.
+            </p>
+        </section>
+        
+    </div>
+    
+    <div class="footer">
+        <p>Seismic Moment Scaling Analysis | Last updated: April 2026</p>
+        <p><a href="https://github.com/giulianaparadiso99/tesi-seismic-analysis" style="color: var(--primary);">View on GitHub</a></p>
+    </div>
+</body>
+</html>
