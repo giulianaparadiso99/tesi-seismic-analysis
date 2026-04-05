@@ -1,10 +1,44 @@
 # Analysis Figures
 
-This directory contains all figures generated.
+This directory contains all figures generated during the seismic moment scaling analysis.
 
-**Quick Download Options:**
-- [Download entire figures folder as ZIP](https://github.com/giulianaparadiso99/tesi-seismic-analysis/archive/refs/heads/main.zip) (extract `figures/` from archive)
-- Browse individual files below
+---
+
+## How to Download
+
+### Option 1: Individual Files
+Click on any PDF link below → File downloads immediately
+
+**Best for:** Viewing specific figures quickly
+
+---
+
+### Option 2: Entire Repository as ZIP
+[Download repository as ZIP](https://github.com/giulianaparadiso99/tesi-seismic-analysis/archive/refs/heads/main.zip)
+
+**Steps:**
+1. Click link above
+2. Extract the downloaded ZIP file
+3. Navigate to `tesi-seismic-analysis-main/figures/` folder
+
+**Best for:** Getting everything at once (includes code, data, and figures)
+
+---
+
+### Option 3: Only Figures Folder (Advanced)
+Using git sparse checkout to download only the `figures/` directory:
+```bash
+# Clone with sparse checkout
+git clone --filter=blob:none --sparse https://github.com/giulianaparadiso99/tesi-seismic-analysis.git
+cd tesi-seismic-analysis
+
+# Download only figures folder
+git sparse-checkout set figures
+
+# Now only figures/ is downloaded
+```
+
+**Best for:** Developers who want only figures without the full repository
 
 ---
 
