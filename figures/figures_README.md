@@ -70,8 +70,6 @@ Contains catalog statistics, event distribution, and metadata visualizations.
 
 **Download:**
 - [View folder on GitHub](01_metadata)
-- Individual files:
-  - Coming soon (add specific files as generated)
 
 ---
 
@@ -83,8 +81,6 @@ Signal preprocessing, baseline correction, and quality control.
 
 **Download:**
 - [View folder on GitHub](02_signals)
-- Individual files:
-  - Coming soon (add specific files as generated)
 
 ---
 
@@ -98,7 +94,7 @@ Main analysis of individual seismic signals.
 
 **Folder:** `03_single_signal/acceleration_pdfs_individual_data/`
 
-Probability density functions for acceleration data, individual files.
+Probability density functions for acceleration data.
 
 **Download:**
 - [View folder on GitHub](03_single_signal/acceleration_pdfs_individual_data)
@@ -128,9 +124,6 @@ Gaussian distribution fitting for signal increments.
 **Download:**
 - [View folder on GitHub](03_single_signal/gaussian_fit)
 
-**Key Figures:**
-- [Add specific PDF links here as generated]
-
 ---
 
 ### 3.4 Heavy Tail Analysis
@@ -142,9 +135,6 @@ Heavy tail assessment and power-law fitting.
 **Download:**
 - [View folder on GitHub](03_single_signal/heavy_tail)
 
-**Key Figures:**
-- [Add specific PDF links here as generated]
-
 ---
 
 ### 3.5 Probability Density Functions (Single)
@@ -155,9 +145,6 @@ Individual PDF analysis for single signals.
 
 **Download:**
 - [View folder on GitHub](03_single_signal/pdf_single)
-
-**Key Figures:**
-- [Add specific PDF links here as generated]
 
 ---
 
@@ -253,9 +240,6 @@ Gaussian distribution fitting for aggregated data.
 **Download:**
 - [View folder on GitHub](04_aggregated/gaussian_fit)
 
-**Key Figures:**
-- [Add specific PDF links here as generated]
-
 ---
 
 ### 4.2 PDF Analysis (Aggregated)
@@ -266,9 +250,6 @@ Probability density function analysis for aggregated signals.
 
 **Download:**
 - [View folder on GitHub](04_aggregated/pdf)
-
-**Key Figures:**
-- [Add specific PDF links here as generated]
 
 ---
 
@@ -325,7 +306,7 @@ GitHub doesn't render PDFs directly, but you can:
 
 ---
 
-## 🔄 Auto-Generated
+## Auto-Generated
 
 This README is maintained alongside the analysis code. Files are added automatically as analyses complete.
 
