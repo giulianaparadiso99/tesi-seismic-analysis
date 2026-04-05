@@ -1,3 +1,56 @@
+"""
+signals_pdf.py
+--------------
+Probability density function (PDF) analysis for seismic acceleration signals.
+This module provides functions to assess the statistical distribution of
+seismic increments, test for Gaussianity, and characterize heavy-tailed
+behavior through various distribution fits and statistical tests.
+
+The module is organized into two main analysis pipelines:
+
+    1. Gaussian fit analysis          — test whether increment distributions
+                                         follow a Gaussian (normal) distribution
+       • Anderson-Darling test for normality
+       • Kurtosis and skewness computation
+       • Visual comparison with fitted Gaussian
+       • Summary statistics across all signals
+
+    2. Heavy tail analysis            — characterize non-Gaussian tails and
+                                         identify power-law behavior
+       • Comparison with Gaussian, Laplace, Student-t, Lévy stable distributions
+       • Kolmogorov-Smirnov goodness-of-fit tests
+       • Tail exponent estimation
+       • Visual Q-Q plots and distribution overlays
+       • Summary statistics for tail classification
+
+Both pipelines process individual signals (one plot per station/channel) and
+generate summary visualizations aggregating results across all signals. Figures
+are saved as PDF files in the specified output directory, with automatic
+directory creation if needed.
+
+The analysis supports both normalized (standardized) and raw acceleration data,
+with configurable binning, log-scale plotting, and statistical significance
+thresholds.
+
+Usage:
+    from src.signals_pdf import gaussian_fit_analysis, heavy_tail_analysis
+    
+    # Example: Gaussian fit analysis
+    df_results = gaussian_fit_analysis(
+        df_acc_clean,
+        bins=100,
+        normalized=True,
+        output_dir='../figures/03_single_signal/03a_pdf_analysis/gaussian_fit'
+    )
+    
+    # Example: Heavy tail analysis
+    df_tail = heavy_tail_analysis(
+        df_acc_clean,
+        normalized=True,
+        output_dir='../figures/03_single_signal/03a_pdf_analysis/heavy_tail'
+    )
+"""
+
 import os
 import numpy as np
 import pandas as pd

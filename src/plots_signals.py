@@ -2,11 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
-import contextily as ctx
-from scipy import stats
 from pathlib import Path
-from adjustText import adjust_text
 from src.plot_settings import set_plot_style
 colors = set_plot_style()
 
@@ -296,7 +292,7 @@ def plot_postcheck_moment_scaling(df_acc_raw, df_acc_long, threshold=48000, outp
 # ==================================== Empirical PDFs ===========================================
 # ===============================================================================================
 
-def plot_empirical_pdfs(df_acc_clean, bins=100, log_scale=False, normalized=True, output_dir='../figures/pdf_single'):
+def plot_empirical_pdfs(df_acc_clean, bins=100, log_scale=False, normalized=True, output_dir='../figures/03_single_signal/03a_pdf_analysis/pdf_single'):
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -341,7 +337,7 @@ def plot_empirical_pdfs(df_acc_clean, bins=100, log_scale=False, normalized=True
 # ===============================================================================================
 
 def plot_onset_diagnostic(df_acc, df_onsets, n_examples=4, normalized=False,
-                           output_dir='../figures/03_single_signal/scaling/event_window'):
+                           output_dir='../figures/03_single_signal/03b_moment_scaling/event_window'):
     """
     Plots representative signals with the detected event onset marked.
 
@@ -407,7 +403,7 @@ def plot_onset_diagnostic(df_acc, df_onsets, n_examples=4, normalized=False,
 # ===============================================================================================
 
 def plot_onset_distribution(df_onsets,
-                             output_dir='../figures/03_single_signal/scaling/event_window'):
+                             output_dir='../figures/03_single_signal/03b_moment_scaling/event_window'):
     """
     Plots the distribution of onset indices and event window lengths.
 
@@ -451,7 +447,7 @@ def plot_onset_distribution(df_onsets,
 ###################################################################################
 
 def plot_increments_histograms_dual_view(df_increments, bins=50, normalized=True, 
-                                         output_dir='../figures/03_increments'):
+                                         output_dir=None):
     """
     Plots dual-view histograms of increment distributions for each tau value.
     For each tau, creates one PDF with 2 subplots:
@@ -567,7 +563,7 @@ def plot_increments_histograms_dual_view(df_increments, bins=50, normalized=True
         if (idx + 1) % 5 == 0 or (idx + 1) == len(tau_values):
             print(f"  Progress: {idx+1}/{len(tau_values)} dual-view plots saved")
     
-    print(f"\n✅ All {len(tau_values)} dual-view plots saved to: {output_dir}/")
+    print(f"\nAll {len(tau_values)} dual-view plots saved to: {output_dir}/")
     print(f"   Each PDF contains 2 subplots: full range + zoomed [-4,4]")
     
     # Print summary table

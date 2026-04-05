@@ -1,11 +1,46 @@
+"""
+plots_metadata.py
+-----------------
+Visualization functions for seismic event metadata analysis. This module
+provides a comprehensive suite of plotting utilities for exploring the
+preprocessed metadata from .ASC file headers, including both event-level
+(constant across all files, e.g., EVENT_DATE, EVENT_LATITUDE_DEGREE) and
+station-level (varying per file, e.g., STATION_CODE, EPICENTRAL_DISTANCE_KM)
+information.
+
+The module is organized into thematic sections, each addressing a specific
+aspect of metadata visualization:
+
+    1. Column types distribution        — pie chart of data types after preprocessing
+    2. Numerical distributions          — histogram grid for numeric variables
+    3. Categorical distributions        — bar charts for categorical variables
+    4. Correlation matrix               — heatmap of correlation coefficients
+    5. Correlation differences          — scatter plot of significant differences
+    6. Station map                      — geographic visualization with PGA overlay
+    7. PGA and duration analysis        — boxplots and scatter plots by component
+    8. PGA correlation by distance      — grouped bar chart by epicentral distance
+
+All plotting functions accept an optional output directory or path parameter
+to save figures as PDF files. Figures are displayed interactively and then
+closed to prevent memory accumulation.
+
+Usage:
+    from src.plots_metadata import plot_column_types_pie, plot_station_map
+    
+    # Example: visualize column types
+    plot_column_types_pie(df_meta_clean, output_dir='../figures/01_metadata')
+    
+    # Example: create station map
+    plot_station_map(df_meta_clean, event_lat=42.8, event_lon=13.1,
+                     output_path='../figures/01_metadata/station_map.pdf')
+"""
+
 import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import contextily as ctx
-from scipy import stats
-from pathlib import Path
 from adjustText import adjust_text
 from src.plot_settings import set_plot_style
 colors = set_plot_style()
