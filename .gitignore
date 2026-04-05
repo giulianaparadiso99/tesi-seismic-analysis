@@ -1,7 +1,13 @@
+# .gitignore
+
 __pycache__/
 .ipynb_checkpoints/
 .DS_Store
 
-*.egg-info/
+# Raw data - ignore extracted files, keep ZIP
+data/raw/*.ASC
+data/raw/*.asc
+!data/raw/*.zip
 
+*.egg-info/
 data/processed/
