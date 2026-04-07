@@ -42,7 +42,7 @@ from .cleaning_signals import preprocess_signals, validate_preprocessing
 # Analysis - PDF
 from .signals_pdf import (
     gaussian_fit_analysis,
-    heavy_tail_analysis,
+    heavy_tail_assessment
 )
 
 # Analysis - Moment Scaling
@@ -59,6 +59,30 @@ from .signals_scaling import (
 
 # Visualization
 from .plot_settings import set_plot_style
+
+from .plots_metadata import (
+    plot_column_types_pie,
+    plot_numerical_distributions,
+    plot_categorical_distributions,
+    plot_correlation_matrix,
+    plot_significant_corr_diff,
+    plot_station_map,
+    plot_pga_and_duration_by_component,
+    plot_pga_correlation_by_group
+)
+
+from .plots_signals import (
+    plot_signal_length_distribution,
+    plot_example_signals,
+    plot_acceleration_distributions,
+    plot_postcheck_pdf,
+    plot_postcheck_moment_scaling,
+    plot_empirical_pdfs,
+    plot_onset_diagnostic,
+    plot_onset_distribution,
+    plot_increments_histograms_dual_view,
+    plot_ergodicity_test
+    )
 
 # Export
 from .latex_export import (
