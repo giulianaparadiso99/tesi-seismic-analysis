@@ -4,8 +4,50 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tesi-seismic-analysis"
-version = "0.1.0"
+version = "1.0.0"
+description = "Moment scaling analysis of seismic ground motion from the 2016 Central Italy earthquake"
+authors = [
+    {name = "Giuliana Paradiso"}
+]
+readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.8"
+keywords = ["seismology", "moment-scaling", "multifractal", "ground-motion", "earthquake"]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+dependencies = [
+    "numpy>=1.20.0",
+    "pandas>=1.3.0",
+    "matplotlib>=3.4.0",
+    "scipy>=1.7.0",
+    "contextily>=1.2.0",
+    "adjustText>=0.7.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyter>=1.0.0",
+    "ipython>=7.0.0",
+    "notebook>=6.4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/giulianaparadiso99/tesi-seismic-analysis"
+Repository = "https://github.com/giulianaparadiso99/tesi-seismic-analysis"
+Documentation = "https://github.com/giulianaparadiso99/tesi-seismic-analysis/blob/main/README.md"
+"Bug Tracker" = "https://github.com/giulianaparadiso99/tesi-seismic-analysis/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
