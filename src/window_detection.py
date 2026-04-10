@@ -182,19 +182,11 @@ def identify_windows_pga_based(signal, sampling_rate=200,
     }
     
     # Print summary
-    print(f"\nPGA-based detection:")
-    print(f"  PGA at sample {pga_idx} ({pga_time:.1f}s)")
-    print(f"  PGA value: {np.abs(signal[pga_idx]):.2f} cm/s²")
-    print(f"\n  Window boundaries:")
     for name, bounds in windows.items():
         start_time = bounds['start'] / sampling_rate
         end_time = bounds['end'] / sampling_rate
         duration = (bounds['end'] - bounds['start']) / sampling_rate
         n_samples = bounds['end'] - bounds['start']
-        print(f"    {name:12s}: [{bounds['start']:6d}, {bounds['end']:6d}] = "
-              f"[{start_time:6.1f}s, {end_time:6.1f}s] "
-              f"(duration: {duration:5.1f}s, {n_samples:6d} samples)")
-    
     return windows
 
 # ===============================================================================================
