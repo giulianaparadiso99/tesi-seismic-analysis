@@ -46,16 +46,37 @@ from .signals_pdf import (
 )
 
 # Analysis - Moment Scaling
+from .window_detection import (
+    plot_signal_for_visual_inspection,
+    identify_windows_pga_based,
+    compute_sta_lta,
+    detect_onset_sta_lta,
+    identify_windows_sta_lta,
+    identify_windows_combined,
+    identify_windows_all_files,
+    compute_and_save_all_windowed
+)
+
 from .signals_scaling import (
     integrate_to_velocity,
     integrate_to_displacement,
     compute_increments,
     compute_moments_from_increments,
+    compute_moment_scaling,
     compute_scaling_exponents,
     test_scaling_linearity,
     fit_piecewise_scaling,
     build_scaling_summary,
+    trim_to_event_window
 )
+
+from .signals_scaling_ensemble import (
+    compute_increments_ensemble,
+    compute_moments_from_increments_ensemble,
+    validate_moments_ensemble,
+    analyze_increments_ensemble
+)
+
 
 # Visualization
 from .plot_settings import set_plot_style
