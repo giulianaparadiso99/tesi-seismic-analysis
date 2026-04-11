@@ -7,14 +7,24 @@ different dynamical regimes (pre-arrival, P-wave, S-wave, coda).
 The module provides four complementary approaches:
     1. Visual inspection - Interactive plotting for manual identification
     2. PGA-based - Heuristic windows relative to Peak Ground Acceleration
-    3. STA/LTA - Automatic onset detection using Short-Term/Long-Term Average
+    3. STA/LTA - Automatic onset detection using Short-Term/Long-Term Average (ObsPy)
     4. Combined wrapper - Applies all methods and generates comparison report
 
 Main differences between approaches:
     - Visual: Manual but most accurate for complex signals
     - PGA-based: Fast, works well for clear events
-    - STA/LTA: Industry standard, robust for noisy data
+    - STA/LTA: Industry standard, robust for noisy data (ObsPy implementation)
     - Combined: Comprehensive analysis with multiple estimates
+
+Implementation Notes:
+    - STA/LTA functions use ObsPy's optimized C-backend implementation
+      (Beyreuther et al., 2010) for better performance and reliability
+    - All other functions maintain custom implementations for flexibility
+
+Citation:
+    Beyreuther, M., Barsch, R., Krischer, L., Megies, T., Behr, Y., & 
+    Wassermann, J. (2010). ObsPy: A Python toolbox for seismology. 
+    Seismological Research Letters, 81(3), 530-533.
 
 Usage:
     from src.window_detection import identify_windows_combined
@@ -30,8 +40,19 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.ndimage import uniform_filter1d
-from src.plot_settings import set_plot_style
+
+# ObsPy imports for STA/LTA
+try:
+    from obspy.signal.trigger import classic_sta_lta, trigger_onset
+    OBSPY_AVAILABLE = True
+except ImportError:
+    OBSPY_AVAILABLE = False
+    print("Warning: ObsPy not available. STA/LTA will use fallback implementation.")
+    print("Install ObsPy for better performance: pip install obspy")
+
+from src.visualization.plot_settings import set_plot_style
 colors = set_plot_style()
+
 
 # ===============================================================================================
 # ================================ 1. Visual Inspection =========================================
@@ -113,6 +134,7 @@ def plot_signal_for_visual_inspection(signal, file_name='', sampling_rate=200,
     
     return fig, axes
 
+
 # ===============================================================================================
 # ================================ 2. PGA-Based Detection =======================================
 # ===============================================================================================
@@ -182,12 +204,21 @@ def identify_windows_pga_based(signal, sampling_rate=200,
     }
     
     # Print summary
+    print(f"\nPGA-based detection:")
+    print(f"  PGA at sample {pga_idx} ({pga_time:.1f}s)")
+    print(f"  PGA value: {np.abs(signal[pga_idx]):.2f} cm/s²")
+    print(f"\n  Window boundaries:")
     for name, bounds in windows.items():
         start_time = bounds['start'] / sampling_rate
         end_time = bounds['end'] / sampling_rate
         duration = (bounds['end'] - bounds['start']) / sampling_rate
         n_samples = bounds['end'] - bounds['start']
+        print(f"    {name:12s}: [{bounds['start']:6d}, {bounds['end']:6d}] = "
+              f"[{start_time:6.1f}s, {end_time:6.1f}s] "
+              f"(duration: {duration:5.1f}s, {n_samples:6d} samples)")
+    
     return windows
+
 
 # ===============================================================================================
 # ================================ 3. STA/LTA Detection =========================================
@@ -198,6 +229,7 @@ def compute_sta_lta(signal, sta_window=200, lta_window=4000):
     Compute STA/LTA (Short-Term Average / Long-Term Average) ratio.
     
     Standard seismological method for onset detection.
+    Uses ObsPy's optimized implementation when available (recommended).
     
     Parameters
     ----------
@@ -214,18 +246,22 @@ def compute_sta_lta(signal, sta_window=200, lta_window=4000):
     -------
     array
         STA/LTA ratio time series
+        
+    Notes
+    -----
+    When ObsPy is available, uses classic_sta_lta (Beyreuther et al., 2010)
+    which is faster and more robust (C backend).
+    Falls back to scipy implementation if ObsPy is not installed.
     """
-    # Energy signal
-    energy = signal ** 2
-    
-    # STA: short-term average
-    sta = uniform_filter1d(energy, size=sta_window, mode='constant')
-    
-    # LTA: long-term average
-    lta = uniform_filter1d(energy, size=lta_window, mode='constant')
-    
-    # STA/LTA ratio (avoid division by zero)
-    ratio = sta / (lta + 1e-10)
+    if OBSPY_AVAILABLE:
+        # ObsPy implementation (faster, C backend)
+        ratio = classic_sta_lta(signal, nsta=sta_window, nlta=lta_window)
+    else:
+        # Fallback implementation using scipy
+        energy = signal ** 2
+        sta = uniform_filter1d(energy, size=sta_window, mode='constant')
+        lta = uniform_filter1d(energy, size=lta_window, mode='constant')
+        ratio = sta / (lta + 1e-10)
     
     return ratio
 
@@ -233,6 +269,8 @@ def compute_sta_lta(signal, sta_window=200, lta_window=4000):
 def detect_onset_sta_lta(signal, threshold=3.0, sta_window=200, lta_window=4000):
     """
     Detect P-wave onset using STA/LTA picker.
+    
+    Uses ObsPy's optimized implementation when available (recommended).
     
     Parameters
     ----------
@@ -252,20 +290,40 @@ def detect_onset_sta_lta(signal, threshold=3.0, sta_window=200, lta_window=4000)
         P-wave onset sample index
     array
         STA/LTA ratio for diagnostic purposes
+        
+    Notes
+    -----
+    When ObsPy is available, uses trigger_onset (Beyreuther et al., 2010)
+    which provides more robust triggering logic.
+    Falls back to simple threshold crossing if ObsPy is not installed.
     """
     ratio = compute_sta_lta(signal, sta_window, lta_window)
     
-    # P-wave onset: first time ratio exceeds threshold
-    onset_candidates = np.where(ratio > threshold)[0]
-    
-    if len(onset_candidates) > 0:
-        p_onset = onset_candidates[0]
+    if OBSPY_AVAILABLE:
+        # ObsPy trigger detection (more robust)
+        # thr_on: trigger when ratio exceeds this threshold
+        # thr_off: detrigger when ratio falls below this threshold
+        triggers = trigger_onset(ratio, thr_on=threshold, thr_off=1.0)
+        
+        if len(triggers) > 0:
+            p_onset = triggers[0][0]  # First trigger = P-onset
+        else:
+            p_onset = 0
+            print(f"  Warning: No P-wave onset detected with threshold={threshold}")
+            print(f"  Max STA/LTA ratio: {ratio.max():.2f}")
     else:
-        p_onset = 0
-        print(f"  Warning: No P-wave onset detected with threshold={threshold}")
-        print(f"  Max STA/LTA ratio: {ratio.max():.2f}")
+        # Fallback: simple threshold crossing
+        onset_candidates = np.where(ratio > threshold)[0]
+        
+        if len(onset_candidates) > 0:
+            p_onset = onset_candidates[0]
+        else:
+            p_onset = 0
+            print(f"  Warning: No P-wave onset detected with threshold={threshold}")
+            print(f"  Max STA/LTA ratio: {ratio.max():.2f}")
     
     return p_onset, ratio
+
 
 def identify_windows_sta_lta(signal, sampling_rate=200, threshold=3.0,
                              s_duration=110.0):
@@ -378,9 +436,17 @@ def identify_windows_combined(signal, file_name='', sampling_rate=200,
         Recommended windows (from STA/LTA as primary method)
     dict
         All results: {'pga': windows, 'sta_lta': windows, 'diagnostics': ...}
+        
+    Notes
+    -----
+    Uses ObsPy's STA/LTA implementation when available for better performance.
     """
     print("="*70)
     print(f"Window Detection: {file_name}")
+    if OBSPY_AVAILABLE:
+        print("Using ObsPy's optimized STA/LTA implementation")
+    else:
+        print("Using fallback STA/LTA implementation (install ObsPy for better performance)")
     print("="*70)
     
     # Method 1: PGA-based

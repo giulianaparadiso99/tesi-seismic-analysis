@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
-from src.plot_settings import set_plot_style
+from src.visualization.plot_settings import set_plot_style
 colors = set_plot_style()
 
 # ===============================================================================================
@@ -472,7 +472,7 @@ def plot_increments_histograms_dual_view(df_increments, bins=50, normalized=True
     import os
     import matplotlib.pyplot as plt
     import numpy as np
-    from src.plot_settings import set_plot_style
+    from src.visualization.plot_settings import set_plot_style
     colors = set_plot_style()
     
     os.makedirs(output_dir, exist_ok=True)

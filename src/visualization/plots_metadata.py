@@ -42,7 +42,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import contextily as ctx
 from adjustText import adjust_text
-from src.plot_settings import set_plot_style
+from src.visualization.plot_settings import set_plot_style
 colors = set_plot_style()
 
 # ===============================================================================================

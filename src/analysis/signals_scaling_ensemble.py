@@ -61,7 +61,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats
 from pathlib import Path
-from src.plot_settings import set_plot_style
+from src.visualization.plot_settings import set_plot_style
 colors = set_plot_style()
 
 
