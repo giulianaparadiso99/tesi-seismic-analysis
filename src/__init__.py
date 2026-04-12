@@ -62,14 +62,8 @@ from .analysis.signals_pdf import (
 # Analysis - Window Detection
 # ===============================================================================
 
-from .analysis.window_detection import (
-    plot_signal_for_visual_inspection,
-    identify_windows_pga_based,
-    compute_sta_lta,
-    detect_onset_sta_lta,
-    identify_windows_sta_lta,
-    identify_windows_combined,
-    identify_windows_all_files
+from .analysis.event_segmentation import (
+    
 )
 
 # ===============================================================================

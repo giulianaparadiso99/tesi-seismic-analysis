@@ -18,7 +18,7 @@ from .signals_pdf import (
 )
 
 # Window Detection
-from .window_detection import (
+from .event_segmentation import (
     plot_signal_for_visual_inspection,
     identify_windows_pga_based,
     compute_sta_lta,
