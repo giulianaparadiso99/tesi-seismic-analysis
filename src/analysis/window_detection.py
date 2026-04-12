@@ -303,8 +303,7 @@ def detect_onset_sta_lta(signal, threshold=3.0, sta_window=200, lta_window=4000)
         # ObsPy trigger detection (more robust)
         # thr_on: trigger when ratio exceeds this threshold
         # thr_off: detrigger when ratio falls below this threshold
-        triggers = trigger_onset(ratio, thr_on=threshold, thr_off=1.0)
-        
+        triggers = trigger_onset(ratio, threshold, 1.0)
         if len(triggers) > 0:
             p_onset = triggers[0][0]  # First trigger = P-onset
         else:
