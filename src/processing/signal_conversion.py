@@ -133,7 +133,7 @@ def get_component_from_filename(filename):
     'HNZ'
     """
     parts = filename.split('.')
-    return parts[-1] if len(parts) > 0 else filename
+    return parts[3] if len(parts) > 3 else filename
 
 def convert_signals_to_dict(df_signals):
     """
@@ -203,9 +203,9 @@ def convert_signals_to_dict(df_signals):
         for station in signals_dict
     }
     
-    print(f"✓ Converted {len(file_list)} files")
-    print(f"  Stations: {n_stations}")
-    print(f"  Components per station: {set(components_per_station.values())}")
+    print(f"Converted {len(file_list)} files")
+    print(f"Stations: {n_stations}")
+    print(f"Components per station: {set(components_per_station.values())}")
     
     # Check for incomplete stations (missing components)
     incomplete = [s for s, n in components_per_station.items() if n < 3]
@@ -213,7 +213,6 @@ def convert_signals_to_dict(df_signals):
         print(f"  Warning: {len(incomplete)} stations with <3 components: {incomplete}")
     
     return signals_dict
-
 
 def get_signal_for_station(df_signals, station_code, component='HNE'):
     """
