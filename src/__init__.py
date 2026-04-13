@@ -26,7 +26,7 @@ __author__ = "Giuliana Paradiso"
 # Data I/O
 # ===============================================================================
 
-from .preprocessing.io import (
+from .io.io import (
     build_metadata,
     build_accelerations,
     build_dataframes,
@@ -43,13 +43,13 @@ from .preprocessing.cleaning_signals import (
     validate_preprocessing
 )
 
-from .preprocessing.signals_integration import (
+from .processing.signals_integration import (
     integrate_to_velocity,
     integrate_to_displacement,
     validate_integration
 )
 
-from .preprocessing.signal_conversion import (
+from .processing.signal_conversion import (
     get_station_from_filename,
     get_component_from_filename,
     convert_signals_to_dict,
@@ -148,6 +148,7 @@ from .utils.latex_export import (
     corr_diff_to_latex,
     preprocess_checks_to_latex,
     heavy_tail_to_latex,
+    metadata_table_to_latex
 )
 
 # ===============================================================================

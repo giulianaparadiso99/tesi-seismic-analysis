@@ -8,7 +8,6 @@ structure optimized for onset detection and moment scaling analysis.
 import numpy as np
 import pandas as pd
 
-
 def get_station_from_filename(filename):
     """
     Extract station code from file name.
@@ -33,7 +32,6 @@ def get_station_from_filename(filename):
     parts = filename.split('.')
     return parts[1] if len(parts) > 1 else filename
 
-
 def get_component_from_filename(filename):
     """
     Extract component code from file name.
@@ -57,7 +55,6 @@ def get_component_from_filename(filename):
     """
     parts = filename.split('.')
     return parts[-1] if len(parts) > 0 else filename
-
 
 def convert_signals_to_dict(df_signals):
     """

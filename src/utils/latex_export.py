@@ -165,6 +165,146 @@ def preprocess_checks_to_latex(rows, output_path=None):
 
     return latex_str
 
+# ===============================================================================================
+# ========================== Metadata header table ==============================================
+# ===============================================================================================
+
+def metadata_table_to_latex(df_meta, output_path=None):
+    """
+    Generate a LaTeX longtable describing metadata fields, their meaning,
+    and whether they are constant across files.
+
+    Parameters
+    ----------
+    df_meta : pd.DataFrame
+        Metadata DataFrame (one row per record).
+    output_path : str or None
+        If provided, the LaTeX string is also saved to this path.
+
+    Returns
+    -------
+    str : complete LaTeX longtable environment
+    """ 
+    descriptions = {
+        'file': 'File name',
+        'EVENT_NAME': 'Event name',
+        'EVENT_ID': 'Unique event identifier',
+        'EVENT_DATE_YYYYMMDD': 'Event date (YYYYMMDD)',
+        'EVENT_TIME_HHMMSS': 'UTC event time',
+        'EVENT_LATITUDE_DEGREE': 'Hypocentral latitude',
+        'EVENT_LONGITUDE_DEGREE': 'Hypocentral longitude',
+        'EVENT_DEPTH_KM': 'Hypocentral depth (km)',
+        'HYPOCENTER_REFERENCE': 'Source of hypocentral location',
+        'MAGNITUDE_W': r'Moment magnitude $M_w$',
+        'MAGNITUDE_W_REFERENCE': r'Source of $M_w$ estimate',
+        'MAGNITUDE_L': r'Local magnitude $M_L$',
+        'MAGNITUDE_L_REFERENCE': r'Source of $M_L$ estimate',
+        'FOCAL_MECHANISM': 'Focal mechanism (fault type)',
+        'NETWORK': 'Network code',
+        'STATION_CODE': 'Station identifier',
+        'STATION_NAME': 'Station name',
+        'STATION_LATITUDE_DEGREE': 'Station latitude',
+        'STATION_LONGITUDE_DEGREE': 'Station longitude',
+        'STATION_ELEVATION_M': 'Station elevation (m a.s.l.)',
+        'LOCATION': 'Sub-location code',
+        'SENSOR_DEPTH_M': 'Sensor depth below ground (m)',
+        'VS30_M/S': 'Average shear-wave velocity in top 30 m',
+        'SITE_CLASSIFICATION_EC8': 'EC8 site class',
+        'MORPHOLOGIC_CLASSIFICATION': 'Morphological site classification',
+        'EPICENTRAL_DISTANCE_KM': 'Epicentral distance (km)',
+        'EARTHQUAKE_BACKAZIMUTH_DEGREE': r'Back-azimuth ($^\circ$)',
+        'DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS': 'Timestamp of first sample',
+        'DATE_TIME_FIRST_SAMPLE_PRECISION': 'Precision of first sample timestamp',
+        'SAMPLING_INTERVAL_S': 'Sampling interval (s)',
+        'NDATA': 'Number of recorded samples',
+        'DURATION_S': 'Recording duration (s)',
+        'STREAM': 'Channel code (orientation)',
+        'UNITS': r'Data units (cm/s$^2$)',
+        'INSTRUMENT': 'Instrument type code',
+        'INSTRUMENT_ANALOG/DIGITAL': 'Analog or digital',
+        'INSTRUMENTAL_FREQUENCY_HZ': 'Natural frequency (Hz)',
+        'INSTRUMENTAL_DAMPING': 'Critical damping ratio',
+        'FULL_SCALE_G': 'Full-scale range (g)',
+        'N_BIT_DIGITAL_CONVERTER': 'ADC resolution (bit)',
+        'PGA_CM/S^2': 'Peak Ground Acceleration',
+        'TIME_PGA_S': 'Time of PGA from start (s)',
+        'BASELINE_CORRECTION': 'Baseline correction type',
+        'FILTER_TYPE': 'Filter type (Butterworth)',
+        'FILTER_ORDER': 'Filter order',
+        'LOW_CUT_FREQUENCY_HZ': 'Low-cut frequency (Hz)',
+        'HIGH_CUT_FREQUENCY_HZ': 'High-cut frequency (Hz)',
+        'LATE/NORMAL_TRIGGERED': 'Trigger type (NT/LT)',
+        'DATABASE_VERSION': 'Database version',
+        'HEADER_FORMAT': 'Header format version',
+        'DATA_TYPE': 'Data type (acceleration)',
+        'DATA_LICENSE': 'Data license',
+        'PROCESSING': 'Processing information',
+        'DATA_TIMESTAMP_YYYYMMDD_HHMMSS': 'Data timestamp',
+        'DATA_LICENSE': 'Data license',
+        'DATA_CITATION': 'Bibliographic citation',
+        'DATA_CREATOR': 'Data creator',
+        'ORIGINAL_DATA_MEDIATOR_CITATION': 'Citation for the original data mediator',
+        'ORIGINAL_DATA_MEDIATOR': 'Original data mediator',
+        'ORIGINAL_DATA_CREATOR_CITATION': 'Citation for the original data creator',
+        'ORIGINAL_DATA_CREATOR': 'Original data creator',
+        'USER1': 'Free annotation field',
+        'USER2': 'Free annotation field',
+        'USER3': 'Free annotation field',
+        'USER4': 'Free annotation field',
+        'USER5': 'Free annotation field',
+    }
+    # Build rows
+    rows = []
+
+    for col in df_meta.columns:
+        if col == 'file':
+            continue
+
+        desc = descriptions.get(col, col)
+
+        # Check constancy
+        is_constant = df_meta[col].nunique(dropna=False) == 1
+        const_str = 'Yes' if is_constant else 'No'
+        field_name = col.replace('_', ' ')
+
+        rows.append(f"{field_name} & {desc} & {const_str} \\\\")
+
+    body = "\n".join(rows)
+
+    # Full LaTeX longtable
+    latex_str = (
+        r"\begin{longtable}{" + "\n"
+        r"  >{\raggedright\arraybackslash}p{4cm}"
+        r"  >{\raggedright\arraybackslash}p{8cm}"
+        r"  >{\centering\arraybackslash}p{2cm}" + "\n"
+        r"}" + "\n"
+        r"\caption{Summary of header fields, their description, and constancy across files.}" + "\n"
+        r"\label{tab:metadata_fields} \\" + "\n"
+        r"\toprule" + "\n"
+        r"\textbf{Field} & \textbf{Description} & \textbf{Constant} \\" + "\n"
+        r"\midrule" + "\n"
+        r"\endfirsthead" + "\n\n"
+        r"\multicolumn{3}{c}{\tablename~\thetable{} -- continued from previous page} \\" + "\n"
+        r"\toprule" + "\n"
+        r"\textbf{Field} & \textbf{Description} & \textbf{Constant} \\" + "\n"
+        r"\midrule" + "\n"
+        r"\endhead" + "\n\n"
+        r"\midrule" + "\n"
+        r"\multicolumn{3}{r}{\textit{Continued on next page}} \\" + "\n"
+        r"\endfoot" + "\n\n"
+        r"\bottomrule" + "\n"
+        r"\endlastfoot" + "\n\n"
+        + body + "\n"
+        + r"\end{longtable}"
+    )
+
+    if output_path is not None:
+        with open(output_path, 'w') as f:
+            f.write(latex_str)
+        print(f"Saved to: {output_path}")
+
+    return latex_str
+
 
 # ===============================================================================================
 # ========================== Heavy-tail assessment table ========================================

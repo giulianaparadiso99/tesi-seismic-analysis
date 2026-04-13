@@ -34,7 +34,6 @@ def _replace_missing(df):
     """Replace empty strings and 'None' strings with NaN."""
     return df.map(lambda x: np.nan if x == '' or x == 'None' else x)
 
-
 def _drop_columns(df):
     """Drop uninformative or empty columns."""
     cols_to_drop = [
@@ -45,7 +44,6 @@ def _drop_columns(df):
         'ORIGINAL_DATA_CREATOR',
         'DATA_CITATION', 'DATA_LICENSE', 'DATA_CREATOR',
         'EVENT_NAME',
-        'INSTRUMENTAL_FREQUENCY_HZ',
         'INSTRUMENTAL_DAMPING',
         'MORPHOLOGIC_CLASSIFICATION',
         'MAGNITUDE_L',
@@ -57,7 +55,6 @@ def _drop_columns(df):
         'ORIGINAL_DATA_MEDIATOR',
     ]
     return df.drop(columns=[c for c in cols_to_drop if c in df.columns])
-
 
 def _convert_types(df):
     """Convert columns to appropriate numeric and datetime types."""
@@ -83,7 +80,6 @@ def _convert_types(df):
                      'DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS'], inplace=True)
     return df
 
-
 def _normalize_strings(df):
     """Strip and uppercase string columns for consistency."""
     str_cols = df.select_dtypes(include='object').columns
@@ -91,11 +87,31 @@ def _normalize_strings(df):
         df[col] = df[col].str.strip()
     return df
 
-
 def _remove_duplicates(df):
     """Remove duplicate rows."""
     return df.drop_duplicates()
 
+def _calculate_sampling_rate(df):
+    """
+    Calculate INSTRUMENTAL_FREQUENCY_HZ from NDATA and DURATION_S.
+    
+    The sampling rate is computed as: frequency = n_samples / duration
+    This field is typically empty in the raw data but can be derived
+    from the number of samples and total duration.
+    """
+    # Check if column exists and is empty/missing
+    if 'INSTRUMENTAL_FREQUENCY_HZ' in df.columns:
+        # Replace empty strings with NaN (if not already done)
+        df['INSTRUMENTAL_FREQUENCY_HZ'] = df['INSTRUMENTAL_FREQUENCY_HZ'].replace('', np.nan)
+        df['INSTRUMENTAL_FREQUENCY_HZ'] = pd.to_numeric(df['INSTRUMENTAL_FREQUENCY_HZ'], errors='coerce')
+    
+    # Calculate from NDATA and DURATION_S where missing
+    if 'NDATA' in df.columns and 'DURATION_S' in df.columns:
+        mask = df['INSTRUMENTAL_FREQUENCY_HZ'].isna()
+        if mask.any() or mask.all():
+            df.loc[mask, 'INSTRUMENTAL_FREQUENCY_HZ'] = df.loc[mask, 'NDATA'] / df.loc[mask, 'DURATION_S']
+    
+    return df
 
 # ----------------
 # PUBLIC PIPELINE
@@ -112,4 +128,5 @@ def clean_metadata(df_meta):
     df = _convert_types(df)
     df = _normalize_strings(df)
     df = _remove_duplicates(df)
+    df = _calculate_sampling_rate(df)
     return df

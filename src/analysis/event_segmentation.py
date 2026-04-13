@@ -20,11 +20,32 @@ import numpy as np
 import pandas as pd
 
 # Add crust1 directory to path
-CRUST1_DIR = Path(__file__).parent.parent / 'data' / 'Crust1.0'
+_current_file = Path(__file__).resolve()
+_project_root = _current_file.parent.parent.parent  # Go up to project root
+CRUST1_DIR = _project_root / 'data' / 'Crust1.0' / 'model'
+ 
+if not CRUST1_DIR.exists():
+    raise FileNotFoundError(
+        f"CRUST1.0 directory not found at {CRUST1_DIR}\n"
+        f"Please ensure data/Crust1.0/model/ exists with required files:\n"
+        f"  - crust1.vp\n"
+        f"  - crust1.vs\n"
+        f"  - crust1.rho\n"
+        f"  - crust1.bnds\n"
+        f"  - crust1.py"
+    )
+ 
 if str(CRUST1_DIR) not in sys.path:
     sys.path.insert(0, str(CRUST1_DIR))
-
-from crust1 import crustModel
+ 
+try:
+    from crust1 import crustModel
+except ImportError as e:
+    raise ImportError(
+        f"Cannot import crustModel from {CRUST1_DIR}\n"
+        f"Make sure crust1.py exists in that directory.\n"
+        f"Original error: {e}"
+    )
 
 
 # ============================================================================
@@ -238,7 +259,7 @@ def add_theoretical_arrivals(df_stations, origin_time=0,
     df_result['t_p_theo'] = origin_time + df_result[distance_col] / df_result['vp_crust']
     df_result['t_s_theo'] = origin_time + df_result[distance_col] / df_result['vs_crust']
     
-    print(f"dded theoretical arrival times")
+    print(f"Added theoretical arrival times")
     print(f"t_P: {df_result['t_p_theo'].min():.2f} - {df_result['t_p_theo'].max():.2f} s")
     print(f"t_S: {df_result['t_s_theo'].min():.2f} - {df_result['t_s_theo'].max():.2f} s")
     
