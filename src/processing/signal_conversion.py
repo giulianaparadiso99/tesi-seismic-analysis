@@ -8,6 +8,85 @@ structure optimized for onset detection and moment scaling analysis.
 import numpy as np
 import pandas as pd
 
+def add_time_columns(df_signals, df_metadata, 
+                     time_col='DATE_TIME_FIRST_SAMPLE',
+                     sampling_interval_col='SAMPLING_INTERVAL_S'):
+    """
+    Add relative and absolute time columns to signals DataFrame.
+    
+    Enriches signal data with temporal information by:
+    1. Computing relative time from sample index (t=0 at first sample)
+    2. Computing absolute time using file start timestamp from metadata
+    
+    Parameters
+    ----------
+    df_signals : pd.DataFrame
+        Preprocessed signals with columns ['file', 'sample', 'acceleration']
+    df_metadata : pd.DataFrame
+        Station metadata with time information per file
+    time_col : str, optional
+        Column name for first sample timestamp (default: 'DATE_TIME_FIRST_SAMPLE')
+    sampling_interval_col : str, optional
+        Column name for sampling interval (default: 'SAMPLING_INTERVAL_S')
+    
+    Returns
+    -------
+    pd.DataFrame
+        Signals with added columns:
+        - 'time': Relative time from file start (seconds), t=0 at first sample
+        - 'time_absolute': Absolute UTC datetime of each sample
+    
+    Examples
+    --------
+    >>> df_signals = preprocess_signals(df_raw, baseline_correction=True)
+    >>> df_signals = add_time_columns(df_signals, df_metadata)
+    >>> # Now df_signals has 'time' and 'time_absolute' columns
+    
+    Notes
+    -----
+    Relative time is used for onset detection and moment scaling analysis.
+    Absolute time is used for physical validation of detected onsets.
+    """
+    df = df_signals.copy()
+    
+    # Get sampling interval (assumed constant across all files)
+    sampling_interval = df_metadata[sampling_interval_col].iloc[0]
+    
+    # Calculate relative time: time = sample * sampling_interval
+    df['time'] = df['sample'] * sampling_interval
+    
+    print(f"Added relative time column (t=0 at first sample)")
+    print(f"Sampling interval: {sampling_interval} s ({1/sampling_interval:.1f} Hz)")
+    print(f"Time range: {df['time'].min():.3f} - {df['time'].max():.3f} s")
+    
+    # Merge with metadata to get DATE_TIME_FIRST_SAMPLE per file
+    file_times = df_metadata[['file', time_col]].drop_duplicates('file')
+    df = df.merge(file_times, on='file', how='left')
+    
+    # Calculate absolute time
+    df['time_absolute'] = (
+        pd.to_datetime(df[time_col]) + 
+        pd.to_timedelta(df['time'], unit='s')
+    )
+    
+    # Drop temporary merge column
+    df = df.drop(columns=[time_col])
+    
+    print(f"Added absolute time column")
+    print(f"Time range: {df['time_absolute'].min()} to {df['time_absolute'].max()}")
+    
+    # Verify consistency
+    expected_duration = df_metadata['DURATION_S'].iloc[0]
+    actual_duration = df.groupby('file')['time'].max().mean()
+    duration_diff = abs(expected_duration - actual_duration)
+    
+    if duration_diff < 0.01:
+        print(f"Duration check: ({actual_duration:.2f} s matches metadata)")
+    else:
+        print(f"Duration check: Expected {expected_duration:.2f} s, got {actual_duration:.2f} s")
+    
+    return df
+
 def get_station_from_filename(filename):
     """
     Extract station code from file name.

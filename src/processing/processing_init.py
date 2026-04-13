@@ -5,6 +5,7 @@ from .signals_integration import (
 )
 
 from .signal_conversion import (
+    add_time_columns,
     get_station_from_filename,
     get_component_from_filename,
     convert_signals_to_dict,
