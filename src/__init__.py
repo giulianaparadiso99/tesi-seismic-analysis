@@ -49,6 +49,14 @@ from .preprocessing.signals_integration import (
     validate_integration
 )
 
+from .preprocessing.signal_conversion import (
+    get_station_from_filename,
+    get_component_from_filename,
+    convert_signals_to_dict,
+    get_signal_for_station,
+    validate_signals_dict
+)
+
 # ===============================================================================
 # Analysis - PDF
 # ===============================================================================
@@ -63,8 +71,12 @@ from .analysis.signals_pdf import (
 # ===============================================================================
 
 from .analysis.event_segmentation import (
-    
+    extract_crustal_velocities,
+    calculate_theoretical_arrival,
+    add_crustal_velocities,
+    add_theoretical_arrivals
 )
+
 
 # ===============================================================================
 # Analysis - Moment Scaling (Time-Averaged)

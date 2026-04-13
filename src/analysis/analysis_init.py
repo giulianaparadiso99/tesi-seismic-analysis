@@ -19,13 +19,10 @@ from .signals_pdf import (
 
 # Window Detection
 from .event_segmentation import (
-    plot_signal_for_visual_inspection,
-    identify_windows_pga_based,
-    compute_sta_lta,
-    detect_onset_sta_lta,
-    identify_windows_sta_lta,
-    identify_windows_combined,
-    identify_windows_all_files
+    extract_crustal_velocities,
+    calculate_theoretical_arrival,
+    add_crustal_velocities,
+    add_theoretical_arrivals
 )
 
 # Moment Scaling (Time-Averaged)
