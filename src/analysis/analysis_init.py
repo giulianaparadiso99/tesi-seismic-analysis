@@ -17,14 +17,6 @@ from .signals_pdf import (
     heavy_tail_assessment
 )
 
-# Window Detection
-from .event_segmentation import (
-    extract_crustal_velocities,
-    calculate_theoretical_arrival,
-    add_crustal_velocities,
-    add_theoretical_arrivals
-)
-
 # Moment Scaling (Time-Averaged)
 from .signals_scaling import (
     compute_increments,

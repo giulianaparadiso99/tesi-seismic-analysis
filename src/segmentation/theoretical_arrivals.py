@@ -217,50 +217,127 @@ def add_crustal_velocities(df_stations,
     return df_result
 
 
-def add_theoretical_arrivals(df_stations, origin_time=0, 
-                            distance_col='EPICENTRAL_DISTANCE_KM'):
+def add_theoretical_arrivals(df_stations, distance_col='EPICENTRAL_DISTANCE_KM'):
     """
     Add theoretical P and S arrival time columns.
     
-    Adds columns:
-    - 't_p_theo': Theoretical P-wave arrival time (s)
-    - 't_s_theo': Theoretical S-wave arrival time (s)
-    
-    Parameters
-    ----------
-    df_stations : pd.DataFrame
-        Station metadata with distance and velocity columns
-    origin_time : float, optional
-        Event origin time (s)
-    distance_col : str, optional
-        Distance column name (default: 'EPICENTRAL_DISTANCE_KM')
-        
-    Returns
-    -------
-    df_result : pd.DataFrame
-        Copy with added theoretical arrival time columns
-        
-    Examples
-    --------
-    >>> df_stations = add_crustal_velocities(df_stations)
-    >>> df_stations = add_theoretical_arrivals(df_stations)
-    >>> print(df_stations[['STATION_CODE', 't_p_theo', 't_s_theo']])
+    Calculates origin_time from EVENT_DATE and DATE_TIME_FIRST_SAMPLE,
+    then adds travel time based on distance and crustal velocities.
     """
-    required_cols = [distance_col, 'vp_crust', 'vs_crust']
-    missing_cols = [col for col in required_cols if col not in df_stations.columns]
+    required_cols = [distance_col, 'vp_crust', 'vs_crust', 
+                     'EVENT_DATE', 'DATE_TIME_FIRST_SAMPLE']
+    missing = [col for col in required_cols if col not in df_stations.columns]
     
-    if missing_cols:
+    if missing:
         raise ValueError(
-            f"Missing required columns: {missing_cols}. "
-            f"Run add_crustal_velocities() first."
+            f"Missing required columns: {missing}. "
+            f"Run add_crustal_velocities() first and ensure EVENT_DATE exists."
         )
     
     df_result = df_stations.copy()
+    
+    # Calculate origin_time: seconds from file start to event
+    event_datetime = pd.to_datetime(df_result['EVENT_DATE'])
+    first_sample_datetime = pd.to_datetime(df_result['DATE_TIME_FIRST_SAMPLE'])
+    origin_time = (event_datetime - first_sample_datetime).dt.total_seconds()
+    
+    # Calculate theoretical arrivals in file coordinates
     df_result['t_p_theo'] = origin_time + df_result[distance_col] / df_result['vp_crust']
     df_result['t_s_theo'] = origin_time + df_result[distance_col] / df_result['vs_crust']
     
     print(f"Added theoretical arrival times")
-    print(f"t_P: {df_result['t_p_theo'].min():.2f} - {df_result['t_p_theo'].max():.2f} s")
-    print(f"t_S: {df_result['t_s_theo'].min():.2f} - {df_result['t_s_theo'].max():.2f} s")
+    print(f"  Origin time range: {origin_time.min():.2f} - {origin_time.max():.2f} s")
+    print(f"  t_P range: {df_result['t_p_theo'].min():.2f} - {df_result['t_p_theo'].max():.2f} s")
+    print(f"  t_S range: {df_result['t_s_theo'].min():.2f} - {df_result['t_s_theo'].max():.2f} s")
+    
+    return df_result
+
+def calculate_search_windows(df_stations, 
+                            p_window_before=15, 
+                            p_window_after=15,
+                            s_window_before=20, 
+                            s_window_after=20):
+    """
+    Calculate search windows for P and S onset detection around theoretical arrival times.
+    
+    Windows are defined as symmetric intervals around theoretical arrivals,
+    accounting for uncertainties in velocity model (CRUST1.0) and event location.
+    
+    Parameters
+    ----------
+    df_stations : pd.DataFrame
+        Station metadata with columns:
+        - 't_p_theo': Theoretical P-wave arrival time (s)
+        - 't_s_theo': Theoretical S-wave arrival time (s)
+    p_window_before : float, optional
+        Time before t_p_theo to start search window (default: 15s)
+    p_window_after : float, optional
+        Time after t_p_theo to end search window (default: 15s)
+    s_window_before : float, optional
+        Time before t_s_theo to start search window (default: 20s)
+    s_window_after : float, optional
+        Time after t_s_theo to end search window (default: 20s)
+    
+    Returns
+    -------
+    pd.DataFrame
+        Copy of input with added columns:
+        - 'p_window_start': Start of P-wave search window (s)
+        - 'p_window_end': End of P-wave search window (s)
+        - 's_window_start': Start of S-wave search window (s)
+        - 's_window_end': End of S-wave search window (s)
+    
+    Notes
+    -----
+    Search windows account for:
+    - CRUST1.0 velocity model uncertainties (~5-10%)
+    - Event location uncertainties (typically ±2 km)
+    - Lateral crustal heterogeneities
+    
+    Conservative window sizes (±15s for P, ±20s for S) are recommended
+    for regional distances 5-110 km with purely theoretical arrival times.
+    
+    Examples
+    --------
+    >>> df_stations = add_theoretical_arrivals(df_stations)
+    >>> df_stations = calculate_search_windows(df_stations)
+    >>> print(df_stations[['STATION_CODE', 'p_window_start', 'p_window_end']])
+    """
+    required_cols = ['t_p_theo', 't_s_theo']
+    missing = [col for col in required_cols if col not in df_stations.columns]
+    if missing:
+        raise ValueError(
+            f"Missing required columns: {missing}. "
+            f"Run add_theoretical_arrivals() first."
+        )
+    
+    df_result = df_stations.copy()
+    
+    # P-wave search windows
+    df_result['p_window_start'] = df_result['t_p_theo'] - p_window_before
+    df_result['p_window_end'] = df_result['t_p_theo'] + p_window_after
+    
+    # S-wave search windows
+    df_result['s_window_start'] = df_result['t_s_theo'] - s_window_before
+    df_result['s_window_end'] = df_result['t_s_theo'] + s_window_after
+    
+    # Ensure non-negative start times
+    df_result['p_window_start'] = df_result['p_window_start'].clip(lower=0)
+    df_result['s_window_start'] = df_result['s_window_start'].clip(lower=0)
+    
+    print(f"Search windows calculated:")
+    print(f"  P-wave: [{-p_window_before}, +{p_window_after}]s around t_p_theo "
+          f"(total width: {p_window_before + p_window_after}s)")
+    print(f"  S-wave: [{-s_window_before}, +{s_window_after}]s around t_s_theo "
+          f"(total width: {s_window_before + s_window_after}s)")
+    
+    # Summary statistics
+    print(f"\nP-wave windows:")
+    print(f"  Start: {df_result['p_window_start'].min():.2f} - {df_result['p_window_start'].max():.2f} s")
+    print(f"  End: {df_result['p_window_end'].min():.2f} - {df_result['p_window_end'].max():.2f} s")
+    
+    print(f"\nS-wave windows:")
+    print(f"  Start: {df_result['s_window_start'].min():.2f} - {df_result['s_window_start'].max():.2f} s")
+    print(f"  End: {df_result['s_window_end'].min():.2f} - {df_result['s_window_end'].max():.2f} s")
     
     return df_result

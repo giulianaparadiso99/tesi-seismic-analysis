@@ -35,6 +35,12 @@ from .plots_signals import (
     plot_ergodicity_test
 )
 
+from .plots_segmentation import (
+    display_theoretical_arrivals_table,
+    plot_theoretical_arrivals,
+    plot_onset_detection_results
+)
+
 __all__ = [
     # Settings
     'set_plot_style',

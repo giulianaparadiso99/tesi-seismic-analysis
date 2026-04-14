@@ -43,6 +43,11 @@ from .preprocessing.cleaning_signals import (
     validate_preprocessing
 )
 
+# ===============================================================================
+# Processing
+# ===============================================================================
+
+
 from .processing.signals_integration import (
     integrate_to_velocity,
     integrate_to_displacement,
@@ -71,11 +76,15 @@ from .analysis.signals_pdf import (
 # Analysis - Window Detection
 # ===============================================================================
 
-from .analysis.event_segmentation import (
+from .segmentation.theoretical_arrivals import (
     extract_crustal_velocities,
     calculate_theoretical_arrival,
     add_crustal_velocities,
     add_theoretical_arrivals
+)
+
+from .segmentation.onset_detection import (
+    detect_onsets_ar_full_signal
 )
 
 
@@ -141,6 +150,13 @@ from .visualization.plots_signals import (
     plot_ergodicity_test
 )
 
+from .visualization.plots_segmentation import (
+    display_theoretical_arrivals_table,
+    plot_theoretical_arrivals,
+    plot_onset_detection_results
+)
+
+
 # ===============================================================================
 # Export Utilities
 # ===============================================================================
@@ -149,7 +165,8 @@ from .utils.latex_export import (
     corr_diff_to_latex,
     preprocess_checks_to_latex,
     heavy_tail_to_latex,
-    metadata_table_to_latex
+    metadata_table_to_latex,
+    theoretical_arrivals_to_latex
 )
 
 # ===============================================================================

@@ -260,78 +260,105 @@ def get_signal_for_station(df_signals, station_code, component='HNE'):
     return df_station['time'].values, df_station['acceleration'].values
 
 
-def validate_signals_dict(signals_dict, expected_components=['HNE', 'HNN', 'HNZ']):
+def validate_signals_dict(signals_dict):
     """
     Validate signals dictionary structure.
     
     Checks for:
-    - All expected components present
-    - Same length for all components and time
+    - Valid component sets (standard 3-component, high-gain 3-component, or horizontal-only)
+    - Same length for all components and time array
     - No NaN or Inf values
     
     Parameters
     ----------
     signals_dict : dict
-        Nested signals dictionary
-    expected_components : list, optional
-        Expected component codes
+        Nested signals dictionary from convert_signals_to_dict()
         
     Returns
     -------
     report : dict
-        Validation report with issues found
+        Validation report with keys:
+        - 'valid': bool, True if all checks pass
+        - 'n_stations': int, number of stations
+        - 'issues': list of str, description of problems found
+        - 'incomplete_stations': list of str, stations with <3 components
         
     Examples
     --------
     >>> report = validate_signals_dict(signals_dict)
     >>> if report['valid']:
     ...     print("All signals valid!")
+    >>> else:
+    ...     print(f"Issues: {report['issues']}")
     """
+    # Valid component sets
+    valid_component_sets = [
+        {'HNE', 'HNN', 'HNZ'},  # Standard 3-component
+        {'HGE', 'HGN', 'HGZ'},  # High gain 3-component
+        {'HN1', 'HN2'},         # Horizontal only (no vertical)
+        {'HN1', 'HN2', 'HNZ'} 
+    ]
+    
     issues = []
+    incomplete_stations = []
     
     for station, data in signals_dict.items():
-        # Check components present
-        missing = [c for c in expected_components if c not in data]
-        if missing:
-            issues.append(f"{station}: missing components {missing}")
+        # Get actual components present (exclude 'time')
+        actual_components = set(k for k in data.keys() if k != 'time')
         
-        # Check time array
+        # Check if matches any valid set
+        is_valid_set = actual_components in valid_component_sets
+        
+        if not is_valid_set:
+            issues.append(
+                f"{station}: invalid component set {actual_components}"
+            )
+            continue
+        
+        # Track stations with incomplete data
+        if len(actual_components) < 3:
+            incomplete_stations.append(station)
+        
+        # Check time array exists
         if 'time' not in data:
             issues.append(f"{station}: missing time array")
             continue
         
         time_len = len(data['time'])
         
-        # Check component lengths
-        for component in expected_components:
-            if component in data:
-                acc = data[component]
-                
-                # Length check
-                if len(acc) != time_len:
-                    issues.append(
-                        f"{station}.{component}: length mismatch "
-                        f"(time={time_len}, acc={len(acc)})"
-                    )
-                
-                # NaN check
-                if np.isnan(acc).any():
-                    n_nan = np.isnan(acc).sum()
-                    issues.append(f"{station}.{component}: {n_nan} NaN values")
-                
-                # Inf check
-                if np.isinf(acc).any():
-                    n_inf = np.isinf(acc).sum()
-                    issues.append(f"{station}.{component}: {n_inf} Inf values")
+        # Check each component present
+        for component in actual_components:
+            acc = data[component]
+            
+            # Length check
+            if len(acc) != time_len:
+                issues.append(
+                    f"{station}.{component}: length mismatch "
+                    f"(time={time_len}, acc={len(acc)})"
+                )
+            
+            # NaN check
+            if np.isnan(acc).any():
+                n_nan = np.isnan(acc).sum()
+                issues.append(f"{station}.{component}: {n_nan} NaN values")
+            
+            # Inf check
+            if np.isinf(acc).any():
+                n_inf = np.isinf(acc).sum()
+                issues.append(f"{station}.{component}: {n_inf} Inf values")
     
     report = {
         'valid': len(issues) == 0,
         'n_stations': len(signals_dict),
-        'issues': issues
+        'issues': issues,
+        'incomplete_stations': incomplete_stations
     }
     
     if report['valid']:
-        print(f"✓ All {report['n_stations']} stations validated")
+        print(f"All {report['n_stations']} stations validated")
+        if incomplete_stations:
+            print(f"  Note: {len(incomplete_stations)} station(s) with <3 components: {incomplete_stations}")
+            print(f"  These will require single-component onset detection")
     else:
         print(f"✗ Validation failed: {len(issues)} issues found")
         for issue in issues[:10]:

@@ -11,7 +11,8 @@ from .latex_export import (
     corr_diff_to_latex,
     preprocess_checks_to_latex,
     heavy_tail_to_latex,
-    metadata_table_to_latex
+    metadata_table_to_latex,
+    theoretical_arrivals_to_latex
 )
 
 __all__ = [

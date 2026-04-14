@@ -369,3 +369,126 @@ def heavy_tail_to_latex(df, output_path=None):
         print(f"Saved to: {output_path}")
 
     return latex_str
+
+def theoretical_arrivals_to_latex(df_stations, output_path=None, caption=None, label=None):
+    """
+    Convert theoretical arrival times table to LaTeX format for Overleaf.
+    
+    Creates a professional table showing station metadata and theoretical
+    P and S wave arrival times calculated from CRUST1.0 crustal velocities.
+    
+    Parameters
+    ----------
+    df_stations : pd.DataFrame
+        Station metadata with columns:
+        - STATION_CODE
+        - EPICENTRAL_DISTANCE_KM
+        - vp_crust, vs_crust
+        - t_p_theo, t_s_theo
+    output_path : str or Path, optional
+        If provided, save LaTeX code to this file
+    caption : str, optional
+        Table caption (default: auto-generated)
+    label : str, optional
+        LaTeX label for cross-referencing (default: 'tab:theoretical_arrivals')
+    
+    Returns
+    -------
+    latex_str : str
+        LaTeX table code
+    
+    Examples
+    --------
+    >>> latex = theoretical_arrivals_to_latex(
+    ...     df_meta_stations,
+    ...     output_path='tables/theoretical_arrivals.tex',
+    ...     caption='Theoretical P and S wave arrival times'
+    ... )
+    """
+    from pathlib import Path
+    
+    # Prepare data
+    table = df_stations[[
+        'STATION_CODE', 
+        'EPICENTRAL_DISTANCE_KM',
+        'vp_crust', 
+        'vs_crust',
+        't_p_theo', 
+        't_s_theo'
+    ]].copy()
+    
+    # Sort by distance
+    table = table.sort_values('EPICENTRAL_DISTANCE_KM').reset_index(drop=True)
+    
+    # Round values
+    table['EPICENTRAL_DISTANCE_KM'] = table['EPICENTRAL_DISTANCE_KM'].round(1)
+    table['vp_crust'] = table['vp_crust'].round(2)
+    table['vs_crust'] = table['vs_crust'].round(2)
+    table['t_p_theo'] = table['t_p_theo'].round(2)
+    table['t_s_theo'] = table['t_s_theo'].round(2)
+    
+    # Statistics for caption
+    n_stations = len(table)
+    dist_min = table['EPICENTRAL_DISTANCE_KM'].min()
+    dist_max = table['EPICENTRAL_DISTANCE_KM'].max()
+    vp_median = table['vp_crust'].median()
+    vs_median = table['vs_crust'].median()
+    
+    # Default caption and label
+    if caption is None:
+        caption = (
+            f"Theoretical P and S wave arrival times for {n_stations} stations "
+            f"calculated using CRUST1.0 crustal velocities. "
+            f"Epicentral distances range from {dist_min:.1f} to {dist_max:.1f} km. "
+            f"Median crustal velocities: $v_P = {vp_median:.2f}$ km/s, "
+            f"$v_S = {vs_median:.2f}$ km/s."
+        )
+    
+    if label is None:
+        label = 'tab:theoretical_arrivals'
+    
+    # Build LaTeX table
+    latex_lines = [
+        r'\begin{table}[htbp]',
+        r'    \centering',
+        r'    \caption{' + caption + r'}',
+        r'    \label{' + label + r'}',
+        r'    \begin{tabular}{lrcccc}',
+        r'        \toprule',
+        r'        Station & Distance & $v_P$ & $v_S$ & $t_P$ & $t_S$ \\',
+        r'        Code & (km) & (km/s) & (km/s) & (s) & (s) \\',
+        r'        \midrule',
+    ]
+    
+    # Add data rows
+    for _, row in table.iterrows():
+        line = (
+            f"        {row['STATION_CODE']} & "
+            f"{row['EPICENTRAL_DISTANCE_KM']:.1f} & "
+            f"{row['vp_crust']:.2f} & "
+            f"{row['vs_crust']:.2f} & "
+            f"{row['t_p_theo']:.2f} & "
+            f"{row['t_s_theo']:.2f} \\\\"
+        )
+        latex_lines.append(line)
+    
+    # Close table
+    latex_lines.extend([
+        r'        \bottomrule',
+        r'    \end{tabular}',
+        r'\end{table}',
+    ])
+    
+    latex_str = '\n'.join(latex_lines)
+    
+    # Save if path provided
+    if output_path:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(latex_str)
+        
+        print(f"LaTeX table saved: {output_path}")
+    
+    return latex_str

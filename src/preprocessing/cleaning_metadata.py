@@ -72,7 +72,11 @@ def _convert_types(df):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    df['EVENT_DATE'] = pd.to_datetime(df['EVENT_DATE_YYYYMMDD'], format='%Y%m%d', errors='coerce')
+    df['EVENT_DATE'] = pd.to_datetime(
+        df['EVENT_DATE_YYYYMMDD'].astype(str) + '_' + df['EVENT_TIME_HHMMSS'].astype(str), 
+        format='%Y%m%d_%H%M%S', 
+        errors='coerce'
+        )
     df['DATE_TIME_FIRST_SAMPLE'] = pd.to_datetime(
         df['DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS'], format='%Y%m%d_%H%M%S.%f', errors='coerce'
     )
