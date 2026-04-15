@@ -6,7 +6,8 @@ from .theoretical_arrivals import (
     calculate_theoretical_arrival,
     add_crustal_velocities,
     add_theoretical_arrivals,
-    calculate_search_windows
+    calculate_search_windows,
+    calculate_adaptive_windows
 )
 
 from .onset_detection import (

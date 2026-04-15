@@ -253,10 +253,10 @@ def add_theoretical_arrivals(df_stations, distance_col='EPICENTRAL_DISTANCE_KM')
     return df_result
 
 def calculate_search_windows(df_stations, 
-                            p_window_before=15, 
-                            p_window_after=15,
-                            s_window_before=20, 
-                            s_window_after=20):
+                            p_window_before=5, 
+                            p_window_after=5,
+                            s_window_before=7, 
+                            s_window_after=7):
     """
     Calculate search windows for P and S onset detection around theoretical arrival times.
     
@@ -339,5 +339,122 @@ def calculate_search_windows(df_stations,
     print(f"\nS-wave windows:")
     print(f"  Start: {df_result['s_window_start'].min():.2f} - {df_result['s_window_start'].max():.2f} s")
     print(f"  End: {df_result['s_window_end'].min():.2f} - {df_result['s_window_end'].max():.2f} s")
+    
+    return df_result
+
+def calculate_adaptive_windows(df_stations):
+    """
+    Calculate adaptive search windows that don't overlap and scale with distance.
+    
+    Windows adapt to epicentral distance (closer stations = narrower windows).
+    S-window always starts after P-window ends to prevent overlap.
+    
+    Parameters
+    ----------
+    df_stations : pd.DataFrame
+        Station metadata with columns:
+        - 'EPICENTRAL_DISTANCE_KM': Distance from event to station (km)
+        - 't_p_theo': Theoretical P-wave arrival time (s)
+        - 't_s_theo': Theoretical S-wave arrival time (s)
+    
+    Returns
+    -------
+    pd.DataFrame
+        Copy of input with added columns:
+        - 'p_window_start': Start of P-wave search window (s)
+        - 'p_window_end': End of P-wave search window (s)
+        - 's_window_start': Start of S-wave search window (s)
+        - 's_window_end': End of S-wave search window (s)
+    
+    Notes
+    -----
+    Window sizing strategy:
+    - Distance < 50 km: ±3s for P, ±6s for S
+    - Distance 50-150 km: ±5s for P, ±10s for S
+    - Distance > 150 km: ±7s for P, ±14s for S
+    
+    S-window constraint: always starts at least 0.5s after P-window ends
+    to ensure P and S detection regions are temporally separated.
+    
+    Examples
+    --------
+    >>> df_stations = add_theoretical_arrivals(df_stations)
+    >>> df_stations = calculate_adaptive_windows(df_stations)
+    >>> print(df_stations[['STATION_CODE', 'p_window_start', 's_window_start']])
+    """
+    required_cols = ['EPICENTRAL_DISTANCE_KM', 't_p_theo', 't_s_theo']
+    missing = [col for col in required_cols if col not in df_stations.columns]
+    if missing:
+        raise ValueError(
+            f"Missing required columns: {missing}. "
+            f"Run add_theoretical_arrivals() first."
+        )
+    
+    df_result = df_stations.copy()
+    
+    p_starts = []
+    p_ends = []
+    s_starts = []
+    s_ends = []
+    
+    for idx, row in df_result.iterrows():
+        dist = row['EPICENTRAL_DISTANCE_KM']
+        t_p = row['t_p_theo']
+        t_s = row['t_s_theo']
+        
+        # P window half-width based on distance
+        if dist < 50:
+            p_hw = 3.0
+        elif dist < 150:
+            p_hw = 5.0
+        else:
+            p_hw = 7.0
+        
+        # P window
+        p_start = t_p - p_hw
+        p_end = t_p + p_hw
+        
+        # S window: wider than P, starts AFTER P ends
+        gap = 0.5  # separation between P and S windows
+        s_hw = 2 * p_hw  # S window is twice as wide as P
+        
+        s_start_min = p_end + gap  # earliest S can start (after P ends)
+        s_start_theo = t_s - s_hw  # theoretical S window start
+        s_start = max(s_start_min, s_start_theo)  # take the later of the two
+        s_end = t_s + s_hw
+        
+        p_starts.append(p_start)
+        p_ends.append(p_end)
+        s_starts.append(s_start)
+        s_ends.append(s_end)
+    
+    df_result['p_window_start'] = p_starts
+    df_result['p_window_end'] = p_ends
+    df_result['s_window_start'] = s_starts
+    df_result['s_window_end'] = s_ends
+    
+    # Ensure non-negative start times
+    df_result['p_window_start'] = df_result['p_window_start'].clip(lower=0)
+    df_result['s_window_start'] = df_result['s_window_start'].clip(lower=0)
+    
+    # Print summary
+    print("Adaptive search windows calculated:")
+    print(f"  Distance < 50 km: P ±3s, S ±6s")
+    print(f"  Distance 50-150 km: P ±5s, S ±10s")
+    print(f"  Distance > 150 km: P ±7s, S ±14s")
+    print(f"  S-windows guaranteed to start ≥0.5s after P-windows end")
+    
+    # Summary statistics
+    print(f"\nP-wave windows:")
+    print(f"  Start: {df_result['p_window_start'].min():.2f} - {df_result['p_window_start'].max():.2f} s")
+    print(f"  End: {df_result['p_window_end'].min():.2f} - {df_result['p_window_end'].max():.2f} s")
+    
+    print(f"\nS-wave windows:")
+    print(f"  Start: {df_result['s_window_start'].min():.2f} - {df_result['s_window_start'].max():.2f} s")
+    print(f"  End: {df_result['s_window_end'].min():.2f} - {df_result['s_window_end'].max():.2f} s")
+    
+    # Check for overlap (should be 0)
+    overlaps = (df_result['s_window_start'] < df_result['p_window_end']).sum()
+    print(f"\nP-S window overlaps: {overlaps}/22 stations")
     
     return df_result
