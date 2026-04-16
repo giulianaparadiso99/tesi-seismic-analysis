@@ -11,5 +11,7 @@ from .theoretical_arrivals import (
 )
 
 from .onset_detection import (
-    detect_onsets_ar_windowed
+    detect_onsets_ar_windowed,
+    detect_coda_start,
+    detect_coda_start_all_methods
 )

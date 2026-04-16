@@ -280,7 +280,7 @@ def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
             'components_used': f'{comp_z},{comp_n},{comp_e}'
         })
     
-    print(" Done!")
+    print("Done!")
     
     # Convert to DataFrame
     df_results = pd.DataFrame(results)
@@ -327,7 +327,8 @@ def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
     return df_results
 
 def detect_coda_start(signal, t_s_detected, origin_time=None,
-                     sampling_rate=200, method='rautian'):
+                     sampling_rate=200, method='rautian',
+                     threshold_arias=0.75, threshold_envelope=0.3):
     """
     Detect coda onset using multiple methods from seismological literature.
     
@@ -344,10 +345,14 @@ def detect_coda_start(signal, t_s_detected, origin_time=None,
     method : str
         Detection method:
         - 'rautian': Lapse time = 2 × S-wave travel time (Rautian & Khalturin, 1978)
-        - 'aki': t_coda = t_S + 2 × (t_S - t_P) (Aki & Chouet, 1975)
-        - 'fixed': Fixed duration after S-onset (simple baseline)
-        - 'energy': Cumulative energy threshold (75%)
-        - 'envelope': Amplitude envelope decay
+        - 'arias': Cumulative Arias Intensity threshold (Trifunac & Brady, 1975; Lanzano et al., 2019)
+        - 'envelope': Amplitude envelope decay (Boore, 2005)
+    threshold_arias : float
+        Threshold for 'arias' method (default: 0.75 for D5-75)
+        Common values: 0.75 (D5-75), 0.95 (D5-95)
+    threshold_envelope : float
+        Threshold factor for 'envelope' method (default: 0.3)
+        Common range: 0.2-0.3 (20-30% of peak)
     
     Returns
     -------
@@ -363,16 +368,38 @@ def detect_coda_start(signal, t_s_detected, origin_time=None,
     Rautian, T. G., & Khalturin, V. I. (1978). The use of the coda for 
     determination of the earthquake source spectrum. BSSA, 68(4), 923-948.
     
-    Aki, K., & Chouet, B. (1975). Origin of coda waves: Source, attenuation, 
-    and scattering effects. JGR, 80(23), 3322-3342.
+    Trifunac, M. D., & Brady, A. G. (1975). On the correlation of seismic 
+    intensity scales with the peaks of recorded strong ground motion.
+    BSSA, 65(1), 139-162.
+    
+    Lanzano, G., et al. (2019). The pan-European Engineering Strong Motion 
+    (ESM) flatfile: compilation criteria and data statistics.
+    Bull. Earthquake Eng., 17, 561-582.
+    
+    Boore, D. M., & Bommer, J. J. (2005). Processing of strong-motion 
+    accelerograms: needs, options and consequences.
+    Soil Dynamics and Earthquake Engineering, 25(2), 93-115.
     
     Examples
     --------
+    >>> # Rautian method
     >>> result = detect_coda_start(signal, t_s=15.2, origin_time=8.2, 
     ...                            method='rautian')
-    >>> t_coda = result['t_coda']
-    >>> print(f"Coda starts at {t_coda:.2f}s using {result['method']}")
+    >>> 
+    >>> # Arias D5-75 (ESM standard)
+    >>> result = detect_coda_start(signal, t_s=15.2, method='arias',
+    ...                            threshold_arias=0.75)
+    >>> 
+    >>> # Arias D5-95 (alternative)
+    >>> result = detect_coda_start(signal, t_s=15.2, method='arias',
+    ...                            threshold_arias=0.95)
+    >>> 
+    >>> # Envelope with 25% threshold
+    >>> result = detect_coda_start(signal, t_s=15.2, method='envelope',
+    ...                            threshold_envelope=0.25)
     """
+    import numpy as np
+    
     signal_duration = len(signal) / sampling_rate
     
     if method == 'rautian':
@@ -395,85 +422,84 @@ def detect_coda_start(signal, t_s_detected, origin_time=None,
         }
         params = {'multiplier': 2.0, 'min_s_duration': min_s_duration}
     
-    elif method == 'aki':
-        # Aki & Chouet (1975): requires P-onset
-        # For now, estimate from S lapse time assuming vp/vs ~ 1.73
-        if origin_time is not None:
-            s_travel_time = t_s_detected - origin_time
-            p_travel_time = s_travel_time / 1.73
-            t_p_estimated = origin_time + p_travel_time
-        else:
-            # Fallback: assume P is 60% of distance to S
-            t_p_estimated = t_s_detected * 0.6
+    elif method == 'arias':
+        """
+        Coda onset when specified percentage of Arias Intensity is reached.
         
-        dt_ps = t_s_detected - t_p_estimated
-        t_coda = t_s_detected + 2.0 * dt_ps
+        Arias Intensity: AI(t) = (π/2g) ∫ a²(τ) dτ
         
-        diagnostic = {
-            't_p_estimated': t_p_estimated,
-            'dt_ps': dt_ps,
-            's_duration': t_coda - t_s_detected
-        }
-        params = {'multiplier': 2.0, 't_p_estimated': t_p_estimated}
-    
-    elif method == 'fixed':
-        # Fixed duration (baseline method)
-        fixed_duration = 10.0  # seconds
-        t_coda = t_s_detected + fixed_duration
-        
-        diagnostic = {
-            's_duration': fixed_duration
-        }
-        params = {'duration': fixed_duration}
-    
-    elif method == 'energy':
-        # Cumulative energy threshold
+        Standard definitions:
+        - D5-75: 75% threshold (Lanzano et al., 2019 - ESM flatfile)
+        - D5-95: 95% threshold (Trifunac & Brady, 1975)
+        """
         idx_s = int(t_s_detected * sampling_rate)
         signal_after_s = signal[idx_s:]
         
-        # Cumulative energy
-        energy_cumsum = np.cumsum(signal_after_s**2)
-        if energy_cumsum[-1] == 0:
+        # Arias Intensity: AI(t) = (π/2g) ∫ a²(τ) dτ
+        dt = 1.0 / sampling_rate
+        g = 9.81  # m/s²
+        arias_cumsum = (np.pi / (2 * g)) * np.cumsum(signal_after_s**2) * dt
+        
+        if arias_cumsum[-1] == 0:
             t_coda = t_s_detected + 10.0  # Fallback
         else:
-            energy_norm = energy_cumsum / energy_cumsum[-1]
-            threshold = 0.75
-            idx_coda_rel = np.argmax(energy_norm >= threshold)
+            arias_norm = arias_cumsum / arias_cumsum[-1]
+            threshold = threshold_arias
+            idx_coda_rel = np.argmax(arias_norm >= threshold)
             
             if idx_coda_rel == 0:  # Never reached
                 t_coda = t_s_detected + 10.0
             else:
                 t_coda = t_s_detected + idx_coda_rel / sampling_rate
         
+        # Determine reference based on threshold
+        if threshold == 0.75:
+            reference = 'D5-75 (Lanzano et al., 2019 - ESM flatfile)'
+        elif threshold == 0.95:
+            reference = 'D5-95 (Trifunac & Brady, 1975)'
+        else:
+            reference = f'D5-{int(threshold*100)} (custom threshold)'
+        
         diagnostic = {
             'threshold': threshold,
-            'total_energy': energy_cumsum[-1],
-            's_duration': t_coda - t_s_detected
+            'total_arias_intensity': arias_cumsum[-1] if arias_cumsum[-1] != 0 else 0,
+            's_duration': t_coda - t_s_detected,
+            'reference': reference
         }
-        params = {'threshold': threshold}
+        params = {
+            'threshold': threshold,
+            'arias_based': True
+        }
     
     elif method == 'envelope':
-        # Envelope decay method
+        """
+        Envelope decay method.
+        
+        Following common practice in strong-motion processing (Boore & Bommer, 2005),
+        the coda is defined as beginning when the smoothed envelope falls below a
+        threshold (typically 20-30%) of its peak value.
+        """
         from scipy.signal import hilbert
         from scipy.ndimage import uniform_filter1d
         
         idx_s = int(t_s_detected * sampling_rate)
         signal_after_s = signal[idx_s:]
         
-        # Calculate envelope
+        # Calculate envelope using Hilbert transform
         envelope = np.abs(hilbert(signal_after_s))
+        
+        # Smooth envelope with 1-second moving average (standard practice)
         envelope_smooth = uniform_filter1d(envelope, size=sampling_rate)
         
-        # Find peak in first 5 seconds
+        # Find peak in first 5 seconds after S-onset
         search_window = min(int(5 * sampling_rate), len(envelope_smooth))
         if search_window == 0:
             t_coda = t_s_detected + 10.0
         else:
             peak_envelope = np.max(envelope_smooth[:search_window])
             
-            # Coda starts when envelope drops to 30% of peak
-            threshold_factor = 0.3
-            threshold = threshold_factor * peak_envelope
+            # Coda starts when envelope drops below threshold
+            threshold = threshold_envelope * peak_envelope
             
             idx_coda_rel = np.argmax(envelope_smooth < threshold)
             if idx_coda_rel == 0:  # Never drops
@@ -483,15 +509,20 @@ def detect_coda_start(signal, t_s_detected, origin_time=None,
         
         diagnostic = {
             'peak_envelope': peak_envelope if search_window > 0 else 0,
-            'threshold_factor': threshold_factor,
-            's_duration': t_coda - t_s_detected
+            'threshold_factor': threshold_envelope,
+            'threshold_absolute': threshold if search_window > 0 else 0,
+            's_duration': t_coda - t_s_detected,
+            'reference': 'Boore & Bommer (2005)'
         }
-        params = {'threshold_factor': threshold_factor}
+        params = {
+            'threshold_factor': threshold_envelope,
+            'smoothing_window_s': 1.0
+        }
     
     else:
         raise ValueError(
             f"Unknown method '{method}'. Choose from: "
-            "'rautian', 'aki', 'fixed', 'energy', 'envelope'"
+            "'rautian', 'arias', 'envelope'"
         )
     
     # Ensure coda is within signal bounds
@@ -505,9 +536,10 @@ def detect_coda_start(signal, t_s_detected, origin_time=None,
         'diagnostic': diagnostic
     }
 
-
 def detect_coda_start_all_methods(signal, t_s_detected, origin_time=None,
-                                  t_p_detected=None, sampling_rate=200):
+                                  sampling_rate=200,
+                                  threshold_arias=0.75,
+                                  threshold_envelope=0.3):
     """
     Apply all coda detection methods and return results for comparison.
     
@@ -518,11 +550,13 @@ def detect_coda_start_all_methods(signal, t_s_detected, origin_time=None,
     t_s_detected : float
         S-wave onset time (s)
     origin_time : float, optional
-        Earthquake origin time (s)
-    t_p_detected : float, optional
-        P-wave onset time (s). If provided, used for 'aki' method.
+        Earthquake origin time (s). Required for 'rautian' method.
     sampling_rate : int
         Sampling rate (Hz)
+    threshold_arias : float
+        Threshold for Arias Intensity method (default: 0.75)
+    threshold_envelope : float
+        Threshold factor for envelope method (default: 0.3)
     
     Returns
     -------
@@ -531,11 +565,20 @@ def detect_coda_start_all_methods(signal, t_s_detected, origin_time=None,
     
     Examples
     --------
+    >>> # Test all methods with default thresholds
     >>> results = detect_coda_start_all_methods(signal, t_s=15.2, origin_time=8.2)
     >>> for method, res in results.items():
-    ...     print(f"{method}: {res['t_coda']:.2f}s")
+    ...     print(f"{method}: t_coda={res['t_coda']:.2f}s, "
+    ...           f"S_duration={res['diagnostic']['s_duration']:.2f}s")
+    >>> 
+    >>> # Test with custom thresholds
+    >>> results = detect_coda_start_all_methods(signal, t_s=15.2, origin_time=8.2,
+    ...                                         threshold_arias=0.95,
+    ...                                         threshold_envelope=0.25)
     """
-    methods = ['rautian', 'aki', 'fixed', 'energy', 'envelope']
+    import numpy as np
+    
+    methods = ['rautian', 'arias', 'envelope']
     results = {}
     
     for method in methods:
@@ -545,28 +588,14 @@ def detect_coda_start_all_methods(signal, t_s_detected, origin_time=None,
             
             result = detect_coda_start(
                 signal, t_s_detected, origin_time=origin_time,
-                sampling_rate=sampling_rate, method=method
+                sampling_rate=sampling_rate, method=method,
+                threshold_arias=threshold_arias,
+                threshold_envelope=threshold_envelope
             )
             results[method] = result
             
         except Exception as e:
             print(f"Warning: Method '{method}' failed: {e}")
             continue
-    
-    # If t_p_detected provided, add improved 'aki' version
-    if t_p_detected is not None:
-        dt_ps = t_s_detected - t_p_detected
-        t_coda = t_s_detected + 2.0 * dt_ps
-        t_coda = min(t_coda, len(signal) / sampling_rate - 1.0)
-        
-        results['aki_detected'] = {
-            't_coda': t_coda,
-            'method': 'aki_detected',
-            'params': {'multiplier': 2.0, 't_p_detected': t_p_detected},
-            'diagnostic': {
-                'dt_ps': dt_ps,
-                's_duration': t_coda - t_s_detected
-            }
-        }
     
     return results

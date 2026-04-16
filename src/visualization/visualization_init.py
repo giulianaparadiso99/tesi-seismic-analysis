@@ -24,15 +24,13 @@ from .plots_metadata import (
 
 from .plots_signals import (
     plot_signal_length_distribution,
-    plot_example_signals,
+    plot_three_components,
     plot_acceleration_distributions,
     plot_postcheck_pdf,
     plot_postcheck_moment_scaling,
     plot_empirical_pdfs,
     plot_onset_diagnostic,
-    plot_onset_distribution,
-    plot_increments_histograms_dual_view,
-    plot_ergodicity_test
+    plot_onset_distribution
 )
 
 from .plots_segmentation import (
