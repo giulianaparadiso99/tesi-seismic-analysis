@@ -79,7 +79,6 @@ from .analysis.signals_pdf import (
 
 from .segmentation.theoretical_arrivals import (
     extract_crustal_velocities,
-    calculate_theoretical_arrival,
     add_crustal_velocities,
     add_theoretical_arrivals,
     calculate_search_windows,
@@ -89,7 +88,8 @@ from .segmentation.theoretical_arrivals import (
 from .segmentation.onset_detection import (
     detect_onsets_ar_windowed,
     detect_coda_start,
-    detect_coda_start_all_methods
+    detect_coda_start_all_methods,
+    add_coda_onsets_to_dataframe
 )
 
 # ===============================================================================
@@ -156,6 +156,7 @@ from .visualization.plots_segmentation import (
     display_theoretical_arrivals_table,
     plot_theoretical_arrivals,
     plot_onset_detection_results,
+    plot_coda_onset_results,
     plot_coda_method_comparison
 )
 

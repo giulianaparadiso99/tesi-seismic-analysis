@@ -191,7 +191,6 @@ def add_crustal_velocities(df_stations,
     
     return df_result
 
-
 def add_theoretical_arrivals(df_stations, distance_col='EPICENTRAL_DISTANCE_KM'):
     """
     Add theoretical P and S arrival time columns.

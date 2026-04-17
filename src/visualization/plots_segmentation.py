@@ -13,6 +13,9 @@ Includes plots for:
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+from scipy.stats import pearsonr, linregress
+from pathlib import Path
+import re
 
 
 def display_theoretical_arrivals_table(df_stations, n_rows=10):
@@ -67,7 +70,6 @@ def display_theoretical_arrivals_table(df_stations, n_rows=10):
     display(table.head(n_rows))
     
     return table
-
 
 def plot_theoretical_arrivals(df_stations, figsize=(12, 6), save_path=None):
     """
@@ -187,12 +189,19 @@ def plot_onset_detection_results(signals_dict, df_results,
     ----------
     signals_dict : dict
         Nested dictionary from convert_signals_to_dict()
+        Structure: {station: {component: array, 'time': array}}
     df_results : pd.DataFrame
-        Results from detect_onsets_ar_windowed() or detect_onsets_ar_full_signal()
+        Results from detect_onsets_ar_windowed() with columns:
+        - STATION_CODE
+        - t_p_theo, t_s_theo
+        - t_p_detected, t_s_detected
+        - p_residual, s_residual
+        - p_detection_success, s_detection_success
+        - p_window_start, p_window_end, s_window_start, s_window_end
     stations : list of str, optional
         Which stations to plot (default: all stations in df_results)
-    figsize_per_station : tuple
-        Figure size (width, height) for each station
+    figsize_per_station : tuple, optional
+        Figure size (width, height) for each station (default: (10, 8))
     save_dir : str or Path, optional
         Directory to save figures. If None, figures are not saved.
     show_windows : bool, optional
@@ -205,13 +214,15 @@ def plot_onset_detection_results(signals_dict, df_results,
     
     Examples
     --------
-    >>> figs = plot_onset_detection_results(signals_dict, df_results_windowed, 
-    ...                                     stations=['EILF', 'SURF'],
-    ...                                     show_windows=True)
+    >>> figs = plot_onset_detection_results(
+    ...     signals_dict, 
+    ...     df_meta_stations,
+    ...     stations=['ACER', 'CLFR', 'SURF'],
+    ...     show_windows=True,
+    ...     save_dir='../figures/onset_detection'
+    ... )
     >>> plt.show()
     """
-    from pathlib import Path
-    import re
     
     if stations is None:
         stations = df_results['STATION_CODE'].tolist()
@@ -255,8 +266,13 @@ def plot_onset_detection_results(signals_dict, df_results,
             elif comp.endswith('E') or comp.endswith('1'):
                 comp_e = comp
         
+        # Check for incomplete components
         if comp_z is None or comp_n is None or comp_e is None:
-            print(f"Warning: Incomplete components for {station}")
+            missing = []
+            if comp_z is None: missing.append('Z')
+            if comp_n is None: missing.append('N')
+            if comp_e is None: missing.append('E')
+            print(f"Warning: {station} missing components: {missing}")
             continue
         
         # Create figure
@@ -272,49 +288,47 @@ def plot_onset_detection_results(signals_dict, df_results,
             ax.set_ylabel(f'{label}\n(cm/s²)', fontsize=10)
             ax.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
             
-            # Parse and plot search windows if available and requested
-            if show_windows and 'p_window_used' in station_result.index:
-                # Parse P window: '[start, end]'
-                p_window_str = station_result['p_window_used']
-                s_window_str = station_result['s_window_used']
-                
-                try:
-                    # Extract numbers from '[start, end]' format
-                    p_match = re.findall(r'[-+]?\d*\.?\d+', p_window_str)
-                    if len(p_match) == 2:
-                        p_win_start, p_win_end = float(p_match[0]), float(p_match[1])
+            # Plot search windows if available and requested
+            if show_windows:
+                # P window
+                if 'p_window_start' in station_result.index:
+                    p_win_start = station_result['p_window_start']
+                    p_win_end = station_result['p_window_end']
+                    
+                    if not pd.isna(p_win_start) and not pd.isna(p_win_end):
                         ax.axvspan(p_win_start, p_win_end, alpha=0.15, color='blue', 
                                   label='P window' if ax == axes[0] else '', zorder=0)
+                
+                # S window
+                if 's_window_start' in station_result.index:
+                    s_win_start = station_result['s_window_start']
+                    s_win_end = station_result['s_window_end']
                     
-                    s_match = re.findall(r'[-+]?\d*\.?\d+', s_window_str)
-                    if len(s_match) == 2:
-                        s_win_start, s_win_end = float(s_match[0]), float(s_match[1])
+                    if not pd.isna(s_win_start) and not pd.isna(s_win_end):
                         ax.axvspan(s_win_start, s_win_end, alpha=0.15, color='red', 
                                   label='S window' if ax == axes[0] else '', zorder=0)
-                except:
-                    pass  # Skip if parsing fails
             
             # Plot theoretical arrivals (dashed)
-            if not np.isnan(station_result['t_p_theo']):
+            if not pd.isna(station_result['t_p_theo']):
                 ax.axvline(station_result['t_p_theo'], color='blue', 
                           linestyle='--', linewidth=1.5, alpha=0.6, 
                           label='P theo' if ax == axes[0] else '', zorder=2)
             
-            if not np.isnan(station_result['t_s_theo']):
+            if not pd.isna(station_result['t_s_theo']):
                 ax.axvline(station_result['t_s_theo'], color='red', 
                           linestyle='--', linewidth=1.5, alpha=0.6,
                           label='S theo' if ax == axes[0] else '', zorder=2)
             
             # Plot detected arrivals (solid) if successful
-            p_success = station_result.get('p_detection_success', station_result.get('detection_success', False))
-            s_success = station_result.get('s_detection_success', station_result.get('detection_success', False))
+            p_success = station_result.get('p_detection_success', False)
+            s_success = station_result.get('s_detection_success', False)
             
-            if p_success and not np.isnan(station_result['t_p_detected']):
+            if p_success and not pd.isna(station_result['t_p_detected']):
                 ax.axvline(station_result['t_p_detected'], color='blue', 
                           linestyle='-', linewidth=2.5,
                           label='P detected' if ax == axes[0] else '', zorder=3)
             
-            if s_success and not np.isnan(station_result['t_s_detected']):
+            if s_success and not pd.isna(station_result['t_s_detected']):
                 ax.axvline(station_result['t_s_detected'], color='red', 
                           linestyle='-', linewidth=2.5,
                           label='S detected' if ax == axes[0] else '', zorder=3)
@@ -323,21 +337,19 @@ def plot_onset_detection_results(signals_dict, df_results,
         axes[-1].set_xlabel('Time (s)', fontsize=11)
         
         # Title with residual info
-        detection_method = station_result.get('detection_method', 'ar_pick')
-        
         if p_success and s_success:
-            title = (f"Station {station} - AR-AIC Onset Detection ({detection_method})\n"
+            title = (f"Station {station} - AR-AIC Onset Detection\n"
                     f"P residual: {station_result['p_residual']:+.2f} s  |  "
                     f"S residual: {station_result['s_residual']:+.2f} s")
         elif p_success:
-            title = (f"Station {station} - AR-AIC Onset Detection ({detection_method})\n"
+            title = (f"Station {station} - AR-AIC Onset Detection\n"
                     f"P residual: {station_result['p_residual']:+.2f} s  |  S detection FAILED")
         elif s_success:
-            title = (f"Station {station} - AR-AIC Onset Detection ({detection_method})\n"
+            title = (f"Station {station} - AR-AIC Onset Detection\n"
                     f"P detection FAILED  |  S residual: {station_result['s_residual']:+.2f} s")
         else:
             error_msg = station_result.get('error_message', 'Unknown error')
-            title = (f"Station {station} - Detection FAILED\n{error_msg}")
+            title = f"Station {station} - Detection FAILED\n{error_msg}"
         
         fig.suptitle(title, fontsize=12, fontweight='bold')
         
@@ -348,8 +360,189 @@ def plot_onset_detection_results(signals_dict, df_results,
         
         # Save if requested
         if save_dir is not None:
-            method_suffix = f"_{detection_method}" if detection_method else ""
-            save_path = save_dir / f'onset_detection_{station}{method_suffix}.pdf'
+            save_path = save_dir / f'onset_detection_{station}.pdf'
+            fig.savefig(save_path, dpi=150, bbox_inches='tight')
+            print(f"Saved: {save_path}")
+        
+        figures[station] = fig
+    
+    return figures
+
+def plot_coda_onset_results(signals_dict, df_onsets_full,
+                            stations=None,
+                            figsize_per_station=(10, 8),
+                            save_dir=None):
+    """
+    Plot acceleration time series with S-wave and coda onsets for all three methods.
+    
+    Creates one figure per station showing Z, N, E components with:
+    - Black lines: acceleration signals
+    - Red solid line: detected S onset
+    - Green solid line: coda onset (Rautian)
+    - Orange solid line: coda onset (Arias)
+    - Purple solid line: coda onset (Envelope)
+    
+    Parameters
+    ----------
+    signals_dict : dict
+        Nested dictionary from convert_signals_to_dict()
+        Structure: {station: {component: array, 'time': array}}
+    df_onsets_full : pd.DataFrame
+        Results from add_coda_onsets_to_dataframe() with columns:
+        - STATION_CODE, COMPONENT
+        - t_s_detected
+        - t_coda_rautian, t_coda_arias, t_coda_envelope
+        - s_duration_rautian, s_duration_arias, s_duration_envelope
+    stations : list of str, optional
+        Which stations to plot (default: all stations in df_onsets_full)
+    figsize_per_station : tuple, optional
+        Figure size (width, height) for each station (default: (10, 8))
+    save_dir : str or Path, optional
+        Directory to save figures. If None, figures are not saved.
+    
+    Returns
+    -------
+    dict
+        Dictionary {station: fig} of created figures
+    
+    Examples
+    --------
+    >>> figs = plot_coda_onset_results(signals_dict, df_onsets_full,
+    ...                                stations=['ACER', 'CLFR'],
+    ...                                save_dir='../figures/coda_detection')
+    >>> plt.show()
+    """
+    
+    if stations is None:
+        stations = df_onsets_full['STATION_CODE'].unique().tolist()
+    
+    if save_dir is not None:
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+    
+    figures = {}
+    
+    for station in stations:
+        # Get signals
+        if station not in signals_dict:
+            print(f"Warning: Station {station} not in signals_dict")
+            continue
+        
+        data = signals_dict[station]
+        time = data['time']
+        
+        # Identify components
+        components = [k for k in data.keys() if k != 'time']
+        
+        comp_z = None
+        comp_n = None
+        comp_e = None
+        
+        for comp in components:
+            if comp.endswith('Z'):
+                comp_z = comp
+            elif comp.endswith('N') or comp.endswith('2'):
+                comp_n = comp
+            elif comp.endswith('E') or comp.endswith('1'):
+                comp_e = comp
+        
+        if comp_z is None or comp_n is None or comp_e is None:
+            print(f"Warning: Incomplete components for {station}")
+            continue
+        
+        # Create figure
+        fig, axes = plt.subplots(3, 1, figsize=figsize_per_station, sharex=True)
+        
+        components_list = [(comp_z, 'Vertical'), (comp_n, 'North'), (comp_e, 'East')]
+        
+        for ax, (comp, label) in zip(axes, components_list):
+            # Get results for this component
+            comp_result = df_onsets_full[
+                (df_onsets_full['STATION_CODE'] == station) & 
+                (df_onsets_full['COMPONENT'] == comp)
+            ]
+            
+            if len(comp_result) == 0:
+                print(f"Warning: No results for {station}-{comp}")
+                continue
+            
+            comp_result = comp_result.iloc[0]
+            
+            # Get signal
+            signal = data[comp]
+            
+            # Plot acceleration
+            ax.plot(time, signal, 'k-', linewidth=0.5, alpha=0.7, zorder=1)
+            ax.set_ylabel(f'{label}\n(cm/s²)', fontsize=10)
+            ax.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+            
+            # Plot S-wave onset
+            if not np.isnan(comp_result['t_s_detected']):
+                ax.axvline(comp_result['t_s_detected'], color='red',
+                          linestyle='-', linewidth=2.5,
+                          label='S onset' if ax == axes[0] else '', zorder=2)
+            
+            # Plot coda onsets (3 methods)
+            if not np.isnan(comp_result['t_coda_rautian']):
+                ax.axvline(comp_result['t_coda_rautian'], color='green',
+                          linestyle='-', linewidth=2,
+                          label='Coda (Rautian)' if ax == axes[0] else '', zorder=3)
+            
+            if not np.isnan(comp_result['t_coda_arias']):
+                ax.axvline(comp_result['t_coda_arias'], color='orange',
+                          linestyle='-', linewidth=2,
+                          label='Coda (Arias)' if ax == axes[0] else '', zorder=3)
+            
+            if not np.isnan(comp_result['t_coda_envelope']):
+                ax.axvline(comp_result['t_coda_envelope'], color='purple',
+                          linestyle='-', linewidth=2,
+                          label='Coda (Envelope)' if ax == axes[0] else '', zorder=3)
+        
+        # Set xlabel only on bottom plot
+        axes[-1].set_xlabel('Time (s)', fontsize=11)
+        
+        # Title with S-wave duration info (average across methods and components)
+        durations_rautian = []
+        durations_arias = []
+        durations_envelope = []
+        
+        for comp in [comp_z, comp_n, comp_e]:
+            comp_result = df_onsets_full[
+                (df_onsets_full['STATION_CODE'] == station) & 
+                (df_onsets_full['COMPONENT'] == comp)
+            ].iloc[0]
+            
+            if not np.isnan(comp_result['s_duration_rautian']):
+                durations_rautian.append(comp_result['s_duration_rautian'])
+            if not np.isnan(comp_result['s_duration_arias']):
+                durations_arias.append(comp_result['s_duration_arias'])
+            if not np.isnan(comp_result['s_duration_envelope']):
+                durations_envelope.append(comp_result['s_duration_envelope'])
+        
+        # Calculate mean durations
+        mean_rautian = np.mean(durations_rautian) if durations_rautian else np.nan
+        mean_arias = np.mean(durations_arias) if durations_arias else np.nan
+        mean_envelope = np.mean(durations_envelope) if durations_envelope else np.nan
+        
+        title = f"Station {station} - Coda Onset Detection\n"
+        
+        if not np.isnan(mean_rautian):
+            title += f"S-wave duration: Rautian={mean_rautian:.2f}s"
+        if not np.isnan(mean_arias):
+            title += f"  |  Arias={mean_arias:.2f}s"
+        if not np.isnan(mean_envelope):
+            title += f"  |  Envelope={mean_envelope:.2f}s"
+        
+        fig.suptitle(title, fontsize=12, fontweight='bold')
+        
+        # Legend on top plot
+        axes[0].legend(loc='upper right', fontsize=9, framealpha=0.9)
+        
+        plt.tight_layout()
+        
+        # Save if requested
+        if save_dir is not None:
+            save_path = save_dir / f'coda_detection_{station}.pdf'
             fig.savefig(save_path, dpi=150, bbox_inches='tight')
             print(f"Saved: {save_path}")
         
@@ -395,10 +588,6 @@ def plot_coda_method_comparison(df_onsets_full, output_path=None):
     ...     output_path='figures/coda_method_comparison.png'
     ... )
     """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    from scipy.stats import pearsonr, linregress
-    from pathlib import Path
     
     # Method pairs to compare
     comparisons = [

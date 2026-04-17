@@ -37,6 +37,7 @@ from .plots_segmentation import (
     display_theoretical_arrivals_table,
     plot_theoretical_arrivals,
     plot_onset_detection_results,
+    plot_onset_detection_results,
     plot_coda_method_comparison
 )
 

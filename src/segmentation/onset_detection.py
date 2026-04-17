@@ -16,6 +16,8 @@ Planetary Interiors, 113(1-4), 247-263.
 import numpy as np
 import pandas as pd
 from obspy.signal.trigger import ar_pick
+from scipy.signal import hilbert
+from scipy.ndimage import uniform_filter1d
 
 def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
                               p_window_before=5, p_window_after=5,
@@ -76,8 +78,6 @@ def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
     >>> print(f"P success: {df_meta_stations['p_detection_success'].sum()}")
     >>> print(f"S success: {df_meta_stations['s_detection_success'].sum()}")
     """
-    import numpy as np
-    from obspy.signal.trigger import ar_pick
     
     # Initialize onset columns in df_meta_stations
     df_meta_stations['t_p_detected'] = np.nan
@@ -339,23 +339,6 @@ def detect_coda_start(signal, t_s_detected, origin_time=None,
         - 'params': dict, method-specific parameters
         - 'diagnostic': dict, diagnostic information for validation
     
-    References
-    ----------
-    Rautian, T. G., & Khalturin, V. I. (1978). The use of the coda for 
-    determination of the earthquake source spectrum. BSSA, 68(4), 923-948.
-    
-    Trifunac, M. D., & Brady, A. G. (1975). On the correlation of seismic 
-    intensity scales with the peaks of recorded strong ground motion.
-    BSSA, 65(1), 139-162.
-    
-    Lanzano, G., et al. (2019). The pan-European Engineering Strong Motion 
-    (ESM) flatfile: compilation criteria and data statistics.
-    Bull. Earthquake Eng., 17, 561-582.
-    
-    Boore, D. M., & Bommer, J. J. (2005). Processing of strong-motion 
-    accelerograms: needs, options and consequences.
-    Soil Dynamics and Earthquake Engineering, 25(2), 93-115.
-    
     Examples
     --------
     >>> # Rautian method
@@ -386,9 +369,6 @@ def detect_coda_start(signal, t_s_detected, origin_time=None,
         coda_lapse_time = 2.0 * s_lapse_time
         t_coda = origin_time + coda_lapse_time
         
-        # Ensure minimum S-wave duration (avoid contamination)
-        min_s_duration = 2.0
-        t_coda = max(t_coda, t_s_detected + min_s_duration)
         
         diagnostic = {
             's_lapse_time': s_lapse_time,
@@ -454,8 +434,6 @@ def detect_coda_start(signal, t_s_detected, origin_time=None,
         the coda is defined as beginning when the smoothed envelope falls below a
         threshold (typically 20-30%) of its peak value.
         """
-        from scipy.signal import hilbert
-        from scipy.ndimage import uniform_filter1d
         
         idx_s = int(t_s_detected * sampling_rate)
         signal_after_s = signal[idx_s:]
