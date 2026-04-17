@@ -18,14 +18,13 @@ import pandas as pd
 from obspy.signal.trigger import ar_pick
 
 def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
-                              p_window_before=15, p_window_after=15,
-                              s_window_before=20, s_window_after=20):
+                              p_window_before=5, p_window_after=5,
+                              s_window_before=7, s_window_after=7):
     """
     Detect P and S onsets using AR-AIC with theoretical search windows.
     
     Applies AR-AIC method to signal subsets extracted around theoretical
-    arrival times. This approach improves detection accuracy by constraining
-    the search to physically plausible time windows.
+    arrival times. Populates df_meta_stations directly with detected onset times.
     
     Parameters
     ----------
@@ -51,10 +50,8 @@ def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
     Returns
     -------
     pd.DataFrame
-        Detection results with columns:
-        - STATION_CODE
+        df_meta_stations with added columns:
         - t_p_detected, t_s_detected (onset times in file coordinates)
-        - t_p_theo, t_s_theo (theoretical times)
         - p_residual, s_residual (detected - theoretical)
         - p_detection_success, s_detection_success (bool flags)
         - detection_method ('ar_windowed')
@@ -75,43 +72,39 @@ def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
     Examples
     --------
     >>> df_meta_stations = calculate_search_windows(df_meta_stations)
-    >>> df_results = detect_onsets_ar_windowed(signals_dict, df_meta_stations)
-    >>> print(f"P success: {df_results['p_detection_success'].sum()}")
-    >>> print(f"S success: {df_results['s_detection_success'].sum()}")
+    >>> df_meta_stations = detect_onsets_ar_windowed(signals_dict, df_meta_stations)
+    >>> print(f"P success: {df_meta_stations['p_detection_success'].sum()}")
+    >>> print(f"S success: {df_meta_stations['s_detection_success'].sum()}")
     """
-    results = []
+    import numpy as np
+    from obspy.signal.trigger import ar_pick
+    
+    # Initialize onset columns in df_meta_stations
+    df_meta_stations['t_p_detected'] = np.nan
+    df_meta_stations['t_s_detected'] = np.nan
+    df_meta_stations['p_residual'] = np.nan
+    df_meta_stations['s_residual'] = np.nan
+    df_meta_stations['p_detection_success'] = False
+    df_meta_stations['s_detection_success'] = False
+    df_meta_stations['error_message'] = ''
+    df_meta_stations['components_used'] = ''
     
     print(f"Running AR-AIC onset detection with theoretical windows...")
     print(f"  P window: [{-p_window_before}, +{p_window_after}]s around t_p_theo")
     print(f"  S window: [{-s_window_before}, +{s_window_after}]s around t_s_theo")
     print("\nProcessing: ", end="", flush=True)
     
-    for station, data in signals_dict.items():
+    for idx, station_meta in df_meta_stations.iterrows():
         print(".", end="", flush=True)
         
-        # Get metadata for this station
-        station_meta = df_meta_stations[df_meta_stations['STATION_CODE'] == station]
+        station = station_meta['STATION_CODE']
         
-        if len(station_meta) == 0:
-            results.append({
-                'STATION_CODE': station,
-                't_p_detected': np.nan,
-                't_s_detected': np.nan,
-                't_p_theo': np.nan,
-                't_s_theo': np.nan,
-                'p_residual': np.nan,
-                's_residual': np.nan,
-                'p_detection_success': False,
-                's_detection_success': False,
-                'detection_method': 'ar_windowed',
-                'p_window_used': '',
-                's_window_used': '',
-                'error_message': 'Station not found in metadata',
-                'components_used': ''
-            })
+        # Check if station exists in signals_dict
+        if station not in signals_dict:
+            df_meta_stations.loc[idx, 'error_message'] = 'Station not found in signals_dict'
             continue
         
-        station_meta = station_meta.iloc[0]
+        data = signals_dict[station]
         
         # Identify available components
         components = [k for k in data.keys() if k != 'time']
@@ -132,28 +125,21 @@ def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
         
         # Check if we have all 3 components
         if comp_z is None or comp_n is None or comp_e is None:
-            results.append({
-                'STATION_CODE': station,
-                't_p_detected': np.nan,
-                't_s_detected': np.nan,
-                't_p_theo': station_meta['t_p_theo'],
-                't_s_theo': station_meta['t_s_theo'],
-                'p_residual': np.nan,
-                's_residual': np.nan,
-                'p_detection_success': False,
-                's_detection_success': False,
-                'detection_method': 'ar_windowed',
-                'p_window_used': '',
-                's_window_used': '',
-                'error_message': f'Incomplete components: Z={comp_z}, N={comp_n}, E={comp_e}',
-                'components_used': ','.join([c for c in [comp_z, comp_n, comp_e] if c])
-            })
+            df_meta_stations.loc[idx, 'error_message'] = (
+                f'Incomplete components: Z={comp_z}, N={comp_n}, E={comp_e}'
+            )
+            df_meta_stations.loc[idx, 'components_used'] = ','.join(
+                [c for c in [comp_z, comp_n, comp_e] if c]
+            )
             continue
         
         # Get full signals
         signal_z_full = data[comp_z]
         signal_n_full = data[comp_n]
         signal_e_full = data[comp_e]
+        
+        # Record components used
+        df_meta_stations.loc[idx, 'components_used'] = f'{comp_e},{comp_n},{comp_z}'
         
         # Get filter parameters
         f1 = station_meta['LOW_CUT_FREQUENCY_HZ']
@@ -164,14 +150,14 @@ def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
         t_s_theo = station_meta['t_s_theo']
         
         # Define search windows (use provided windows or calculate from theo times)
-        if 'p_window_start' in station_meta.index:
+        if 'p_window_start' in station_meta.index and not pd.isna(station_meta['p_window_start']):
             p_win_start = station_meta['p_window_start']
             p_win_end = station_meta['p_window_end']
         else:
             p_win_start = max(0, t_p_theo - p_window_before)
             p_win_end = t_p_theo + p_window_after
         
-        if 's_window_start' in station_meta.index:
+        if 's_window_start' in station_meta.index and not pd.isna(station_meta['s_window_start']):
             s_win_start = station_meta['s_window_start']
             s_win_end = station_meta['s_window_end']
         else:
@@ -215,11 +201,14 @@ def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
             )
             
             # Convert to absolute time in file
-            t_p_detected = p_win_start + p_pick_relative
-            p_success = True
-            
+            if p_pick_relative is not None and not np.isnan(p_pick_relative):
+                t_p_detected = time_p[0] + p_pick_relative
+                p_success = True
+            else:
+                error_msg += 'P-pick returned None; '
+        
         except Exception as e:
-            error_msg += f"P detection failed: {type(e).__name__}: {str(e)}; "
+            error_msg += f'P detection failed: {str(e)}; '
         
         # ===== S-WAVE DETECTION =====
         try:
@@ -235,8 +224,7 @@ def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
             time_s = time[mask_s]
             
             # Apply AR-AIC to S window
-            # We only care about the S pick here
-            _, s_pick_relative = ar_pick(
+            p_pick_in_s_window, s_pick_relative = ar_pick(
                 signal_z_s, signal_n_s, signal_e_s,
                 samp_rate=200,
                 f1=f1,
@@ -252,79 +240,67 @@ def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
             )
             
             # Convert to absolute time in file
-            t_s_detected = s_win_start + s_pick_relative
-            s_success = True
-            
+            if s_pick_relative is not None and not np.isnan(s_pick_relative):
+                t_s_detected = time_s[0] + s_pick_relative
+                s_success = True
+            else:
+                error_msg += 'S-pick returned None; '
+        
         except Exception as e:
-            error_msg += f"S detection failed: {type(e).__name__}: {str(e)}; "
+            error_msg += f'S detection failed: {str(e)}; '
         
-        # Calculate residuals
-        p_residual = t_p_detected - t_p_theo if p_success else np.nan
-        s_residual = t_s_detected - t_s_theo if s_success else np.nan
+        # ===== POPULATE DATAFRAME =====
+        df_meta_stations.loc[idx, 't_p_detected'] = t_p_detected
+        df_meta_stations.loc[idx, 't_s_detected'] = t_s_detected
+        df_meta_stations.loc[idx, 'p_detection_success'] = p_success
+        df_meta_stations.loc[idx, 's_detection_success'] = s_success
         
-        # Store results
-        results.append({
-            'STATION_CODE': station,
-            't_p_detected': t_p_detected,
-            't_s_detected': t_s_detected,
-            't_p_theo': t_p_theo,
-            't_s_theo': t_s_theo,
-            'p_residual': p_residual,
-            's_residual': s_residual,
-            'p_detection_success': p_success,
-            's_detection_success': s_success,
-            'detection_method': 'ar_windowed',
-            'p_window_used': f'[{p_win_start:.1f}, {p_win_end:.1f}]',
-            's_window_used': f'[{s_win_start:.1f}, {s_win_end:.1f}]',
-            'error_message': error_msg.strip(),
-            'components_used': f'{comp_z},{comp_n},{comp_e}'
-        })
+        # Calculate residuals if detection succeeded
+        if p_success:
+            df_meta_stations.loc[idx, 'p_residual'] = t_p_detected - t_p_theo
+        
+        if s_success:
+            df_meta_stations.loc[idx, 's_residual'] = t_s_detected - t_s_theo
+        
+        # Record errors if any
+        if error_msg:
+            df_meta_stations.loc[idx, 'error_message'] = error_msg.strip('; ')
     
-    print("Done!")
+    print("\n\nDetection complete!")
     
-    # Convert to DataFrame
-    df_results = pd.DataFrame(results)
+    # Summary statistics
+    n_stations = len(df_meta_stations)
+    n_p_success = df_meta_stations['p_detection_success'].sum()
+    n_s_success = df_meta_stations['s_detection_success'].sum()
     
-    # Print summary
-    n_total = len(df_results)
-    n_p_success = df_results['p_detection_success'].sum()
-    n_s_success = df_results['s_detection_success'].sum()
-    n_both_success = (df_results['p_detection_success'] & df_results['s_detection_success']).sum()
-    
-    print(f"\nDetection summary:")
-    print(f"  Total stations: {n_total}")
-    print(f"  P successful: {n_p_success} ({100*n_p_success/n_total:.1f}%)")
-    print(f"  S successful: {n_s_success} ({100*n_s_success/n_total:.1f}%)")
-    print(f"  Both P+S successful: {n_both_success} ({100*n_both_success/n_total:.1f}%)")
+    print(f"\nResults:")
+    print(f"  P-wave: {n_p_success}/{n_stations} successful ({100*n_p_success/n_stations:.1f}%)")
+    print(f"  S-wave: {n_s_success}/{n_stations} successful ({100*n_s_success/n_stations:.1f}%)")
     
     if n_p_success > 0:
-        df_p_success = df_results[df_results['p_detection_success']]
-        print(f"\nP-wave residuals:")
-        print(f"  Mean: {df_p_success['p_residual'].mean():+.2f} s")
-        print(f"  Std:  {df_p_success['p_residual'].std():.2f} s")
-        print(f"  Range: [{df_p_success['p_residual'].min():+.2f}, {df_p_success['p_residual'].max():+.2f}] s")
+        p_res_mean = df_meta_stations['p_residual'].mean()
+        p_res_std = df_meta_stations['p_residual'].std()
+        print(f"  P residuals: {p_res_mean:.2f} ± {p_res_std:.2f} s")
     
     if n_s_success > 0:
-        df_s_success = df_results[df_results['s_detection_success']]
-        print(f"\nS-wave residuals:")
-        print(f"  Mean: {df_s_success['s_residual'].mean():+.2f} s")
-        print(f"  Std:  {df_s_success['s_residual'].std():.2f} s")
-        print(f"  Range: [{df_s_success['s_residual'].min():+.2f}, {df_s_success['s_residual'].max():+.2f}] s")
+        s_res_mean = df_meta_stations['s_residual'].mean()
+        s_res_std = df_meta_stations['s_residual'].std()
+        print(f"  S residuals: {s_res_mean:.2f} ± {s_res_std:.2f} s")
     
-    # Print failures
-    n_failed = n_total - n_both_success
-    if n_failed > 0:
-        print(f"\nStations with failures ({n_failed}):")
-        df_failed = df_results[~(df_results['p_detection_success'] & df_results['s_detection_success'])]
-        for _, row in df_failed.iterrows():
+    # Report failures
+    failures = df_meta_stations[~(df_meta_stations['p_detection_success'] & 
+                                   df_meta_stations['s_detection_success'])]
+    if len(failures) > 0:
+        print(f"\nFailed/partial detections ({len(failures)} stations):")
+        for idx, row in failures.iterrows():
             status = []
             if not row['p_detection_success']:
-                status.append('P failed')
+                status.append('P')
             if not row['s_detection_success']:
-                status.append('S failed')
-            print(f"  {row['STATION_CODE']:6s}: {', '.join(status)} - {row['error_message']}")
+                status.append('S')
+            print(f"  {row['STATION_CODE']}: {', '.join(status)} failed - {row['error_message']}")
     
-    return df_results
+    return df_meta_stations
 
 def detect_coda_start(signal, t_s_detected, origin_time=None,
                      sampling_rate=200, method='rautian',
@@ -398,7 +374,6 @@ def detect_coda_start(signal, t_s_detected, origin_time=None,
     >>> result = detect_coda_start(signal, t_s=15.2, method='envelope',
     ...                            threshold_envelope=0.25)
     """
-    import numpy as np
     
     signal_duration = len(signal) / sampling_rate
     

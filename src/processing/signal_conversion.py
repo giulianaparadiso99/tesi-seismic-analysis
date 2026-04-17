@@ -367,3 +367,5 @@ def validate_signals_dict(signals_dict):
             print(f"  ... and {len(issues)-10} more")
     
     return report
+
+

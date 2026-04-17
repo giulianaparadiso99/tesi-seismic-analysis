@@ -91,7 +91,6 @@ from .segmentation.onset_detection import (
     detect_coda_start_all_methods
 )
 
-
 # ===============================================================================
 # Analysis - Moment Scaling (Time-Averaged)
 # ===============================================================================
@@ -155,7 +154,8 @@ from .visualization.plots_signals import (
 from .visualization.plots_segmentation import (
     display_theoretical_arrivals_table,
     plot_theoretical_arrivals,
-    plot_onset_detection_results
+    plot_onset_detection_results,
+    plot_coda_method_comparison
 )
 
 
@@ -168,7 +168,8 @@ from .utils.latex_export import (
     preprocess_checks_to_latex,
     heavy_tail_to_latex,
     metadata_table_to_latex,
-    theoretical_arrivals_to_latex
+    onset_detection_to_latex,
+    coda_onset_comparison_to_latex
 )
 
 # ===============================================================================

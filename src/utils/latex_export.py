@@ -370,114 +370,345 @@ def heavy_tail_to_latex(df, output_path=None):
 
     return latex_str
 
-def theoretical_arrivals_to_latex(df_stations, output_path=None, caption=None, label=None):
+def onset_detection_to_latex(df_onsets_full, coda_method='rautian', 
+                             output_path=None, caption=None, label=None):
     """
-    Convert theoretical arrival times table to LaTeX format for Overleaf.
+    Convert onset detection results to LaTeX table format.
     
-    Creates a professional table showing station metadata and theoretical
-    P and S wave arrival times calculated from CRUST1.0 crustal velocities.
+    Creates a professional table showing detected P, S, and coda onset times
+    with comparison to theoretical arrivals and crustal velocities.
     
     Parameters
     ----------
-    df_stations : pd.DataFrame
-        Station metadata with columns:
+    df_onsets_full : pd.DataFrame
+        Full onset detection results with columns:
         - STATION_CODE
+        - COMPONENT (or STREAM)
         - EPICENTRAL_DISTANCE_KM
         - vp_crust, vs_crust
-        - t_p_theo, t_s_theo
+        - t_p_theo, t_p_detected, p_residual
+        - t_s_theo, t_s_detected, s_residual
+        - t_coda_rautian, t_coda_arias, t_coda_envelope
+        - s_duration_rautian, s_duration_arias, s_duration_envelope
+    coda_method : str, optional
+        Which coda method to display: 'rautian', 'arias', or 'envelope'
+        (default: 'rautian')
     output_path : str or Path, optional
         If provided, save LaTeX code to this file
     caption : str, optional
         Table caption (default: auto-generated)
     label : str, optional
-        LaTeX label for cross-referencing (default: 'tab:theoretical_arrivals')
+        LaTeX label for cross-referencing (default: 'tab:onset_detection')
     
     Returns
     -------
     latex_str : str
-        LaTeX table code
+        LaTeX longtable code
     
     Examples
     --------
-    >>> latex = theoretical_arrivals_to_latex(
-    ...     df_meta_stations,
-    ...     output_path='tables/theoretical_arrivals.tex',
-    ...     caption='Theoretical P and S wave arrival times'
+    >>> # Use Rautian method (default)
+    >>> latex = onset_detection_to_latex(
+    ...     df_onsets_full,
+    ...     output_path='tables/onset_detection.tex'
+    ... )
+    >>> 
+    >>> # Use Arias method instead
+    >>> latex = onset_detection_to_latex(
+    ...     df_onsets_full,
+    ...     coda_method='arias',
+    ...     output_path='tables/onset_detection_arias.tex'
     ... )
     """
     from pathlib import Path
     
-    # Prepare data
-    table = df_stations[[
-        'STATION_CODE', 
-        'EPICENTRAL_DISTANCE_KM',
-        'vp_crust', 
-        'vs_crust',
-        't_p_theo', 
-        't_s_theo'
-    ]].copy()
+    # Validate coda_method
+    valid_methods = ['rautian', 'arias', 'envelope']
+    if coda_method not in valid_methods:
+        raise ValueError(
+            f"coda_method must be one of {valid_methods}, got '{coda_method}'"
+        )
     
-    # Sort by distance
-    table = table.sort_values('EPICENTRAL_DISTANCE_KM').reset_index(drop=True)
+    # Determine component column name
+    comp_col = 'COMPONENT' if 'COMPONENT' in df_onsets_full.columns else 'STREAM'
+    
+    # Select columns
+    t_coda_col = f't_coda_{coda_method}'
+    s_duration_col = f's_duration_{coda_method}'
+    
+    required_cols = [
+        'STATION_CODE', comp_col, 'EPICENTRAL_DISTANCE_KM',
+        'vp_crust', 'vs_crust',
+        't_p_theo', 't_p_detected', 'p_residual',
+        't_s_theo', 't_s_detected', 's_residual',
+        t_coda_col, s_duration_col
+    ]
+    
+    # Check if required columns exist
+    missing = [col for col in required_cols if col not in df_onsets_full.columns]
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}")
+    
+    # Prepare data
+    table = df_onsets_full[required_cols].copy()
+    
+    # Sort by station then component
+    table = table.sort_values(['STATION_CODE', comp_col]).reset_index(drop=True)
     
     # Round values
     table['EPICENTRAL_DISTANCE_KM'] = table['EPICENTRAL_DISTANCE_KM'].round(1)
     table['vp_crust'] = table['vp_crust'].round(2)
     table['vs_crust'] = table['vs_crust'].round(2)
     table['t_p_theo'] = table['t_p_theo'].round(2)
+    table['t_p_detected'] = table['t_p_detected'].round(2)
+    table['p_residual'] = table['p_residual'].round(2)
     table['t_s_theo'] = table['t_s_theo'].round(2)
+    table['t_s_detected'] = table['t_s_detected'].round(2)
+    table['s_residual'] = table['s_residual'].round(2)
+    table[t_coda_col] = table[t_coda_col].round(2)
+    table[s_duration_col] = table[s_duration_col].round(2)
     
     # Statistics for caption
-    n_stations = len(table)
+    n_records = len(table)
+    n_stations = table['STATION_CODE'].nunique()
     dist_min = table['EPICENTRAL_DISTANCE_KM'].min()
     dist_max = table['EPICENTRAL_DISTANCE_KM'].max()
     vp_median = table['vp_crust'].median()
     vs_median = table['vs_crust'].median()
     
+    # Method name for caption
+    method_names = {
+        'rautian': 'Rautian \\& Khalturin (1978) lapse-time criterion',
+        'arias': 'Arias Intensity D5-75 threshold (Lanzano et al., 2019)',
+        'envelope': 'envelope decay to 30\\% of peak (Boore \\& Bommer, 2005)'
+    }
+    method_name = method_names[coda_method]
+    
     # Default caption and label
     if caption is None:
         caption = (
-            f"Theoretical P and S wave arrival times for {n_stations} stations "
-            f"calculated using CRUST1.0 crustal velocities. "
-            f"Epicentral distances range from {dist_min:.1f} to {dist_max:.1f} km. "
-            f"Median crustal velocities: $v_P = {vp_median:.2f}$ km/s, "
-            f"$v_S = {vs_median:.2f}$ km/s."
+            f"P and S wave onset detection results for {n_stations} stations "
+            f"({n_records} three-component recordings). "
+            f"Theoretical arrivals calculated using CRUST1.0 crustal velocities "
+            f"(median: $v_P = {vp_median:.2f}$ km/s, $v_S = {vs_median:.2f}$ km/s). "
+            f"Detected times from AR-AIC method (Leonard \\& Kennett, 1999). "
+            f"Coda onset identified using {method_name}. "
+            f"Residuals computed as $\\Delta t = t_{{\\text{{det}}}} - t_{{\\text{{theo}}}}$. "
+            f"S-wave duration: $\\Delta_S = t_{{\\text{{coda}}}} - t_{{S,\\text{{det}}}}$."
         )
     
     if label is None:
-        label = 'tab:theoretical_arrivals'
+        label = 'tab:onset_detection'
     
-    # Build LaTeX table
+    # Build LaTeX longtable
     latex_lines = [
-        r'\begin{table}[htbp]',
-        r'    \centering',
-        r'    \caption{' + caption + r'}',
-        r'    \label{' + label + r'}',
-        r'    \begin{tabular}{lrcccc}',
-        r'        \toprule',
-        r'        Station & Distance & $v_P$ & $v_S$ & $t_P$ & $t_S$ \\',
-        r'        Code & (km) & (km/s) & (km/s) & (s) & (s) \\',
-        r'        \midrule',
+        r'\begin{longtable}{llrcccccccccc}',
+        r'    \caption{' + caption + r'} \\',
+        r'    \label{' + label + r'} \\',
+        r'    \toprule',
+        r'    \multirow{2}{*}{Station} & \multirow{2}{*}{Comp.} & \multirow{2}{*}{Dist.} & ',
+        r'    \multicolumn{2}{c}{Velocity} & \multicolumn{3}{c}{P-wave} & ',
+        r'    \multicolumn{3}{c}{S-wave} & \multirow{2}{*}{$t_{\text{coda}}$} & ',
+        r'    \multirow{2}{*}{$\Delta_S$} \\',
+        r'    \cmidrule(lr){4-5} \cmidrule(lr){6-8} \cmidrule(lr){9-11}',
+        r'    & & (km) & $v_P$ & $v_S$ & $t_{\text{theo}}$ & $t_{\text{det}}$ & ',
+        r'    $\Delta t$ & $t_{\text{theo}}$ & $t_{\text{det}}$ & $\Delta t$ & (s) & (s) \\',
+        r'    & & & (km/s) & (km/s) & (s) & (s) & (s) & (s) & (s) & (s) & & \\',
+        r'    \midrule',
+        r'    \endfirsthead',
+        r'',
+        r'    \multicolumn{13}{c}{\tablename\ \thetable{} -- continued from previous page} \\',
+        r'    \toprule',
+        r'    \multirow{2}{*}{Station} & \multirow{2}{*}{Comp.} & \multirow{2}{*}{Dist.} & ',
+        r'    \multicolumn{2}{c}{Velocity} & \multicolumn{3}{c}{P-wave} & ',
+        r'    \multicolumn{3}{c}{S-wave} & \multirow{2}{*}{$t_{\text{coda}}$} & ',
+        r'    \multirow{2}{*}{$\Delta_S$} \\',
+        r'    \cmidrule(lr){4-5} \cmidrule(lr){6-8} \cmidrule(lr){9-11}',
+        r'    & & (km) & $v_P$ & $v_S$ & $t_{\text{theo}}$ & $t_{\text{det}}$ & ',
+        r'    $\Delta t$ & $t_{\text{theo}}$ & $t_{\text{det}}$ & $\Delta t$ & (s) & (s) \\',
+        r'    & & & (km/s) & (km/s) & (s) & (s) & (s) & (s) & (s) & (s) & & \\',
+        r'    \midrule',
+        r'    \endhead',
+        r'',
+        r'    \midrule',
+        r'    \multicolumn{13}{r}{\textit{Continued on next page}} \\',
+        r'    \endfoot',
+        r'',
+        r'    \bottomrule',
+        r'    \endlastfoot',
+        r'',
     ]
     
-    # Add data rows
-    for _, row in table.iterrows():
+    # Add data rows with visual grouping by station
+    current_station = None
+    
+    for idx, row in table.iterrows():
+        station = row['STATION_CODE']
+        component = row[comp_col]
+        
+        # Add spacing between stations
+        if station != current_station:
+            if current_station is not None:
+                latex_lines.append(r'    \addlinespace')
+            current_station = station
+        
+        # Format residuals with sign
+        p_res = row['p_residual']
+        s_res = row['s_residual']
+        p_res_str = f"+{p_res:.2f}" if p_res >= 0 else f"{p_res:.2f}"
+        s_res_str = f"+{s_res:.2f}" if s_res >= 0 else f"{s_res:.2f}"
+        
         line = (
-            f"        {row['STATION_CODE']} & "
+            f"    {station} & {component} & "
             f"{row['EPICENTRAL_DISTANCE_KM']:.1f} & "
             f"{row['vp_crust']:.2f} & "
             f"{row['vs_crust']:.2f} & "
             f"{row['t_p_theo']:.2f} & "
-            f"{row['t_s_theo']:.2f} \\\\"
+            f"{row['t_p_detected']:.2f} & "
+            f"{p_res_str} & "
+            f"{row['t_s_theo']:.2f} & "
+            f"{row['t_s_detected']:.2f} & "
+            f"{s_res_str} & "
+            f"{row[t_coda_col]:.2f} & "
+            f"{row[s_duration_col]:.2f} \\\\"
         )
         latex_lines.append(line)
     
     # Close table
-    latex_lines.extend([
-        r'        \bottomrule',
-        r'    \end{tabular}',
-        r'\end{table}',
-    ])
+    latex_lines.append(r'\end{longtable}')
+    
+    latex_str = '\n'.join(latex_lines)
+    
+    # Save if path provided
+    if output_path:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(latex_str)
+        
+        print(f"LaTeX table saved: {output_path}")
+        print(f"  Method used: {coda_method}")
+        print(f"  Rows: {n_records} (from {n_stations} stations)")
+    
+    return latex_str
+
+def coda_onset_comparison_to_latex(df_onsets_full, output_path=None):
+    """
+    Generate LaTeX longtable with coda onset times for all methods.
+    
+    Creates a table with one row per (station, component) showing
+    detected coda onset times for Rautian, Arias, and Envelope methods.
+    
+    Parameters
+    ----------
+    df_onsets_full : pd.DataFrame
+        Must contain columns:
+        - STATION_CODE
+        - COMPONENT (or STREAM)
+        - t_s_detected
+        - t_coda_rautian
+        - t_coda_arias
+        - t_coda_envelope
+        - s_duration_rautian
+        - s_duration_arias
+        - s_duration_envelope
+    output_path : str or Path, optional
+        If provided, save LaTeX code to this file
+    
+    Returns
+    -------
+    str
+        LaTeX longtable code
+    
+    Examples
+    --------
+    >>> latex = coda_onset_comparison_to_latex(
+    ...     df_onsets_full,
+    ...     output_path='tables/coda_comparison.tex'
+    ... )
+    """
+    from pathlib import Path
+    
+    # Determine component column name
+    comp_col = 'COMPONENT' if 'COMPONENT' in df_onsets_full.columns else 'STREAM'
+    
+    # Select and sort data
+    table = df_onsets_full[[
+        'STATION_CODE',
+        comp_col,
+        't_s_detected',
+        't_coda_rautian',
+        't_coda_arias',
+        't_coda_envelope',
+        's_duration_rautian',
+        's_duration_arias',
+        's_duration_envelope'
+    ]].copy()
+    
+    table = table.sort_values(['STATION_CODE', comp_col]).reset_index(drop=True)
+    
+    # Round values
+    for col in table.columns:
+        if col not in ['STATION_CODE', comp_col]:
+            table[col] = table[col].round(2)
+    
+    # Build LaTeX
+    latex_lines = [
+        r'\begin{longtable}{llcccccccc}',
+        r'    \caption{Coda onset times detected by three methods: Rautian \& Khalturin (1978) lapse-time criterion, Arias Intensity D5-75 threshold (Lanzano et al., 2019), and envelope decay to 30\% of peak (Boore \& Bommer, 2005). S-wave duration ($\Delta_S$) computed as $t_{\text{coda}} - t_{S,\text{det}}$ for each method.} \\',
+        r'    \label{tab:coda_comparison} \\',
+        r'    \toprule',
+        r'    \multirow{2}{*}{Station} & \multirow{2}{*}{Comp.} & \multirow{2}{*}{$t_{S,\text{det}}$} & \multicolumn{3}{c}{$t_{\text{coda}}$ (s)} & \multicolumn{3}{c}{$\Delta_S$ (s)} \\',
+        r'    \cmidrule(lr){4-6} \cmidrule(lr){7-9}',
+        r'    & & (s) & Rautian & Arias & Envelope & Rautian & Arias & Envelope \\',
+        r'    \midrule',
+        r'    \endfirsthead',
+        r'',
+        r'    \multicolumn{9}{c}{\tablename\ \thetable{} -- continued from previous page} \\',
+        r'    \toprule',
+        r'    \multirow{2}{*}{Station} & \multirow{2}{*}{Comp.} & \multirow{2}{*}{$t_{S,\text{det}}$} & \multicolumn{3}{c}{$t_{\text{coda}}$ (s)} & \multicolumn{3}{c}{$\Delta_S$ (s)} \\',
+        r'    \cmidrule(lr){4-6} \cmidrule(lr){7-9}',
+        r'    & & (s) & Rautian & Arias & Envelope & Rautian & Arias & Envelope \\',
+        r'    \midrule',
+        r'    \endhead',
+        r'',
+        r'    \midrule',
+        r'    \multicolumn{9}{r}{\textit{Continued on next page}} \\',
+        r'    \endfoot',
+        r'',
+        r'    \bottomrule',
+        r'    \endlastfoot',
+        r'',
+    ]
+    
+    # Add data rows with visual grouping by station
+    current_station = None
+    
+    for idx, row in table.iterrows():
+        station = row['STATION_CODE']
+        component = row[comp_col]
+        
+        # Add spacing between stations
+        if station != current_station:
+            if current_station is not None:
+                latex_lines.append(r'    \addlinespace')
+            current_station = station
+        
+        line = (
+            f"    {station} & {component} & "
+            f"{row['t_s_detected']:.2f} & "
+            f"{row['t_coda_rautian']:.2f} & "
+            f"{row['t_coda_arias']:.2f} & "
+            f"{row['t_coda_envelope']:.2f} & "
+            f"{row['s_duration_rautian']:.2f} & "
+            f"{row['s_duration_arias']:.2f} & "
+            f"{row['s_duration_envelope']:.2f} \\\\"
+        )
+        latex_lines.append(line)
+    
+    # Close table
+    latex_lines.append(r'\end{longtable}')
     
     latex_str = '\n'.join(latex_lines)
     
