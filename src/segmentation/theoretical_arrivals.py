@@ -126,31 +126,6 @@ def extract_crustal_velocities(crust_profile, weighted=True):
     return vp, vs
 
 
-def calculate_theoretical_arrival(distance, velocity, origin_time=0):
-    """
-    Calculate theoretical wave arrival time.
-    
-    Parameters
-    ----------
-    distance : float
-        Epicentral distance (km)
-    velocity : float
-        Wave velocity (km/s)
-    origin_time : float, optional
-        Event origin time (s)
-        
-    Returns
-    -------
-    arrival_time : float
-        Theoretical arrival time (s)
-    """
-    return origin_time + distance / velocity
-
-
-# ============================================================================
-# LEVEL 2: DATAFRAME APPLICATORS
-# ============================================================================
-
 def add_crustal_velocities(df_stations, 
                           lat_col='STATION_LATITUDE_DEGREE',
                           lon_col='STATION_LONGITUDE_DEGREE'):
@@ -222,16 +197,30 @@ def add_theoretical_arrivals(df_stations, distance_col='EPICENTRAL_DISTANCE_KM')
     Add theoretical P and S arrival time columns.
     
     Calculates origin_time from EVENT_DATE and DATE_TIME_FIRST_SAMPLE,
-    then adds travel time based on distance and crustal velocities.
+    then adds travel time using simple kinematics: t = origin_time + distance / velocity
+    
+    Parameters
+    ----------
+    df_stations : pd.DataFrame
+        Station metadata with crustal velocities
+    distance_col : str, optional
+        Column name for epicentral distance (default: 'EPICENTRAL_DISTANCE_KM')
+    
+    Returns
+    -------
+    pd.DataFrame
+        df_stations with added columns:
+        - origin_time: Event time in file coordinates (s)
+        - t_p_theo: Theoretical P-wave arrival (s)
+        - t_s_theo: Theoretical S-wave arrival (s)
     """
     required_cols = [distance_col, 'vp_crust', 'vs_crust', 
                      'EVENT_DATE', 'DATE_TIME_FIRST_SAMPLE']
     missing = [col for col in required_cols if col not in df_stations.columns]
-    
     if missing:
         raise ValueError(
             f"Missing required columns: {missing}. "
-            f"Run add_crustal_velocities() first and ensure EVENT_DATE exists."
+            f"Run add_crustal_velocities() first."
         )
     
     df_result = df_stations.copy()
@@ -241,11 +230,14 @@ def add_theoretical_arrivals(df_stations, distance_col='EPICENTRAL_DISTANCE_KM')
     first_sample_datetime = pd.to_datetime(df_result['DATE_TIME_FIRST_SAMPLE'])
     origin_time = (event_datetime - first_sample_datetime).dt.total_seconds()
     
-    # Calculate theoretical arrivals in file coordinates
+    # Save origin_time as column
+    df_result['origin_time'] = origin_time
+    
+    # Calculate theoretical arrivals: t = origin_time + distance / velocity
     df_result['t_p_theo'] = origin_time + df_result[distance_col] / df_result['vp_crust']
     df_result['t_s_theo'] = origin_time + df_result[distance_col] / df_result['vs_crust']
     
-    print(f"Added theoretical arrival times")
+    print(f"Added theoretical arrival times:")
     print(f"  Origin time range: {origin_time.min():.2f} - {origin_time.max():.2f} s")
     print(f"  t_P range: {df_result['t_p_theo'].min():.2f} - {df_result['t_p_theo'].max():.2f} s")
     print(f"  t_S range: {df_result['t_s_theo'].min():.2f} - {df_result['t_s_theo'].max():.2f} s")

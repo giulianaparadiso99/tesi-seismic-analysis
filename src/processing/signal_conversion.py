@@ -368,4 +368,135 @@ def validate_signals_dict(signals_dict):
     
     return report
 
-
+def expand_to_component_level(df_meta_stations, df_meta_clean):
+    """
+    Expand station-level onset data to component-level.
+    
+    Replicates station-level information (velocities, P/S onset times, residuals)
+    across all 3 components of each station, creating a component-level DataFrame
+    ready for coda detection.
+    
+    Parameters
+    ----------
+    df_meta_stations : pd.DataFrame
+        Station-level data (22 rows) with columns:
+        - STATION_CODE
+        - vp_crust, vs_crust
+        - origin_time
+        - t_p_theo, t_s_theo
+        - t_p_detected, t_s_detected
+        - p_residual, s_residual
+        - p/s_detection_success
+        - p/s_window_start/end
+        - EVENT_DATE, DATE_TIME_FIRST_SAMPLE
+        - error_message, components_used
+    df_meta_clean : pd.DataFrame
+        Component-level metadata (66 rows) with columns:
+        - STATION_CODE
+        - STREAM (component name: HNE, HNN, HNZ, etc.)
+        - EPICENTRAL_DISTANCE_KM
+        - PGA_CM/S^2, TIME_PGA_S
+        - All other metadata fields
+    
+    Returns
+    -------
+    pd.DataFrame
+        Component-level DataFrame (66 rows) with columns:
+        - All columns from df_meta_clean
+        - All station-level columns from df_meta_stations (replicated)
+        - t_coda_rautian, t_coda_arias, t_coda_envelope (initialized as NaN)
+        - s_duration_rautian, s_duration_arias, s_duration_envelope (initialized as NaN)
+    
+    Notes
+    -----
+    P and S onset times are replicated across all 3 components because they
+    are detected using all components simultaneously (AR-AIC on Z, N, E).
+    
+    Coda onset times will differ per component (calculated by subsequent
+    add_coda_onsets_to_dataframe call) because each component has its own
+    amplitude envelope and energy distribution.
+    
+    Examples
+    --------
+    >>> # After P/S detection
+    >>> df_meta_stations = detect_onsets_ar_windowed(signals_dict, df_meta_stations)
+    >>> print(df_meta_stations.shape)  # (22, ~20)
+    >>> 
+    >>> # Expand to component level
+    >>> df_onsets_full = expand_to_component_level(df_meta_stations, df_meta_clean)
+    >>> print(df_onsets_full.shape)  # (66, ~25)
+    >>> 
+    >>> # Verify P/S are replicated
+    >>> acer = df_onsets_full[df_onsets_full['STATION_CODE'] == 'ACER']
+    >>> print(acer[['COMPONENT', 't_p_detected', 't_s_detected']])
+    #   COMPONENT  t_p_detected  t_s_detected
+    #   HNE        12.34         20.67
+    #   HNN        12.34         20.67
+    #   HNZ        12.34         20.67
+    """
+    import pandas as pd
+    import numpy as np
+    
+    # Start from component-level metadata
+    df_full = df_meta_clean.copy()
+    
+    # Get all columns from df_meta_stations except those already in df_meta_clean
+    # (to avoid duplication/conflicts)
+    station_cols = [col for col in df_meta_stations.columns 
+                   if col not in df_meta_clean.columns or col == 'STATION_CODE']
+    
+    # Merge station-level data (will replicate across components)
+    df_full = df_full.merge(
+        df_meta_stations[station_cols],
+        on='STATION_CODE',
+        how='left',
+        suffixes=('', '_dup')
+    )
+    
+    # Remove any duplicate columns that might have been created
+    dup_cols = [col for col in df_full.columns if col.endswith('_dup')]
+    if dup_cols:
+        df_full = df_full.drop(columns=dup_cols)
+    
+    # Rename STREAM to COMPONENT for consistency
+    if 'STREAM' in df_full.columns:
+        df_full = df_full.rename(columns={'STREAM': 'COMPONENT'})
+    
+    # origin_time should already be in df_meta_stations (from add_theoretical_arrivals)
+    # Verify it exists
+    if 'origin_time' not in df_full.columns:
+        print("Warning: origin_time not found in df_meta_stations.")
+        print("Calculating origin_time now (should have been added by add_theoretical_arrivals)")
+        event_datetime = pd.to_datetime(df_full['EVENT_DATE'])
+        first_sample_datetime = pd.to_datetime(df_full['DATE_TIME_FIRST_SAMPLE'])
+        df_full['origin_time'] = (event_datetime - first_sample_datetime).dt.total_seconds()
+    
+    # Initialize coda onset columns (will be populated by add_coda_onsets_to_dataframe)
+    for method in ['rautian', 'arias', 'envelope']:
+        df_full[f't_coda_{method}'] = np.nan
+        df_full[f's_duration_{method}'] = np.nan
+    
+    # Sort by station and component
+    df_full = df_full.sort_values(['STATION_CODE', 'COMPONENT']).reset_index(drop=True)
+    
+    # Summary
+    n_stations = df_full['STATION_CODE'].nunique()
+    n_components = len(df_full)
+    
+    print(f"Expanded onset DataFrame to component level:")
+    print(f"  {len(df_meta_stations)} stations → {n_components} components")
+    print(f"  ({n_components // n_stations} components per station)")
+    
+    # Verify expansion worked correctly
+    components_per_station = df_full.groupby('STATION_CODE').size()
+    if not all(components_per_station == 3):
+        incomplete = components_per_station[components_per_station != 3]
+        print(f"  Warning: {len(incomplete)} stations with ≠3 components:")
+        for station, count in incomplete.items():
+            print(f"    {station}: {count} components")
+    
+    print(f"\nColumns added:")
+    print(f"  - t_coda_rautian, t_coda_arias, t_coda_envelope (initialized as NaN)")
+    print(f"  - s_duration_rautian, s_duration_arias, s_duration_envelope (initialized as NaN)")
+    
+    return df_full

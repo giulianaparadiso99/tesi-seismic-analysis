@@ -60,7 +60,8 @@ from .processing.signal_conversion import (
     get_component_from_filename,
     convert_signals_to_dict,
     get_signal_for_station,
-    validate_signals_dict
+    validate_signals_dict,
+    expand_to_component_level
 )
 
 # ===============================================================================

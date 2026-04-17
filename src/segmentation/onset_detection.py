@@ -574,3 +574,45 @@ def detect_coda_start_all_methods(signal, t_s_detected, origin_time=None,
             continue
     
     return results
+
+def add_coda_onsets_to_dataframe(df_full, signals_dict, 
+                                 threshold_arias=0.75,
+                                 threshold_envelope=0.3,
+                                 sampling_rate=200):
+    """Populate coda onset columns in df_full."""
+    
+    methods = ['rautian', 'arias', 'envelope']
+    
+    print(f"Calculating coda onset for {len(df_full)} components...")
+    
+    for idx, row in df_full.iterrows():
+        station = row['STATION_CODE']
+        component = row['COMPONENT']
+        
+        if station not in signals_dict or component not in signals_dict[station]:
+            continue
+        
+        signal = signals_dict[station][component]
+        t_s = row['t_s_detected']
+        origin_time = row['origin_time']
+        
+        try:
+            # Chiama detect_coda_start_all_methods (invariata!)
+            results = detect_coda_start_all_methods(
+                signal, t_s, origin_time,
+                sampling_rate=sampling_rate,
+                threshold_arias=threshold_arias,
+                threshold_envelope=threshold_envelope
+            )
+            
+            # Popola DataFrame
+            for method in methods:
+                df_full.loc[idx, f't_coda_{method}'] = results[method]['t_coda']
+                df_full.loc[idx, f's_duration_{method}'] = results[method]['diagnostic']['s_duration']
+        
+        except Exception as e:
+            print(f"Warning: Coda detection failed for {station}-{component}: {e}")
+            continue
+    
+    print("Done!")
+    return df_full
