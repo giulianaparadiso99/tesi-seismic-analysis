@@ -594,3 +594,219 @@ def add_coda_onsets_to_dataframe(df_full, signals_dict,
     
     print("Done!")
     return df_full
+
+def compute_coda_method_statistics(df_onsets_full, distance_bins=None):
+    """
+    Compute comprehensive statistics for coda onset method comparison.
+    
+    Calculates pairwise statistics (correlation, bias, agreement) for all
+    method pairs, and stratifies results by epicentral distance bins.
+    
+    Parameters
+    ----------
+    df_onsets_full : pd.DataFrame
+        Full onset detection results (66 rows) with columns:
+        - STATION_CODE, COMPONENT
+        - EPICENTRAL_DISTANCE_KM
+        - t_coda_rautian, t_coda_arias, t_coda_envelope
+        - s_duration_rautian, s_duration_arias, s_duration_envelope
+    distance_bins : list of tuple, optional
+        Distance bin edges as [(min1, max1), (min2, max2), ...]
+        Default: [(0, 50), (50, 100), (100, 200)]
+    
+    Returns
+    -------
+    dict
+        Nested dictionary with structure:
+        - 'data': raw arrays (66 elements each)
+        - 'pairwise': statistics for each method pair
+        - 'by_distance': stratified statistics by distance bin
+        - 'summary': dataset summary info
+    
+    Examples
+    --------
+    >>> stats = compute_coda_method_statistics(df_onsets_full)
+    >>> print(f"Rautian-Arias correlation: {stats['pairwise']['rautian_arias']['correlation']:.3f}")
+    >>> print(f"Mean bias: {stats['pairwise']['rautian_arias']['mean_diff']:.2f}s")
+    """
+    import numpy as np
+    from scipy.stats import pearsonr
+    
+    # Default distance bins
+    if distance_bins is None:
+        distance_bins = [(0, 50), (50, 100), (100, 200)]
+    
+    # Method names
+    methods = ['rautian', 'arias', 'envelope']
+    
+    # Extract data (filter out NaN values)
+    valid_mask = (
+        df_onsets_full['t_coda_rautian'].notna() &
+        df_onsets_full['t_coda_arias'].notna() &
+        df_onsets_full['t_coda_envelope'].notna()
+    )
+    
+    df_valid = df_onsets_full[valid_mask].copy()
+    
+    n_valid = len(df_valid)
+    
+    print(f"Computing statistics for {n_valid}/{len(df_onsets_full)} valid components")
+    
+    # Raw data arrays
+    data = {
+        'rautian': df_valid['t_coda_rautian'].values,
+        'arias': df_valid['t_coda_arias'].values,
+        'envelope': df_valid['t_coda_envelope'].values,
+        'distance': df_valid['EPICENTRAL_DISTANCE_KM'].values,
+        'station_codes': df_valid['STATION_CODE'].values,
+        'component_codes': df_valid['COMPONENT'].values
+    }
+    
+    # Compute pairwise statistics
+    pairwise = {}
+    
+    method_pairs = [
+        ('rautian', 'arias'),
+        ('rautian', 'envelope'),
+        ('arias', 'envelope')
+    ]
+    
+    for method1, method2 in method_pairs:
+        pair_name = f'{method1}_{method2}'
+        
+        x = data[method1]
+        y = data[method2]
+        
+        # Differences and means
+        diff = x - y
+        mean = (x + y) / 2
+        
+        # Summary statistics
+        mean_diff = np.mean(diff)
+        std_diff = np.std(diff, ddof=1)
+        
+        # Limits of agreement (Bland-Altman)
+        loa_lower = mean_diff - 1.96 * std_diff
+        loa_upper = mean_diff + 1.96 * std_diff
+        
+        # Correlation
+        r, p_value = pearsonr(x, y)
+        
+        # Error metrics
+        rmse = np.sqrt(np.mean(diff**2))
+        mae = np.mean(np.abs(diff))
+        
+        # Linear fit (for plotting)
+        coeffs = np.polyfit(x, y, deg=1)
+        slope, intercept = coeffs[0], coeffs[1]
+        
+        pairwise[pair_name] = {
+            'diff': diff,
+            'mean': mean,
+            'mean_diff': mean_diff,
+            'std_diff': std_diff,
+            'limits_of_agreement': (loa_lower, loa_upper),
+            'correlation': r,
+            'p_value': p_value,
+            'rmse': rmse,
+            'mae': mae,
+            'slope': slope,
+            'intercept': intercept,
+            'n': n_valid
+        }
+    
+    # Stratify by distance bins
+    by_distance = {
+        'bins': distance_bins
+    }
+    
+    for method1, method2 in method_pairs:
+        pair_name = f'{method1}_{method2}'
+        bin_stats = []
+        
+        for bin_min, bin_max in distance_bins:
+            # Filter by distance
+            mask_bin = (data['distance'] >= bin_min) & (data['distance'] < bin_max)
+            
+            if mask_bin.sum() == 0:
+                # Empty bin
+                bin_stats.append({
+                    'bin': (bin_min, bin_max),
+                    'n': 0,
+                    'mean_diff': np.nan,
+                    'std_diff': np.nan,
+                    'correlation': np.nan,
+                    'rmse': np.nan
+                })
+                continue
+            
+            x_bin = data[method1][mask_bin]
+            y_bin = data[method2][mask_bin]
+            diff_bin = x_bin - y_bin
+            
+            # Statistics for this bin
+            n_bin = mask_bin.sum()
+            mean_diff_bin = np.mean(diff_bin)
+            std_diff_bin = np.std(diff_bin, ddof=1) if n_bin > 1 else np.nan
+            rmse_bin = np.sqrt(np.mean(diff_bin**2))
+            
+            # Correlation (only if enough points)
+            if n_bin >= 3:
+                r_bin, _ = pearsonr(x_bin, y_bin)
+            else:
+                r_bin = np.nan
+            
+            bin_stats.append({
+                'bin': (bin_min, bin_max),
+                'n': n_bin,
+                'mean_diff': mean_diff_bin,
+                'std_diff': std_diff_bin,
+                'correlation': r_bin,
+                'rmse': rmse_bin
+            })
+        
+        by_distance[pair_name] = bin_stats
+    
+    # Summary info
+    summary = {
+        'n_components': n_valid,
+        'n_stations': df_valid['STATION_CODE'].nunique(),
+        'methods': methods,
+        'distance_range': (data['distance'].min(), data['distance'].max())
+    }
+    
+    # Print summary
+    print("\n" + "="*70)
+    print("CODA METHOD COMPARISON STATISTICS")
+    print("="*70)
+    print(f"\nDataset: {summary['n_components']} components from {summary['n_stations']} stations")
+    print(f"Distance range: {summary['distance_range'][0]:.1f} - {summary['distance_range'][1]:.1f} km")
+    
+    print("\nPairwise correlations:")
+    for pair_name, pair_stats in pairwise.items():
+        print(f"  {pair_name:20s}: r = {pair_stats['correlation']:.3f} (p < {pair_stats['p_value']:.1e})")
+    
+    print("\nMean differences (bias):")
+    for pair_name, pair_stats in pairwise.items():
+        method1, method2 = pair_name.split('_')
+        print(f"  {method1} - {method2:10s}: {pair_stats['mean_diff']:+.2f} ± {pair_stats['std_diff']:.2f} s")
+    
+    print("\nError metrics:")
+    for pair_name, pair_stats in pairwise.items():
+        print(f"  {pair_name:20s}: RMSE = {pair_stats['rmse']:.2f} s, MAE = {pair_stats['mae']:.2f} s")
+    
+    print("\nAgreement by distance (Rautian - Arias):")
+    for bin_stat in by_distance['rautian_arias']:
+        bin_min, bin_max = bin_stat['bin']
+        print(f"  {bin_min:3.0f}-{bin_max:3.0f} km: n={bin_stat['n']:2d}, "
+              f"bias={bin_stat['mean_diff']:+.2f}s, r={bin_stat['correlation']:.3f}")
+    
+    print("="*70)
+    
+    # Return complete statistics dictionary
+    return {
+        'data': data,
+        'pairwise': pairwise,
+        'by_distance': by_distance,
+        'summary': summary
+    }

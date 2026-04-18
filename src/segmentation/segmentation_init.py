@@ -13,5 +13,6 @@ from .onset_detection import (
     detect_onsets_ar_windowed,
     detect_coda_start,
     detect_coda_start_all_methods,
-    add_coda_onsets_to_dataframe
+    add_coda_onsets_to_dataframe,
+    compute_coda_method_statistics
 )

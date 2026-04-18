@@ -89,7 +89,8 @@ from .segmentation.onset_detection import (
     detect_onsets_ar_windowed,
     detect_coda_start,
     detect_coda_start_all_methods,
-    add_coda_onsets_to_dataframe
+    add_coda_onsets_to_dataframe,
+    compute_coda_method_statistics
 )
 
 # ===============================================================================
@@ -157,7 +158,11 @@ from .visualization.plots_segmentation import (
     plot_theoretical_arrivals,
     plot_onset_detection_results,
     plot_coda_onset_results,
-    plot_coda_method_comparison
+    plot_coda_scatter_comparison,
+    plot_bland_altman_comparison,
+    plot_residuals_vs_distance,
+    plot_pairwise_difference_histograms,
+    plot_correlation_matrix_heatmap
 )
 
 

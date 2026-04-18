@@ -550,125 +550,479 @@ def plot_coda_onset_results(signals_dict, df_onsets_full,
     
     return figures
 
-def plot_coda_method_comparison(df_onsets_full, output_path=None):
+def plot_coda_scatter_comparison(stats, save_path=None):
     """
-    Create scatter plots comparing coda detection methods pairwise.
+    Create scatter plots comparing coda detection methods.
     
-    Generates a 1x3 subplot figure showing:
+    Generates 1x3 subplot figure with:
     - Rautian vs Arias
     - Rautian vs Envelope
     - Arias vs Envelope
     
-    Each subplot includes:
-    - Scatter points
-    - y=x reference line (perfect agreement)
-    - Linear regression line
-    - Correlation coefficient and RMSE
+    Each subplot shows correlation, RMSE, MAE, and linear fit.
     
     Parameters
     ----------
-    df_onsets_full : pd.DataFrame
-        Must contain columns: t_coda_rautian, t_coda_arias, t_coda_envelope
-    output_path : str or Path, optional
+    stats : dict
+        Statistics dictionary from compute_coda_method_statistics()
+    save_path : str or Path, optional
         If provided, save figure to this path
     
     Returns
     -------
-    fig, axes
-        Matplotlib figure and axes objects
+    matplotlib.figure.Figure
+        Figure object
     
     Examples
     --------
-    >>> fig, axes = plot_coda_method_comparison(df_onsets_full)
+    >>> stats = compute_coda_method_statistics(df_onsets_full)
+    >>> fig = plot_coda_scatter_comparison(stats)
     >>> plt.show()
-    >>> 
-    >>> # Or save directly
-    >>> plot_coda_method_comparison(
-    ...     df_onsets_full, 
-    ...     output_path='figures/coda_method_comparison.png'
-    ... )
     """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from pathlib import Path
     
-    # Method pairs to compare
-    comparisons = [
+    # Method pairs and labels
+    pairs = [
         ('rautian', 'arias', 'Rautian vs Arias'),
         ('rautian', 'envelope', 'Rautian vs Envelope'),
         ('arias', 'envelope', 'Arias vs Envelope')
     ]
     
-    # Create figure
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     
-    for idx, (m1, m2, title) in enumerate(comparisons):
-        ax = axes[idx]
+    for ax, (method1, method2, title) in zip(axes, pairs):
+        pair_name = f'{method1}_{method2}'
+        pair_stats = stats['pairwise'][pair_name]
         
-        col1 = f't_coda_{m1}'
-        col2 = f't_coda_{m2}'
-        
-        # Get data (remove NaN)
-        mask = df_onsets_full[col1].notna() & df_onsets_full[col2].notna()
-        data1 = df_onsets_full.loc[mask, col1].values
-        data2 = df_onsets_full.loc[mask, col2].values
-        
-        # Calculate statistics
-        corr, p_value = pearsonr(data1, data2)
-        rmse = np.sqrt(np.mean((data2 - data1)**2))
-        mae = np.mean(np.abs(data2 - data1))
-        
-        # Linear regression
-        slope, intercept, r_value, _, _ = linregress(data1, data2)
+        x = stats['data'][method1]
+        y = stats['data'][method2]
         
         # Scatter plot
-        ax.scatter(data1, data2, alpha=0.6, s=50, edgecolors='k', linewidths=0.5)
+        ax.scatter(x, y, alpha=0.6, s=50, edgecolors='k', linewidth=0.5)
         
-        # y=x reference line (perfect agreement)
-        lim_min = min(data1.min(), data2.min())
-        lim_max = max(data1.max(), data2.max())
-        margin = 0.05 * (lim_max - lim_min)
-        ax.plot([lim_min - margin, lim_max + margin], 
-                [lim_min - margin, lim_max + margin],
-                'k--', linewidth=1.5, alpha=0.5, label='y = x (perfect agreement)')
+        # Perfect agreement line (y = x)
+        lim_min = min(x.min(), y.min())
+        lim_max = max(x.max(), y.max())
+        ax.plot([lim_min, lim_max], [lim_min, lim_max], 
+                'k--', alpha=0.3, linewidth=1, label='y = x (perfect agreement)')
         
-        # Regression line
-        x_fit = np.array([lim_min - margin, lim_max + margin])
-        y_fit = slope * x_fit + intercept
-        ax.plot(x_fit, y_fit, 'r-', linewidth=2, alpha=0.7,
-                label=f'Linear fit (slope={slope:.3f})')
+        # Linear fit
+        x_fit = np.linspace(lim_min, lim_max, 100)
+        y_fit = pair_stats['slope'] * x_fit + pair_stats['intercept']
+        ax.plot(x_fit, y_fit, 'r-', linewidth=2, 
+                label=f'Linear fit (slope={pair_stats["slope"]:.3f})')
         
-        # Labels and title
-        ax.set_xlabel(f'{m1.capitalize()} $t_{{coda}}$ (s)', fontsize=12)
-        ax.set_ylabel(f'{m2.capitalize()} $t_{{coda}}$ (s)', fontsize=12)
-        ax.set_title(title, fontsize=14, fontweight='bold')
+        # Statistics box
+        textstr = '\n'.join([
+            f'$r = {pair_stats["correlation"]:.3f}$ ($p < {pair_stats["p_value"]:.3f}$)',
+            f'RMSE = {pair_stats["rmse"]:.2f} s',
+            f'MAE = {pair_stats["mae"]:.2f} s',
+            f'$n = {pair_stats["n"]}$'
+        ])
         
-        # Statistics text box
-        stats_text = (
-            f'$r = {corr:.3f}$ ($p < 0.001$)\n'
-            f'RMSE = {rmse:.2f} s\n'
-            f'MAE = {mae:.2f} s\n'
-            f'$n = {len(data1)}$'
-        )
-        ax.text(0.05, 0.95, stats_text,
-                transform=ax.transAxes,
-                fontsize=10,
-                verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
+        ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=9,
+                verticalalignment='top', bbox=props)
         
-        # Grid and legend
-        ax.grid(True, alpha=0.3, linewidth=0.5)
-        ax.legend(loc='lower right', fontsize=9)
-        
-        # Equal aspect ratio
+        # Formatting
+        ax.set_xlabel(f'{method1.capitalize()} $t_{{coda}}$ (s)', fontsize=11)
+        ax.set_ylabel(f'{method2.capitalize()} $t_{{coda}}$ (s)', fontsize=11)
+        ax.set_title(title, fontsize=12, fontweight='bold')
+        ax.legend(loc='lower right', fontsize=8)
+        ax.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
         ax.set_aspect('equal', adjustable='box')
-        ax.set_xlim(lim_min - margin, lim_max + margin)
-        ax.set_ylim(lim_min - margin, lim_max + margin)
     
     plt.tight_layout()
     
-    # Save if path provided
-    if output_path:
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Figure saved: {output_path}")
+    if save_path:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {save_path}")
     
-    return fig, axes
+    return fig
+
+
+def plot_bland_altman_comparison(stats, save_path=None):
+    """
+    Create Bland-Altman plots for method comparison.
+    
+    Generates 1x3 subplot figure with Bland-Altman plots for:
+    - Rautian vs Arias
+    - Rautian vs Envelope
+    - Arias vs Envelope
+    
+    Each subplot shows mean difference (bias), limits of agreement (±1.96 SD),
+    and identifies potential outliers.
+    
+    Parameters
+    ----------
+    stats : dict
+        Statistics dictionary from compute_coda_method_statistics()
+    save_path : str or Path, optional
+        If provided, save figure to this path
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure object
+    
+    Examples
+    --------
+    >>> stats = compute_coda_method_statistics(df_onsets_full)
+    >>> fig = plot_bland_altman_comparison(stats)
+    >>> plt.show()
+    """
+    
+    pairs = [
+        ('rautian', 'arias', 'Rautian - Arias'),
+        ('rautian', 'envelope', 'Rautian - Envelope'),
+        ('arias', 'envelope', 'Arias - Envelope')
+    ]
+    
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    
+    for ax, (method1, method2, title) in zip(axes, pairs):
+        pair_name = f'{method1}_{method2}'
+        pair_stats = stats['pairwise'][pair_name]
+        
+        mean_vals = pair_stats['mean']
+        diff_vals = pair_stats['diff']
+        
+        # Scatter plot
+        ax.scatter(mean_vals, diff_vals, alpha=0.6, s=50, 
+                  edgecolors='k', linewidth=0.5)
+        
+        # Mean difference line
+        ax.axhline(pair_stats['mean_diff'], color='red', linewidth=2,
+                  label=f'Mean diff: {pair_stats["mean_diff"]:.2f} s')
+        
+        # Limits of agreement
+        loa_lower, loa_upper = pair_stats['limits_of_agreement']
+        ax.axhline(loa_lower, color='gray', linestyle='--', linewidth=1.5,
+                  label=f'LoA: [{loa_lower:.2f}, {loa_upper:.2f}] s')
+        ax.axhline(loa_upper, color='gray', linestyle='--', linewidth=1.5)
+        
+        # Zero line
+        ax.axhline(0, color='black', linestyle=':', linewidth=1, alpha=0.3)
+        
+        # Identify outliers (beyond LoA)
+        outliers = (diff_vals < loa_lower) | (diff_vals > loa_upper)
+        if outliers.any():
+            ax.scatter(mean_vals[outliers], diff_vals[outliers],
+                      color='red', s=100, marker='o', facecolors='none',
+                      linewidth=2, label=f'Outliers: {outliers.sum()}')
+        
+        # Statistics box
+        textstr = '\n'.join([
+            f'Mean diff: {pair_stats["mean_diff"]:.2f} s',
+            f'SD: {pair_stats["std_diff"]:.2f} s',
+            f'LoA: ±{1.96 * pair_stats["std_diff"]:.2f} s',
+            f'$n = {pair_stats["n"]}$'
+        ])
+        
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
+        ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=9,
+                verticalalignment='top', bbox=props)
+        
+        # Formatting
+        ax.set_xlabel(f'Mean of {method1.capitalize()} and {method2.capitalize()} (s)', 
+                     fontsize=10)
+        ax.set_ylabel(f'Difference ({method1.capitalize()} - {method2.capitalize()}) (s)', 
+                     fontsize=10)
+        ax.set_title(title, fontsize=12, fontweight='bold')
+        ax.legend(loc='lower right', fontsize=8)
+        ax.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {save_path}")
+    
+    return fig
+
+
+def plot_residuals_vs_distance(stats, save_path=None):
+    """
+    Plot method differences vs epicentral distance.
+    
+    Shows how agreement between methods varies with distance, revealing
+    whether bias increases for distant stations (SNR degradation effect).
+    
+    Parameters
+    ----------
+    stats : dict
+        Statistics dictionary from compute_coda_method_statistics()
+    save_path : str or Path, optional
+        If provided, save figure to this path
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure object
+    
+    Examples
+    --------
+    >>> stats = compute_coda_method_statistics(df_onsets_full)
+    >>> fig = plot_residuals_vs_distance(stats)
+    >>> plt.show()
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from pathlib import Path
+    
+    pairs = [
+        ('rautian', 'arias', 'Rautian - Arias'),
+        ('rautian', 'envelope', 'Rautian - Envelope'),
+        ('arias', 'envelope', 'Arias - Envelope')
+    ]
+    
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    
+    distance = stats['data']['distance']
+    
+    for ax, (method1, method2, title) in zip(axes, pairs):
+        pair_name = f'{method1}_{method2}'
+        pair_stats = stats['pairwise'][pair_name]
+        
+        diff_vals = pair_stats['diff']
+        
+        # Scatter plot
+        ax.scatter(distance, diff_vals, alpha=0.6, s=50,
+                  edgecolors='k', linewidth=0.5)
+        
+        # Zero line
+        ax.axhline(0, color='black', linestyle='--', linewidth=1.5, 
+                  label='Zero difference')
+        
+        # Mean difference line
+        ax.axhline(pair_stats['mean_diff'], color='red', linestyle='-',
+                  linewidth=1.5, label=f'Mean: {pair_stats["mean_diff"]:.2f} s')
+        
+        # Polynomial fit (trend)
+        if len(distance) > 5:
+            z = np.polyfit(distance, diff_vals, deg=1)
+            p = np.poly1d(z)
+            x_fit = np.linspace(distance.min(), distance.max(), 100)
+            ax.plot(x_fit, p(x_fit), 'g--', linewidth=2, alpha=0.7,
+                   label=f'Linear trend (slope={z[0]:.3f})')
+        
+        # Distance bins overlay
+        for bin_stat in stats['by_distance'][pair_name]:
+            bin_min, bin_max = bin_stat['bin']
+            if bin_stat['n'] > 0:
+                bin_center = (bin_min + bin_max) / 2
+                ax.errorbar(bin_center, bin_stat['mean_diff'],
+                           yerr=bin_stat['std_diff'],
+                           fmt='rs', markersize=8, capsize=5, capthick=2,
+                           linewidth=2, alpha=0.7)
+        
+        # Formatting
+        ax.set_xlabel('Epicentral Distance (km)', fontsize=11)
+        ax.set_ylabel(f'Difference ({method1.capitalize()} - {method2.capitalize()}) (s)', 
+                     fontsize=10)
+        ax.set_title(title, fontsize=12, fontweight='bold')
+        ax.legend(loc='best', fontsize=8)
+        ax.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {save_path}")
+    
+    return fig
+
+
+def plot_pairwise_difference_histograms(stats, save_path=None):
+    """
+    Plot histograms of pairwise differences between methods.
+    
+    Shows distribution of differences for each method pair, revealing
+    whether bias is symmetric and normally distributed.
+    
+    Parameters
+    ----------
+    stats : dict
+        Statistics dictionary from compute_coda_method_statistics()
+    save_path : str or Path, optional
+        If provided, save figure to this path
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure object
+    
+    Examples
+    --------
+    >>> stats = compute_coda_method_statistics(df_onsets_full)
+    >>> fig = plot_pairwise_difference_histograms(stats)
+    >>> plt.show()
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from pathlib import Path
+    from scipy import stats as scipy_stats
+    
+    pairs = [
+        ('rautian', 'arias', 'Rautian - Arias'),
+        ('rautian', 'envelope', 'Rautian - Envelope'),
+        ('arias', 'envelope', 'Arias - Envelope')
+    ]
+    
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    
+    for ax, (method1, method2, title) in zip(axes, pairs):
+        pair_name = f'{method1}_{method2}'
+        pair_stats = stats['pairwise'][pair_name]
+        
+        diff_vals = pair_stats['diff']
+        
+        # Histogram
+        n, bins, patches = ax.hist(diff_vals, bins=15, alpha=0.7, 
+                                    edgecolor='black', linewidth=1.2,
+                                    color='steelblue', density=True)
+        
+        # Normal distribution overlay
+        mu = pair_stats['mean_diff']
+        sigma = pair_stats['std_diff']
+        x = np.linspace(diff_vals.min(), diff_vals.max(), 100)
+        ax.plot(x, scipy_stats.norm.pdf(x, mu, sigma), 
+               'r-', linewidth=2, label=f'Normal(μ={mu:.2f}, σ={sigma:.2f})')
+        
+        # Mean line
+        ax.axvline(mu, color='red', linestyle='--', linewidth=2,
+                  label=f'Mean: {mu:.2f} s')
+        
+        # Zero line
+        ax.axvline(0, color='black', linestyle=':', linewidth=1.5,
+                  label='Zero difference')
+        
+        # Statistics box
+        textstr = '\n'.join([
+            f'Mean: {mu:.2f} s',
+            f'SD: {sigma:.2f} s',
+            f'Median: {np.median(diff_vals):.2f} s',
+            f'Range: [{diff_vals.min():.1f}, {diff_vals.max():.1f}] s'
+        ])
+        
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
+        ax.text(0.65, 0.95, textstr, transform=ax.transAxes, fontsize=9,
+                verticalalignment='top', bbox=props)
+        
+        # Formatting
+        ax.set_xlabel(f'Difference ({method1.capitalize()} - {method2.capitalize()}) (s)', 
+                     fontsize=10)
+        ax.set_ylabel('Probability Density', fontsize=11)
+        ax.set_title(title, fontsize=12, fontweight='bold')
+        ax.legend(loc='upper left', fontsize=8)
+        ax.grid(True, alpha=0.3, linestyle=':', linewidth=0.5, axis='y')
+    
+    plt.tight_layout()
+    
+    if save_path:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {save_path}")
+    
+    return fig
+
+
+def plot_correlation_matrix_heatmap(stats, save_path=None):
+    """
+    Plot correlation matrix heatmap for all methods.
+    
+    Displays pairwise correlations between all three coda detection methods
+    in a visually intuitive heatmap format.
+    
+    Parameters
+    ----------
+    stats : dict
+        Statistics dictionary from compute_coda_method_statistics()
+    save_path : str or Path, optional
+        If provided, save figure to this path
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure object
+    
+    Examples
+    --------
+    >>> stats = compute_coda_method_statistics(df_onsets_full)
+    >>> fig = plot_correlation_matrix_heatmap(stats)
+    >>> plt.show()
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from pathlib import Path
+    
+    methods = ['Rautian', 'Arias', 'Envelope']
+    n_methods = len(methods)
+    
+    # Build correlation matrix
+    corr_matrix = np.ones((n_methods, n_methods))
+    
+    # Fill upper triangle
+    corr_matrix[0, 1] = stats['pairwise']['rautian_arias']['correlation']
+    corr_matrix[0, 2] = stats['pairwise']['rautian_envelope']['correlation']
+    corr_matrix[1, 2] = stats['pairwise']['arias_envelope']['correlation']
+    
+    # Mirror to lower triangle
+    corr_matrix[1, 0] = corr_matrix[0, 1]
+    corr_matrix[2, 0] = corr_matrix[0, 2]
+    corr_matrix[2, 1] = corr_matrix[1, 2]
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=(8, 7))
+    
+    # Heatmap
+    im = ax.imshow(corr_matrix, cmap='RdYlGn', vmin=0.85, vmax=1.0,
+                   aspect='auto', interpolation='nearest')
+    
+    # Colorbar
+    cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label('Pearson Correlation Coefficient', fontsize=11)
+    
+    # Ticks
+    ax.set_xticks(np.arange(n_methods))
+    ax.set_yticks(np.arange(n_methods))
+    ax.set_xticklabels(methods, fontsize=11)
+    ax.set_yticklabels(methods, fontsize=11)
+    
+    # Rotate x labels
+    plt.setp(ax.get_xticklabels(), rotation=45, ha='right', rotation_mode='anchor')
+    
+    # Annotate cells with correlation values
+    for i in range(n_methods):
+        for j in range(n_methods):
+            text = ax.text(j, i, f'{corr_matrix[i, j]:.3f}',
+                          ha='center', va='center', color='black', 
+                          fontsize=13, fontweight='bold')
+    
+    # Title
+    ax.set_title('Coda Onset Method Correlation Matrix', 
+                fontsize=13, fontweight='bold', pad=15)
+    
+    # Add grid
+    ax.set_xticks(np.arange(n_methods) - 0.5, minor=True)
+    ax.set_yticks(np.arange(n_methods) - 0.5, minor=True)
+    ax.grid(which='minor', color='white', linestyle='-', linewidth=2)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {save_path}")
+    
+    return fig
