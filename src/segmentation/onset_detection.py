@@ -18,6 +18,7 @@ import pandas as pd
 from obspy.signal.trigger import ar_pick
 from scipy.signal import hilbert
 from scipy.ndimage import uniform_filter1d
+from scipy.stats import pearsonr
 
 def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
                               p_window_before=5, p_window_after=5,
@@ -302,9 +303,9 @@ def detect_onsets_ar_windowed(signals_dict, df_meta_stations,
     
     return df_meta_stations
 
-def detect_coda_start(signal, t_s_detected, origin_time=None,
+def detect_coda_start(signal, t_s_detected, t_p_detected=None, origin_time=None,
                      sampling_rate=200, method='rautian',
-                     threshold_arias=0.75, threshold_envelope=0.3):
+                     threshold_arias=0.95, threshold_envelope=0.3):
     """
     Detect coda onset using multiple methods from seismological literature.
     
@@ -375,56 +376,98 @@ def detect_coda_start(signal, t_s_detected, origin_time=None,
             'coda_lapse_time': coda_lapse_time,
             's_duration': t_coda - t_s_detected
         }
-        params = {'multiplier': 2.0, 'min_s_duration': min_s_duration}
+        params = {'multiplier': 2.0}
     
     elif method == 'arias':
         """
-        Coda onset when specified percentage of Arias Intensity is reached.
+        Coda onset using Arias Intensity D5-75 method.
         
         Arias Intensity: AI(t) = (π/2g) ∫ a²(τ) dτ
         
-        Standard definitions:
-        - D5-75: 75% threshold (Lanzano et al., 2019 - ESM flatfile)
-        - D5-95: 95% threshold (Trifunac & Brady, 1975)
+        Standard approach (Lanzano et al., 2019 - ESM flatfile):
+        - Compute AI on entire significant signal (from before P-onset)
+        - D5: time when 5% of total energy is reached (~P arrival)
+        - D75: time when 75% of total energy is reached (coda onset)
+        - Significant duration: D75 - D5
         """
-        idx_s = int(t_s_detected * sampling_rate)
-        signal_after_s = signal[idx_s:]
         
-        # Arias Intensity: AI(t) = (π/2g) ∫ a²(τ) dτ
+        # Define signal window: start 5s before P-onset (or beginning of file)
+        if t_p_detected is not None:
+            t_start = max(0, t_p_detected - 5.0)
+        elif origin_time is not None:
+            t_start = max(0, origin_time)
+        else:
+            t_start = 0
+        
+        idx_start = int(t_start * sampling_rate)
+        signal_window = signal[idx_start:]
+        
+        # Compute Arias Intensity on full signal window
         dt = 1.0 / sampling_rate
         g = 9.81  # m/s²
-        arias_cumsum = (np.pi / (2 * g)) * np.cumsum(signal_after_s**2) * dt
+        arias_cumsum = (np.pi / (2 * g)) * np.cumsum(signal_window**2) * dt
         
-        if arias_cumsum[-1] == 0:
+        # Handle pathological case (zero signal)
+        if arias_cumsum[-1] == 0 or len(arias_cumsum) == 0:
             t_coda = t_s_detected + 10.0  # Fallback
+            diagnostic = {
+                'threshold': threshold_arias,
+                'total_arias_intensity': 0,
+                's_duration': 10.0,
+                'warning': 'Zero signal - fallback used',
+                'window_start': t_start
+            }
+            params = {
+                'threshold': threshold_arias,
+                'window_start': t_start,
+                'arias_based': True
+            }
         else:
+            # Normalize to [0, 1]
             arias_norm = arias_cumsum / arias_cumsum[-1]
-            threshold = threshold_arias
-            idx_coda_rel = np.argmax(arias_norm >= threshold)
             
-            if idx_coda_rel == 0:  # Never reached
-                t_coda = t_s_detected + 10.0
+            # Find D5, D75, D95 (relative to window start)
+            idx_D5 = np.argmax(arias_norm >= 0.05)
+            idx_D75 = np.argmax(arias_norm >= 0.75)
+            idx_D95 = np.argmax(arias_norm >= 0.95)
+            
+            # Convert to absolute times (in file coordinates)
+            t_D5 = t_start + idx_D5 / sampling_rate
+            t_D75 = t_start + idx_D75 / sampling_rate
+            t_D95 = t_start + idx_D95 / sampling_rate
+            
+            # Coda onset = D75 (75% energy - coda onset)
+            t_coda = t_D75
+            
+            # Check if threshold was never reached
+            if idx_D75 == 0 and arias_norm[0] < 0.75:
+                t_coda = t_s_detected + 10.0  # Fallback
+                warning = 'Threshold 0.75 never reached - fallback used'
             else:
-                t_coda = t_s_detected + idx_coda_rel / sampling_rate
-        
-        # Determine reference based on threshold
-        if threshold == 0.75:
-            reference = 'D5-75 (Lanzano et al., 2019 - ESM flatfile)'
-        elif threshold == 0.95:
-            reference = 'D5-95 (Trifunac & Brady, 1975)'
-        else:
-            reference = f'D5-{int(threshold*100)} (custom threshold)'
-        
-        diagnostic = {
-            'threshold': threshold,
-            'total_arias_intensity': arias_cumsum[-1] if arias_cumsum[-1] != 0 else 0,
-            's_duration': t_coda - t_s_detected,
-            'reference': reference
-        }
-        params = {
-            'threshold': threshold,
-            'arias_based': True
-        }
+                warning = None
+            
+            # Diagnostic info
+            diagnostic = {
+                'threshold': 0.75,
+                'total_arias_intensity': arias_cumsum[-1],
+                't_D5': t_D5,
+                't_D75': t_D75,
+                't_D95': t_D95,
+                'significant_duration_D5_D95': t_D95 - t_D5,
+                'significant_duration_D5_D75': t_D75 - t_D5,
+                's_duration': t_coda - t_s_detected,
+                'window_start': t_start,
+                'reference': 'D5-75 (Lanzano et al., 2019 - ESM flatfile)'
+            }
+            
+            if warning:
+                diagnostic['warning'] = warning
+            
+            params = {
+                'threshold': 0.75,
+                'window_start': t_start,
+                'arias_based': True
+            }
     
     elif method == 'envelope':
         """
@@ -529,7 +572,6 @@ def detect_coda_start_all_methods(signal, t_s_detected, origin_time=None,
     ...                                         threshold_arias=0.95,
     ...                                         threshold_envelope=0.25)
     """
-    import numpy as np
     
     methods = ['rautian', 'arias', 'envelope']
     results = {}
@@ -629,8 +671,6 @@ def compute_coda_method_statistics(df_onsets_full, distance_bins=None):
     >>> print(f"Rautian-Arias correlation: {stats['pairwise']['rautian_arias']['correlation']:.3f}")
     >>> print(f"Mean bias: {stats['pairwise']['rautian_arias']['mean_diff']:.2f}s")
     """
-    import numpy as np
-    from scipy.stats import pearsonr
     
     # Default distance bins
     if distance_bins is None:
