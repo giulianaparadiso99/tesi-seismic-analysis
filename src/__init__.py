@@ -93,6 +93,11 @@ from .segmentation.onset_detection import (
     compute_coda_method_statistics
 )
 
+from segmentation.window_segmentation import (
+    segment_signal_into_windows,
+    segment_all_signals
+)
+
 # ===============================================================================
 # Analysis - Moment Scaling (Time-Averaged)
 # ===============================================================================
@@ -162,7 +167,10 @@ from .visualization.plots_segmentation import (
     plot_bland_altman_comparison,
     plot_residuals_vs_distance,
     plot_pairwise_difference_histograms,
-    plot_correlation_matrix_heatmap
+    plot_correlation_matrix_heatmap,
+    plot_station_windows,
+    plot_multiple_stations,
+    plot_window_comparison
 )
 
 

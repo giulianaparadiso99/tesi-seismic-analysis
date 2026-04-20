@@ -13,9 +13,14 @@ Includes plots for:
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+from scipy import stats as scipy_stats
 from scipy.stats import pearsonr, linregress
 from pathlib import Path
 import re
+from typing import Dict, List, Optional, Literal
+import os
+import matplotlib.patches as mpatches
+from IPython.display import display
 
 
 def display_theoretical_arrivals_table(df_stations, n_rows=10):
@@ -34,7 +39,6 @@ def display_theoretical_arrivals_table(df_stations, n_rows=10):
     pd.DataFrame
         Formatted table subset
     """
-    from IPython.display import display
     
     table = df_stations[[
         'STATION_CODE', 
@@ -579,9 +583,6 @@ def plot_coda_scatter_comparison(stats, save_path=None):
     >>> fig = plot_coda_scatter_comparison(stats)
     >>> plt.show()
     """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    from pathlib import Path
     
     # Method pairs and labels
     pairs = [
@@ -772,9 +773,6 @@ def plot_residuals_vs_distance(stats, save_path=None):
     >>> fig = plot_residuals_vs_distance(stats)
     >>> plt.show()
     """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    from pathlib import Path
     
     pairs = [
         ('rautian', 'arias', 'Rautian - Arias'),
@@ -866,10 +864,6 @@ def plot_pairwise_difference_histograms(stats, save_path=None):
     >>> fig = plot_pairwise_difference_histograms(stats)
     >>> plt.show()
     """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    from pathlib import Path
-    from scipy import stats as scipy_stats
     
     pairs = [
         ('rautian', 'arias', 'Rautian - Arias'),
@@ -961,9 +955,6 @@ def plot_correlation_matrix_heatmap(stats, save_path=None):
     >>> fig = plot_correlation_matrix_heatmap(stats)
     >>> plt.show()
     """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    from pathlib import Path
     
     methods = ['Rautian', 'Arias', 'Envelope']
     n_methods = len(methods)
@@ -1023,6 +1014,486 @@ def plot_correlation_matrix_heatmap(stats, save_path=None):
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {save_path}")
+    
+    return fig
+
+def get_station_components(
+    station: str,
+    signals_dict: Dict[str, Dict[str, np.ndarray]]
+) -> Dict[str, str]:
+    """
+    Get available components for a station with automatic detection.
+    
+    Returns mapping of standardized orientations to actual component codes.
+    
+    Parameters
+    ----------
+    station : str
+        Station code
+    signals_dict : dict
+        Signals dictionary
+        
+    Returns
+    -------
+    component_map : dict
+        Mapping: {'Z': 'HGZ', 'N': 'HGN', 'E': 'HGE'} or similar
+        Keys are always 'Z', 'N' or '1', 'E' or '2'
+        
+    Examples
+    --------
+    >>> comp_map = get_station_components('BRZ', signals_dict)
+    >>> comp_map
+    {'Z': 'HGZ', 'N': 'HGN', 'E': 'HGE'}
+    
+    >>> comp_map = get_station_components('CAGN', signals_dict)
+    >>> comp_map
+    {'Z': 'HNZ', '1': 'HN1', '2': 'HN2'}
+    """
+    
+    if station not in signals_dict:
+        return {}
+    
+    # Get all components (exclude 'time')
+    available = [k for k in signals_dict[station].keys() if k != 'time']
+    
+    if len(available) == 0:
+        return {}
+    
+    component_map = {}
+    
+    # Detect vertical component
+    for comp in available:
+        if comp.endswith('Z'):
+            component_map['Z'] = comp
+            break
+    
+    # Detect horizontal components (N-E vs 1-2 system)
+    has_ne = any(c.endswith('N') or c.endswith('E') for c in available)
+    has_12 = any(c.endswith('1') or c.endswith('2') for c in available)
+    
+    if has_ne:
+        # N-E system
+        for comp in available:
+            if comp.endswith('N'):
+                component_map['N'] = comp
+            elif comp.endswith('E'):
+                component_map['E'] = comp
+    elif has_12:
+        # 1-2 system
+        for comp in available:
+            if comp.endswith('1'):
+                component_map['1'] = comp
+            elif comp.endswith('2'):
+                component_map['2'] = comp
+    
+    return component_map
+
+
+def plot_station_windows(
+    station: str,
+    signals_dict: Dict[str, Dict[str, np.ndarray]],
+    windowed_signals: Dict[str, Dict[str, Dict[str, Dict]]],
+    df_onsets: Optional[pd.DataFrame] = None,
+    coda_method: str = 'rautian',
+    figsize: tuple = (14, 10),
+    save_path: Optional[str] = None,
+    show_onset_lines: bool = True,
+    show_window_backgrounds: bool = True,
+    title_suffix: str = ''
+) -> plt.Figure:
+    """
+    Plot three-component signal with onset times and window boundaries.
+    
+    Automatically detects component naming convention (HNE/HNN/HNZ vs 
+    HGE/HGN/HGZ vs HN1/HN2/HNZ).
+    
+    Parameters
+    ----------
+    station : str
+        Station code (e.g., 'BRZ')
+    signals_dict : dict
+        Full signals dictionary from convert_signals_to_dict()
+    windowed_signals : dict
+        Windowed signals from segment_all_signals()
+    df_onsets : pd.DataFrame, optional
+        DataFrame with onset times for displaying in legend
+    coda_method : str, optional
+        Which coda method was used ('rautian', 'arias', 'envelope')
+        Only used if df_onsets is provided (default: 'rautian')
+    figsize : tuple, optional
+        Figure size (width, height) in inches (default: (14, 10))
+    save_path : str, optional
+        If provided, save figure to this path
+    show_onset_lines : bool, optional
+        Show vertical lines at onset times (default: True)
+    show_window_backgrounds : bool, optional
+        Show colored backgrounds for each window (default: True)
+    title_suffix : str, optional
+        Additional text for title (default: '')
+        
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        
+    Raises
+    ------
+    ValueError
+        If station not found or no components available
+    """
+    
+    if station not in signals_dict:
+        raise ValueError(f"Station '{station}' not found in signals_dict")
+    
+    if station not in windowed_signals:
+        raise ValueError(f"Station '{station}' not found in windowed_signals")
+    
+    # Get component mapping
+    comp_map = get_station_components(station, signals_dict)
+    
+    if len(comp_map) == 0:
+        raise ValueError(f"No components found for station {station}")
+    
+    # Determine plot order and labels based on available components
+    if 'Z' in comp_map and 'N' in comp_map and 'E' in comp_map:
+        # N-E system: plot Z, N, E
+        plot_order = [('Z', 'Vertical'), ('N', 'North'), ('E', 'East')]
+    elif 'Z' in comp_map and '1' in comp_map and '2' in comp_map:
+        # 1-2 system: plot Z, 1, 2
+        plot_order = [('Z', 'Vertical'), ('1', 'Horizontal-1'), ('2', 'Horizontal-2')]
+    else:
+        # Fallback: plot whatever is available
+        plot_order = [(k, f'Component {v}') for k, v in comp_map.items()]
+    
+    # Filter to actually available components
+    plot_order = [(key, label) for key, label in plot_order if key in comp_map]
+    
+    # Window colors
+    window_colors = {
+        'pre_event': '#E8E8E8',
+        'p_wave': '#AED6F1',
+        's_wave': '#F9E79F',
+        'coda': '#D5F4E6'
+    }
+    
+    # Onset line colors
+    onset_colors = {
+        'p': '#E74C3C',
+        's': '#3498DB',
+        'coda': '#27AE60'
+    }
+    
+    # Create figure
+    n_subplots = len(plot_order)
+    fig, axes = plt.subplots(n_subplots, 1, figsize=figsize, sharex=True)
+    
+    # Handle single subplot case
+    if n_subplots == 1:
+        axes = [axes]
+    
+    # Get full time array
+    time_full = signals_dict[station]['time']
+    
+    # Plot each component
+    for idx, (comp_key, comp_label) in enumerate(plot_order):
+        ax = axes[idx]
+        
+        # Get actual component code
+        component = comp_map[comp_key]
+        
+        # Get full signal
+        signal_full = signals_dict[station][component]
+        
+        # Get windowed data
+        windows = windowed_signals[station][component]
+        
+        # Extract onset times
+        t_p = windows['p_wave']['t_start']
+        t_s = windows['s_wave']['t_start']
+        t_coda = windows['coda']['t_start']
+        
+        # Plot window backgrounds
+        if show_window_backgrounds:
+            for window_name in ['pre_event', 'p_wave', 's_wave', 'coda']:
+                w = windows[window_name]
+                ax.axvspan(w['t_start'], w['t_end'], 
+                          color=window_colors[window_name],
+                          alpha=0.3, zorder=0)
+        
+        # Plot signal
+        ax.plot(time_full, signal_full, 'k-', linewidth=0.6, zorder=2)
+        
+        # Plot onset lines
+        if show_onset_lines:
+            ax.axvline(t_p, color=onset_colors['p'], linewidth=2, 
+                      linestyle='-', zorder=3, label='P onset')
+            ax.axvline(t_s, color=onset_colors['s'], linewidth=2,
+                      linestyle='-', zorder=3, label='S onset')
+            ax.axvline(t_coda, color=onset_colors['coda'], linewidth=2,
+                      linestyle='-', zorder=3, label=f'Coda ({coda_method})')
+        
+        # Labels and formatting
+        ax.set_ylabel(f'{comp_label}\n{component}\n(cm/s²)', fontsize=10)
+        ax.grid(True, alpha=0.3, zorder=1)
+        
+        # Legend only on first subplot
+        if idx == 0:
+            legend_elements = []
+            
+            if show_onset_lines:
+                legend_elements.extend([
+                    plt.Line2D([0], [0], color=onset_colors['p'], linewidth=2, 
+                              label='P onset'),
+                    plt.Line2D([0], [0], color=onset_colors['s'], linewidth=2,
+                              label='S onset'),
+                    plt.Line2D([0], [0], color=onset_colors['coda'], linewidth=2,
+                              label=f'Coda onset ({coda_method})')
+                ])
+            
+            if show_window_backgrounds:
+                legend_elements.extend([
+                    mpatches.Patch(color=window_colors['pre_event'], alpha=0.3,
+                                  label='Pre-event'),
+                    mpatches.Patch(color=window_colors['p_wave'], alpha=0.3,
+                                  label='P-wave'),
+                    mpatches.Patch(color=window_colors['s_wave'], alpha=0.3,
+                                  label='S-wave'),
+                    mpatches.Patch(color=window_colors['coda'], alpha=0.3,
+                                  label='Coda')
+                ])
+            
+            ax.legend(handles=legend_elements, loc='upper right', 
+                     fontsize=9, framealpha=0.9)
+    
+    # X-axis label
+    axes[-1].set_xlabel('Time (s)', fontsize=12)
+    
+    # Title with component info
+    comp_str = ', '.join([comp_map[k] for k, _ in plot_order])
+    dur_s = windows['s_wave']['duration']
+    
+    title = f"Station {station} ({comp_str}){title_suffix}\n"
+    title += f"S-wave duration: {dur_s:.2f}s"
+    
+    fig.suptitle(title, fontsize=14, fontweight='bold', y=0.995)
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.98])
+    
+    # Save if requested
+    if save_path:
+        os.makedirs(os.path.dirname(save_path) or '.', exist_ok=True)
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"Saved: {save_path}")
+    
+    return fig
+
+
+def plot_multiple_stations(
+    stations: List[str],
+    signals_dict: Dict,
+    windowed_signals: Dict,
+    df_onsets: Optional[pd.DataFrame] = None,
+    coda_method: str = 'rautian',
+    save_dir: Optional[str] = None,
+    close_after_save: bool = True,
+    **kwargs
+) -> Dict[str, plt.Figure]:
+    """
+    Plot window segmentation for multiple stations.
+    
+    Parameters
+    ----------
+    stations : list of str
+        Station codes to plot (e.g., ['BRZ', 'CAGN', 'SURF'])
+    signals_dict : dict
+        Full signals dictionary
+    windowed_signals : dict
+        Windowed signals dictionary
+    df_onsets : pd.DataFrame, optional
+        Onset times DataFrame
+    coda_method : str, optional
+        Coda detection method name (default: 'rautian')
+    save_dir : str, optional
+        Directory to save plots (e.g., 'plots/windows/')
+        If None, plots are not saved automatically
+    close_after_save : bool, optional
+        If True, close figures after saving to free memory (default: True)
+    **kwargs
+        Additional arguments passed to plot_station_windows()
+        
+    Returns
+    -------
+    figures : dict
+        Dictionary mapping station codes to Figure objects
+        (only if close_after_save=False)
+        
+    Examples
+    --------
+    >>> # Plot and display 3 stations
+    >>> figs = plot_multiple_stations(['BRZ', 'CAGN', 'SURF'],
+    ...                               signals_dict, windowed_signals)
+    >>> plt.show()
+    
+    >>> # Plot all stations and save to directory
+    >>> stations = list(windowed_signals.keys())
+    >>> plot_multiple_stations(stations, signals_dict, windowed_signals,
+    ...                        save_dir='plots/windows/', 
+    ...                        close_after_save=True)
+    """
+    
+    figures = {}
+    
+    print(f"\nPlotting {len(stations)} stations...")
+    
+    for i, station in enumerate(stations, 1):
+        try:
+            # Determine save path if directory provided
+            if save_dir:
+                save_path = os.path.join(save_dir, f'{station}_windows.pdf')
+            else:
+                save_path = None
+            
+            # Create plot
+            fig = plot_station_windows(
+                station=station,
+                signals_dict=signals_dict,
+                windowed_signals=windowed_signals,
+                df_onsets=df_onsets,
+                coda_method=coda_method,
+                save_path=save_path,
+                **kwargs
+            )
+            
+            # Store or close
+            if close_after_save and save_path:
+                plt.close(fig)
+            else:
+                figures[station] = fig
+            
+            # Progress
+            if i % 10 == 0 or i == len(stations):
+                print(f"  Progress: {i}/{len(stations)} stations")
+                
+        except Exception as e:
+            print(f"  Error plotting {station}: {e}")
+            continue
+    
+    print(f"Done! Plotted {len(figures) if not close_after_save else len(stations)} stations")
+    
+    return figures if not close_after_save else {}
+
+
+def plot_window_comparison(
+    station: str,
+    component: str,
+    signals_dict: Dict,
+    windowed_dict_list: List[Dict],
+    method_labels: List[str],
+    figsize: tuple = (14, 6),
+    save_path: Optional[str] = None
+) -> plt.Figure:
+    """
+    Compare different windowing methods for the same signal.
+    
+    Useful for comparing different coda detection methods or 
+    different pre-event window strategies.
+    
+    Parameters
+    ----------
+    station : str
+        Station code
+    component : str
+        Component code (e.g., 'HGE')
+    signals_dict : dict
+        Full signals dictionary
+    windowed_dict_list : list of dict
+        List of windowed_signals dictionaries to compare
+        (e.g., [windowed_rautian, windowed_arias, windowed_envelope])
+    method_labels : list of str
+        Labels for each method (e.g., ['Rautian', 'Arias', 'Envelope'])
+    figsize : tuple, optional
+        Figure size (default: (14, 6))
+    save_path : str, optional
+        Path to save figure
+        
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        
+    Examples
+    --------
+    >>> # Compare coda methods
+    >>> fig = plot_window_comparison(
+    ...     'BRZ', 'HGE',
+    ...     signals_dict,
+    ...     [windowed_rautian, windowed_arias, windowed_envelope],
+    ...     ['Rautian', 'Arias', 'Envelope']
+    ... )
+    
+    >>> # Compare pre-event strategies
+    >>> fig = plot_window_comparison(
+    ...     'BRZ', 'HGE',
+    ...     signals_dict,
+    ...     [windowed_5s, windowed_full],
+    ...     ['Fixed 5s', 'Full window']
+    ... )
+    """
+    
+    # Colors for different methods
+    method_colors = ['#27AE60', '#E67E22', '#9B59B6', '#E74C3C', '#3498DB']
+    
+    # Get signal
+    signal = signals_dict[station][component]
+    time = signals_dict[station]['time']
+    
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Plot signal
+    ax.plot(time, signal, 'k-', linewidth=0.6, alpha=0.7, label='Signal')
+    
+    # Plot onset lines for each method
+    for idx, (windowed, label) in enumerate(zip(windowed_dict_list, method_labels)):
+        windows = windowed[station][component]
+        
+        color = method_colors[idx % len(method_colors)]
+        
+        # P onset (should be same for all)
+        if idx == 0:
+            t_p = windows['p_wave']['t_start']
+            ax.axvline(t_p, color='red', linewidth=2, linestyle='-',
+                      label='P onset', zorder=10)
+        
+        # S onset (should be same for all)
+        if idx == 0:
+            t_s = windows['s_wave']['t_start']
+            ax.axvline(t_s, color='blue', linewidth=2, linestyle='-',
+                      label='S onset', zorder=10)
+        
+        # Coda onset (different for each method)
+        t_coda = windows['coda']['t_start']
+        ax.axvline(t_coda, color=color, linewidth=2.5, linestyle='--',
+                  label=f'Coda ({label}): {t_coda:.1f}s', zorder=9)
+        
+        # Pre-event start (if different)
+        if idx > 0:
+            t_pre = windows['pre_event']['t_start']
+            prev_t_pre = windowed_dict_list[0][station][component]['pre_event']['t_start']
+            if abs(t_pre - prev_t_pre) > 0.1:
+                ax.axvline(t_pre, color=color, linewidth=1.5, linestyle=':',
+                          alpha=0.6, label=f'Pre-event start ({label})')
+    
+    ax.set_xlabel('Time (s)', fontsize=12)
+    ax.set_ylabel(f'{component} Acceleration (cm/s²)', fontsize=12)
+    ax.set_title(f'Station {station} - {component}: Method Comparison', 
+                fontsize=14, fontweight='bold')
+    ax.legend(loc='upper right', fontsize=10)
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        os.makedirs(os.path.dirname(save_path) or '.', exist_ok=True)
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
         print(f"Saved: {save_path}")
     
     return fig

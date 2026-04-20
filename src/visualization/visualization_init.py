@@ -38,11 +38,14 @@ from .plots_segmentation import (
     plot_theoretical_arrivals,
     plot_onset_detection_results,
     plot_onset_detection_results,
-   plot_coda_scatter_comparison,
+    plot_coda_scatter_comparison,
     plot_bland_altman_comparison,
     plot_residuals_vs_distance,
     plot_pairwise_difference_histograms,
-    plot_correlation_matrix_heatmap
+    plot_correlation_matrix_heatmap,
+    plot_station_windows,
+    plot_multiple_stations,
+    plot_window_comparison
 )
 
 __all__ = [

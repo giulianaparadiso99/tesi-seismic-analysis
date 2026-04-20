@@ -16,3 +16,8 @@ from .onset_detection import (
     add_coda_onsets_to_dataframe,
     compute_coda_method_statistics
 )
+
+from .window_segmentation import (
+    segment_signal_into_windows,
+    segment_all_signals
+)
