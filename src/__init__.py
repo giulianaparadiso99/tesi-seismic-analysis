@@ -118,16 +118,10 @@ from .analysis.signals_scaling import (
 # ===============================================================================
 
 from .analysis.signals_scaling_ensemble import (
-    compute_increments_ensemble_windowed,
-    compute_increments_all_windows,
-    compute_moments_from_increments_ensemble,
-    compute_moments_all_windows,
-    compute_exponents_all_windows,
-    save_windowed_results,
-    load_windowed_results,
-    compute_and_save_all_windowed,
-    validate_moments_ensemble,
-    analyze_increments_ensemble
+    analyze_all_windows,
+    save_results_parquet,
+    plot_scaling_curves,
+    plot_scaling_exponents
 )
 
 # ===============================================================================

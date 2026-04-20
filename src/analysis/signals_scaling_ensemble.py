@@ -1,59 +1,69 @@
 """
-signals_scaling_ensemble.py
-----------------------------
-Moment scaling analysis using ensemble (spatial) averaging with temporal windowing.
+Ensemble-averaged moment scaling analysis for seismic signals.
 
-This module implements windowed ensemble-averaged moment scaling, where seismic
-signals are separated into temporal windows (pre-arrival, P-wave, S-wave, coda)
-representing different dynamical regimes. Statistical properties are obtained by
-averaging over multiple stations (spatial ensemble) at a fixed reference time t₀
-per window, rather than averaging over time for individual stations.
+This module implements spatial ensemble averaging across multiple stations to
+compute moment scaling exponents ζ(q) for different seismic phases (pre-event,
+P-wave, S-wave, coda). Each phase is analyzed separately with a fixed reference
+time t₀ at the window start and varying time lag τ.
 
-Key differences from signals_scaling.py:
-    - Temporal windowing: Separates signal into 4 distinct phases
-    - Adaptive t₀: Each station has its own t₀ per window (based on wave arrivals)
-    - Fixed tau per window: All stations use same tau values for ensemble averaging
-    - Per-window scaling: Each window has its own ζ(q) exponents
-
-Main workflow:
-    1. Detect temporal windows for all files (window_detection.py)
-    2. Compute increments per window with adaptive t₀ and filtered tau
-    3. Compute ensemble moments by averaging over stations
-    4. Compute scaling exponents per window
-    5. Compare ζ(q) across windows to identify regime changes
-
-Theoretical background:
-    Non-stationary processes require temporal windowing to separate dynamical
-    regimes. Each window should exhibit stationary statistics within itself.
+Theoretical framework:
+    For a stochastic process x(t), the q-th order moment of increments scales as:
     
-    For seismic signals:
-        - Pre-arrival: ζ(q) ≈ 0 (instrumental noise, no scaling)
-        - P-wave: ζ(q) > 0 with slope a (scaling regime 1)
-        - S-wave: ζ(q) > 0 with slope b ≠ a (scaling regime 2)
-        - Coda: ζ(q) ≈ 0 (return to noise/weak fluctuations)
+        M_q(τ) = ⟨|x(t₀+τ) - x(t₀)|^q⟩ ~ τ^ζ(q)
     
-    Different slopes demonstrate non-stationary multifractal behavior.
+    where:
+    - τ is the time lag (increment duration)
+    - q is the moment order
+    - ζ(q) is the scaling exponent
+    - ⟨·⟩ denotes ensemble average (across stations)
+    
+    Normal diffusion: ζ(q) = q/2 (linear in q)
+    Anomalous diffusion: ζ(q) ≠ q/2
+    Strong anomalous diffusion: ζ(q) piecewise-linear with breakpoint
+
+Methodology:
+    1. For each seismic window (pre_event, p_wave, s_wave, coda):
+       - Fix t₀ at window start (different absolute time for each station)
+       - Use common τ vector (limited by shortest window)
+    2. Compute increments: Δx(τ) = x(t₀+τ) - x(t₀) for each station
+    3. Compute moments: M_q(τ) = |Δx(τ)|^q for each station
+    4. Spatial ensemble: ⟨M_q(τ)⟩ = mean over all stations
+    5. Extract scaling: fit log⟨M_q⟩ vs log(τ) → slope = ζ(q)
+    6. Compare ζ(q) across windows to identify dynamical regime changes
+
+Expected behavior:
+    - Pre-event: ζ(q) ≈ 0 (no scaling, instrumental noise)
+    - P-wave: ζ(q) > 0 with slope α₁
+    - S-wave: ζ(q) > 0 with slope α₂ ≠ α₁
+    - Coda: ζ(q) → 0 (return to background fluctuations)
 
 Usage:
-    from src.window_detection import identify_windows_all_files
-    from src.signals_scaling_ensemble import (
-        compute_increments_all_windows,
-        compute_moments_all_windows,
-        compute_exponents_all_windows,
-        compute_and_save_all_windowed
+    from window_segmentation import segment_all_signals
+    from signals_scaling_ensemble import (
+        analyze_all_windows,
+        save_results_parquet,
+        plot_scaling_curves,
+        plot_scaling_exponents
     )
     
-    # Detect windows
-    df_windows = identify_windows_all_files(df_acc)
+    # Segment signals into windows
+    windowed_signals = segment_all_signals(signals_dict, df_onsets)
     
-    # Complete analysis
-    results = compute_and_save_all_windowed(
-        df_acc, df_vel, df_disp, df_windows,
-        tau_values, q_values, output_dir
+    # Analyze all windows
+    results = analyze_all_windows(
+        windowed_signals,
+        tau_min=0.01,
+        n_tau=50,
+        q_values=np.array([0.5, 0.75, ..., 5.0]),
+        sampling_rate=200.0
     )
     
-    # Access results
-    df_zeta_p_wave = results['displacement']['exponents']['p_wave']
+    # Save results
+    save_results_parquet(results, output_dir='../data/processed/ensemble_spatial')
+    
+    # Plot
+    plot_scaling_curves(results, output_dir='../figures')
+    plot_scaling_exponents(results, output_dir='../figures')
 """
 
 import numpy as np
@@ -61,770 +71,737 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats
 from pathlib import Path
-from src.visualization.plot_settings import set_plot_style
-colors = set_plot_style()
+from typing import Dict, List, Optional, Tuple
+import warnings
 
 
-# ===============================================================================================
-# ==================================== Increment Computation ====================================
-# ===============================================================================================
-
-def compute_increments_ensemble_windowed(df, df_windows, tau_values, 
-                                         window_name='p_wave', 
-                                         column='displacement'):
+def prepare_window_data(
+    windowed_signals: Dict,
+    window_name: str
+) -> Tuple[List[np.ndarray], List[np.ndarray], float, int]:
     """
-    Compute increments for ensemble averaging with adaptive t₀ per station.
-    
-    For each station, uses the detected window boundaries to set t₀ (start of window).
-    Tau values are filtered to fit the shortest window across all stations.
+    Extract signal and time arrays for a specific seismic window across all stations.
     
     Parameters
     ----------
-    df : pd.DataFrame
-        Signal data with columns ['file', 'sample', column]
-    df_windows : pd.DataFrame
-        Window boundaries from identify_windows_all_files()
-        Must have columns: ['file', 'window_name', 'start', 'end', 'n_samples']
-    tau_values : list of int
-        Time lags (in samples) - will be filtered to fit shortest window
+    windowed_signals : dict
+        Nested dictionary from segment_all_signals():
+        {station: {component: {window_name: {'signal': array, 'time': array, ...}}}}
     window_name : str
-        Which window to analyze: 'pre_arrival', 'p_wave', 's_wave', 'coda'
-    column : str
-        Column name of the process ('acceleration', 'velocity', 'displacement')
-    
+        Window to extract: 'pre_event', 'p_wave', 's_wave', 'coda'
+        
     Returns
     -------
-    pd.DataFrame
-        Columns: [file, station, stream, tau, increment, t0, window_length]
-        One row per (file, tau) combination
+    signals_list : list of np.ndarray
+        Signal arrays for this window (one per station-component)
+    times_list : list of np.ndarray
+        Time arrays for this window
+    tau_max_seconds : float
+        Maximum usable tau (duration of shortest window)
+    n_signals : int
+        Number of signals in ensemble
+        
+    Raises
+    ------
+    ValueError
+        If window_name not found or no valid signals available
         
     Notes
     -----
-    - t₀ is adaptive: each station has its own t₀ based on actual wave arrivals
-    - tau values are uniform: all stations use the same filtered tau_values
-    - tau filtering ensures t₀ + tau stays within window for all stations
-    
-    Examples
-    --------
-    >>> df_windows = identify_windows_all_files(df_acc)
-    >>> df_inc = compute_increments_ensemble_windowed(
-    ...     df_disp, df_windows, tau_values, window_name='p_wave'
-    ... )
-    >>> # df_inc contains increments from all stations for P-wave window
+    Stations with the same code but different components are treated as
+    independent ensemble members (as instructed by advisor).
     """
-    if column not in df.columns:
-        raise ValueError(f"Column '{column}' not found. Available: {df.columns.tolist()}")
+    signals_list = []
+    times_list = []
+    durations = []
     
-    inc_rows = []
-    
-    # =========================================================================
-    # STEP 1: Find minimum window length across all files for THIS window
-    # =========================================================================
-    
-    window_lengths = []
-    valid_files = []
-    
-    for file in df['file'].unique():
-        window_info = df_windows[
-            (df_windows['file'] == file) & 
-            (df_windows['window_name'] == window_name)
-        ]
-        
-        if len(window_info) == 0:
-            continue
-        
-        window_length = window_info.iloc[0]['n_samples']
-        
-        if window_length < 100:
-            continue
-        
-        window_lengths.append(window_length)
-        valid_files.append(file)
-    
-    if len(window_lengths) == 0:
-        raise ValueError(f"No valid windows found for '{window_name}'")
-    
-    min_window_length = min(window_lengths)
-    max_window_length = max(window_lengths)
-    mean_window_length = np.mean(window_lengths)
-    
-    print(f"\n  Window '{window_name}' statistics:")
-    print(f"    Valid files: {len(valid_files)}")
-    print(f"    Length range: [{min_window_length}, {max_window_length}] samples")
-    print(f"    Length range: [{min_window_length/200:.1f}, {max_window_length/200:.1f}] s")
-    print(f"    Mean length: {mean_window_length:.0f} samples ({mean_window_length/200:.1f} s)")
-    
-    # =========================================================================
-    # STEP 2: Filter tau_values to fit shortest window
-    # =========================================================================
-    
-    tau_max = min_window_length - 1
-    tau_values_valid = [t for t in tau_values if t < tau_max]
-    
-    if len(tau_values_valid) == 0:
-        raise ValueError(f"No valid tau values for window '{window_name}' "
-                        f"(min_window_length={min_window_length})")
-    
-    n_removed = len(tau_values) - len(tau_values_valid)
-    if n_removed > 0:
-        print(f"    Filtered tau: removed {n_removed}/{len(tau_values)} values (> {tau_max})")
-        print(f"    Valid tau range: [{min(tau_values_valid)}, {max(tau_values_valid)}] samples")
-        print(f"    Valid tau range: [{min(tau_values_valid)/200:.3f}, {max(tau_values_valid)/200:.3f}] s")
-    else:
-        print(f"    All {len(tau_values)} tau values valid (< {tau_max})")
-    
-    # =========================================================================
-    # STEP 3: Compute increments with adaptive t₀ and uniform tau
-    # =========================================================================
-    
-    for file in valid_files:
-        signal = df[df['file'] == file][column].values
-        station = file.split('.')[1]
-        stream = file.split('.')[3]
-        
-        window_info = df_windows[
-            (df_windows['file'] == file) & 
-            (df_windows['window_name'] == window_name)
-        ].iloc[0]
-        
-        t0 = window_info['start']
-        window_end = window_info['end']
-        window_length = window_info['n_samples']
-        
-        for tau in tau_values_valid:
-            if t0 + tau >= window_end:
-                print(f"    Warning: tau={tau} exceeds window for {file}")
+    for station in windowed_signals:
+        for component in windowed_signals[station]:
+            if window_name not in windowed_signals[station][component]:
                 continue
             
-            increment = signal[t0 + tau] - signal[t0]
+            window_data = windowed_signals[station][component][window_name]
+            signal = window_data['signal']
+            time = window_data['time']
+            duration = window_data['duration']
             
-            inc_rows.append({
-                'file': file,
-                'station': station,
-                'stream': stream,
-                'tau': tau,
-                'increment': increment,
-                't0': t0,
-                'window_length': window_length
-            })
-    
-    df_result = pd.DataFrame(inc_rows)
-    
-    print(f"\n    Increments computed:")
-    print(f"      Files: {df_result['file'].nunique()}")
-    print(f"      Tau values: {df_result['tau'].nunique()}")
-    print(f"      Total increments: {len(df_result):,}")
-    print(f"      Increments per tau: {len(df_result) // df_result['tau'].nunique()}")
-    
-    return df_result
-
-
-def compute_increments_all_windows(df, df_windows, tau_values, column='displacement'):
-    """
-    Compute increments for ALL temporal windows.
-    
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Signal data
-    df_windows : pd.DataFrame
-        Window boundaries for all files
-    tau_values : list of int
-        Time lags (will be filtered per window)
-    column : str
-        Signal column name
-    
-    Returns
-    -------
-    dict
-        {window_name: df_increments}
-        
-    Examples
-    --------
-    >>> increments = compute_increments_all_windows(df_disp, df_windows, tau_values)
-    >>> df_inc_p = increments['p_wave']
-    >>> df_inc_s = increments['s_wave']
-    """
-    window_names = ['pre_arrival', 'p_wave', 's_wave', 'coda']
-    
-    increments_dict = {}
-    
-    for window_name in window_names:
-        print(f"\n{'='*70}")
-        print(f"Computing increments for: {window_name}")
-        print(f"{'='*70}")
-        
-        try:
-            df_inc = compute_increments_ensemble_windowed(
-                df, df_windows, tau_values, 
-                window_name=window_name, 
-                column=column
-            )
-            increments_dict[window_name] = df_inc
-        
-        except ValueError as e:
-            print(f"  Error: {e}")
-            print(f"  Skipping window '{window_name}'")
-            increments_dict[window_name] = pd.DataFrame()
-    
-    return increments_dict
-
-
-# ===============================================================================================
-# ==================================== Moment Computation =======================================
-# ===============================================================================================
-
-def compute_moments_from_increments_ensemble(df_increments, q_values):
-    """
-    Compute q-th order moments from increments using ensemble averaging.
-    
-    M_q(τ) = ⟨|Δx(τ, t₀)|^q⟩_{stations}
-    
-    For each (tau, q), average over all stations instead of over all t0.
-    
-    Parameters
-    ----------
-    df_increments : pd.DataFrame
-        Increments from compute_increments_ensemble_windowed()
-        Must have columns: ['file', 'tau', 'increment']
-    q_values : list of float
-        Moment orders to compute
-    
-    Returns
-    -------
-    pd.DataFrame
-        Columns: [q, tau, moment, n_stations]
-        
-    Examples
-    --------
-    >>> df_inc = compute_increments_ensemble_windowed(df, df_windows, tau_values)
-    >>> df_mom = compute_moments_from_increments_ensemble(df_inc, q_values)
-    """
-    if len(df_increments) == 0:
-        return pd.DataFrame(columns=['q', 'tau', 'moment', 'n_stations'])
-    
-    rows = []
-    
-    for tau, group in df_increments.groupby('tau'):
-        increments = group['increment'].values
-        n_stations = len(increments)
-        
-        for q in q_values:
-            moment = np.mean(np.abs(increments) ** q)
+            if len(signal) < 2:
+                continue
             
-            rows.append({
-                'q': q,
-                'tau': tau,
-                'moment': moment,
-                'n_stations': n_stations
-            })
+            signals_list.append(signal)
+            times_list.append(time)
+            durations.append(duration)
     
-    df_result = pd.DataFrame(rows)
+    if len(signals_list) == 0:
+        raise ValueError(f"No valid signals found for window '{window_name}'")
     
-    if len(df_result) > 0:
-        print(f"\n  Moment computation summary (ensemble):")
-        print(f"    q values: {df_result['q'].nunique()}")
-        print(f"    Tau values: {df_result['tau'].nunique()}")
-        print(f"    Stations per tau: {df_result['n_stations'].iloc[0]}")
-        print(f"    Total moment values: {len(df_result)}")
+    tau_max_seconds = min(durations)
+    n_signals = len(signals_list)
     
-    return df_result
+    return signals_list, times_list, tau_max_seconds, n_signals
 
 
-def compute_moments_all_windows(increments_dict, q_values):
+def compute_moments_single_signal(
+    signal: np.ndarray,
+    tau_indices: np.ndarray,
+    q_values: np.ndarray,
+    t0_index: int = 0
+) -> np.ndarray:
     """
-    Compute moments for all windows.
+    Compute moments M_q(tau) for a single signal.
     
     Parameters
     ----------
-    increments_dict : dict
-        {window_name: df_increments}
-    q_values : list of float
-        Moment orders
-    
+    signal : np.ndarray
+        Time series (acceleration, velocity, or displacement)
+    tau_indices : np.ndarray
+        Array of time lag indices (in samples)
+    q_values : np.ndarray
+        Array of moment orders
+    t0_index : int, optional
+        Starting index for increments (default: 0 = window start)
+        
     Returns
     -------
-    dict
-        {window_name: df_moments}
+    moments : np.ndarray
+        Shape (n_tau, n_q) containing M_q(tau) = |signal[t0+tau] - signal[t0]|^q
         
-    Examples
-    --------
-    >>> increments = compute_increments_all_windows(df_disp, df_windows, tau_values)
-    >>> moments = compute_moments_all_windows(increments, q_values)
-    >>> df_mom_p = moments['p_wave']
+    Notes
+    -----
+    Increments are computed as point differences:
+        Δx(τ) = x(t₀ + τ) - x(t₀)
+    
+    Moments are defined as:
+        M_q(τ) = |Δx(τ)|^q
+    
+    For ensemble averaging, this function is called once per signal, then results
+    are averaged across the ensemble.
     """
-    moments_dict = {}
+    n_tau = len(tau_indices)
+    n_q = len(q_values)
+    moments = np.zeros((n_tau, n_q))
     
-    for window_name, df_inc in increments_dict.items():
-        print(f"\n{'='*70}")
-        print(f"Computing moments for: {window_name}")
-        print(f"{'='*70}")
+    x_t0 = signal[t0_index]
+    
+    for i, tau_idx in enumerate(tau_indices):
+        endpoint_idx = t0_index + tau_idx
         
-        df_mom = compute_moments_from_increments_ensemble(df_inc, q_values)
-        
-        if len(df_mom) > 0:
-            df_mom['window'] = window_name
-        
-        moments_dict[window_name] = df_mom
-    
-    return moments_dict
-
-
-# ===============================================================================================
-# ==================================== Scaling Exponents ========================================
-# ===============================================================================================
-
-def compute_scaling_exponents(df_moments, tau_min=None, tau_max=None):
-    """
-    Compute scaling exponents ζ(q) from moments.
-    
-    Fits: M_q(τ) ~ τ^ζ(q)
-    In log-log: log(M_q) = ζ(q) * log(τ) + const
-    
-    Parameters
-    ----------
-    df_moments : pd.DataFrame
-        Moments with columns ['q', 'tau', 'moment']
-    tau_min : int, optional
-        Minimum tau for fitting range
-    tau_max : int, optional
-        Maximum tau for fitting range
-    
-    Returns
-    -------
-    pd.DataFrame
-        Columns: [q, zeta, zeta_err, r_squared, n_points]
-        
-    Examples
-    --------
-    >>> df_mom = compute_moments_from_increments_ensemble(df_inc, q_values)
-    >>> df_zeta = compute_scaling_exponents(df_mom)
-    """
-    if len(df_moments) == 0:
-        return pd.DataFrame(columns=['q', 'zeta', 'zeta_err', 'r_squared', 'n_points'])
-    
-    df_fit = df_moments.copy()
-    
-    if tau_min is not None:
-        df_fit = df_fit[df_fit['tau'] >= tau_min]
-    if tau_max is not None:
-        df_fit = df_fit[df_fit['tau'] <= tau_max]
-    
-    rows = []
-    
-    for q, group in df_fit.groupby('q'):
-        log_tau = np.log10(group['tau'].values)
-        log_moment = np.log10(group['moment'].values)
-        
-        if len(log_tau) < 3:
+        if endpoint_idx >= len(signal):
+            moments[i, :] = np.nan
             continue
         
-        slope, intercept, r_value, p_value, std_err = stats.linregress(log_tau, log_moment)
+        increment = signal[endpoint_idx] - x_t0
+        abs_increment = np.abs(increment)
         
-        rows.append({
-            'q': q,
-            'zeta': slope,
-            'zeta_err': std_err,
-            'r_squared': r_value**2,
-            'n_points': len(log_tau)
-        })
+        for j, q in enumerate(q_values):
+            moments[i, j] = abs_increment ** q
     
-    df_result = pd.DataFrame(rows)
-    
-    if len(df_result) > 0:
-        print(f"\n  Scaling exponents computed:")
-        print(f"    q values: {len(df_result)}")
-        print(f"    Mean R²: {df_result['r_squared'].mean():.4f}")
-        print(f"    Min R²: {df_result['r_squared'].min():.4f}")
-    
-    return df_result
+    return moments
 
 
-def compute_exponents_all_windows(moments_dict, tau_min=None, tau_max=None):
+def compute_spatial_ensemble(
+    windowed_signals: Dict,
+    window_name: str,
+    tau_min: float = 0.01,
+    n_tau: Optional[int] = None,
+    q_values: np.ndarray = None,
+    sampling_rate: float = 200.0
+) -> Dict:
     """
-    Compute scaling exponents for all windows.
+    Compute spatial ensemble-averaged moments for a single seismic window.
     
     Parameters
     ----------
-    moments_dict : dict
-        {window_name: df_moments}
-    tau_min : int, optional
-        Minimum tau for fitting range
-    tau_max : int, optional
-        Maximum tau for fitting range
-    
+    windowed_signals : dict
+        Output from segment_all_signals()
+    window_name : str
+        Window to analyze: 'pre_event', 'p_wave', 's_wave', 'coda'
+    tau_min : float, optional
+        Minimum time lag in seconds (default: 0.01s)
+    n_tau : int, optional
+        Number of tau values. If None, computed automatically from tau range
+    q_values : np.ndarray, optional
+        Moment orders to compute. If None, uses default range [0.5, ..., 5.0]
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200.0)
+        
     Returns
     -------
-    dict
-        {window_name: df_exponents}
-        
-    Examples
-    --------
-    >>> moments = compute_moments_all_windows(increments, q_values)
-    >>> exponents = compute_exponents_all_windows(moments)
-    >>> df_zeta_p = exponents['p_wave']
-    """
-    exponents_dict = {}
-    
-    for window_name, df_mom in moments_dict.items():
-        print(f"\n{'='*70}")
-        print(f"Computing exponents for: {window_name}")
-        print(f"{'='*70}")
-        
-        df_zeta = compute_scaling_exponents(df_mom, tau_min=tau_min, tau_max=tau_max)
-        
-        if len(df_zeta) > 0:
-            df_zeta['window'] = window_name
-        
-        exponents_dict[window_name] = df_zeta
-    
-    return exponents_dict
-
-
-# ===============================================================================================
-# ==================================== Save/Load Functions ======================================
-# ===============================================================================================
-
-def save_windowed_results(increments_dict, moments_dict, exponents_dict, 
-                          base_dir, process_name):
-    """
-    Save windowed analysis results to disk.
-    
-    Parameters
-    ----------
-    increments_dict : dict
-        {window_name: df_increments}
-    moments_dict : dict
-        {window_name: df_moments}
-    exponents_dict : dict
-        {window_name: df_exponents}
-    base_dir : str or Path
-        Base directory for saving
-    process_name : str
-        Process name ('acceleration', 'velocity', 'displacement')
-    
-    Returns
-    -------
-    None
-    """
-    base_dir = Path(base_dir)
-    process_dir = base_dir / process_name
-    process_dir.mkdir(parents=True, exist_ok=True)
-    
-    print(f"\nSaving {process_name} results to {process_dir}")
-    
-    for window_name in increments_dict.keys():
-        if len(increments_dict[window_name]) > 0:
-            filepath = process_dir / f'increments_{window_name}.parquet'
-            increments_dict[window_name].to_parquet(filepath)
-            print(f"  Saved: {filepath.name}")
-        
-        if len(moments_dict[window_name]) > 0:
-            filepath = process_dir / f'moments_{window_name}.parquet'
-            moments_dict[window_name].to_parquet(filepath)
-            print(f"  Saved: {filepath.name}")
-        
-        if len(exponents_dict[window_name]) > 0:
-            filepath = process_dir / f'exponents_{window_name}.parquet'
-            exponents_dict[window_name].to_parquet(filepath)
-            print(f"  Saved: {filepath.name}")
-
-
-def load_windowed_results(base_dir, process_name):
-    """
-    Load windowed analysis results from disk.
-    
-    Parameters
-    ----------
-    base_dir : str or Path
-        Base directory containing results
-    process_name : str
-        Process name ('acceleration', 'velocity', 'displacement')
-    
-    Returns
-    -------
-    dict
+    results : dict
         {
-            'increments': {window_name: df_increments},
-            'moments': {window_name: df_moments},
-            'exponents': {window_name: df_exponents}
+            'tau': np.ndarray (n_tau,) - time lags in seconds
+            'tau_indices': np.ndarray (n_tau,) - time lags in samples
+            'q': np.ndarray (n_q,) - moment orders
+            'moments_mean': np.ndarray (n_tau, n_q) - ensemble-averaged moments
+            'moments_std': np.ndarray (n_tau, n_q) - std across ensemble
+            'moments_individual': list of np.ndarray - individual moments per signal
+            'n_signals': int - number of signals in ensemble
+            'tau_max': float - maximum tau (seconds)
+            'window_name': str
         }
-    """
-    base_dir = Path(base_dir)
-    process_dir = base_dir / process_name
+        
+    Notes
+    -----
+    Workflow:
+    1. Extract all signals for this window across stations
+    2. Find tau_max from shortest window duration
+    3. Generate logarithmic tau vector from tau_min to tau_max
+    4. Compute moments for each signal individually
+    5. Average moments across all signals (spatial ensemble)
     
-    windows = ['pre_arrival', 'p_wave', 's_wave', 'coda']
+    The number of tau points is automatically adjusted based on the dynamic range:
+        n_tau = max(30, int(log10(tau_max/tau_min) * 20))
+    This ensures ~20 points per decade in log space.
+    """
+    if q_values is None:
+        q_values = np.array([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5,
+                            2.75, 3.0, 3.25, 3.5, 3.75, 4.0, 4.25, 4.5, 4.75, 5.0])
+    
+    signals_list, times_list, tau_max_seconds, n_signals = prepare_window_data(
+        windowed_signals, window_name
+    )
+    
+    if tau_max_seconds <= tau_min:
+        raise ValueError(
+            f"Window '{window_name}' too short: tau_max={tau_max_seconds:.3f}s <= tau_min={tau_min:.3f}s"
+        )
+    
+    if n_tau is None:
+        n_decades = np.log10(tau_max_seconds / tau_min)
+        n_tau = max(30, int(n_decades * 20))
+    
+    tau_values_seconds = np.logspace(np.log10(tau_min), np.log10(tau_max_seconds), n_tau)
+    tau_indices = np.round(tau_values_seconds * sampling_rate).astype(int)
+    tau_indices = np.unique(tau_indices)
+    tau_values_seconds = tau_indices / sampling_rate
+    n_tau = len(tau_indices)
+    
+    moments_individual = []
+    
+    for signal in signals_list:
+        moments = compute_moments_single_signal(signal, tau_indices, q_values, t0_index=0)
+        moments_individual.append(moments)
+    
+    moments_stack = np.stack(moments_individual, axis=0)
+    
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        moments_mean = np.nanmean(moments_stack, axis=0)
+        moments_std = np.nanstd(moments_stack, axis=0)
     
     results = {
-        'increments': {},
-        'moments': {},
-        'exponents': {}
+        'tau': tau_values_seconds,
+        'tau_indices': tau_indices,
+        'q': q_values,
+        'moments_mean': moments_mean,
+        'moments_std': moments_std,
+        'moments_individual': moments_individual,
+        'n_signals': n_signals,
+        'tau_max': tau_max_seconds,
+        'window_name': window_name
     }
-    
-    for window in windows:
-        inc_path = process_dir / f'increments_{window}.parquet'
-        if inc_path.exists():
-            results['increments'][window] = pd.read_parquet(inc_path)
-        
-        mom_path = process_dir / f'moments_{window}.parquet'
-        if mom_path.exists():
-            results['moments'][window] = pd.read_parquet(mom_path)
-        
-        exp_path = process_dir / f'exponents_{window}.parquet'
-        if exp_path.exists():
-            results['exponents'][window] = pd.read_parquet(exp_path)
-    
-    print(f"\nLoaded {process_name} results from {process_dir}")
     
     return results
 
 
-# ===============================================================================================
-# ==================================== Complete Pipeline ========================================
-# ===============================================================================================
-
-def compute_and_save_all_windowed(df_acc, df_vel, df_disp, df_windows,
-                                  tau_values, q_values, output_dir,
-                                  tau_min=None, tau_max=None):
+def extract_scaling_exponents(
+    tau: np.ndarray,
+    moments_mean: np.ndarray,
+    q_values: np.ndarray,
+    fit_range: Optional[Tuple[float, float]] = None,
+    threshold: float = 1e-15
+) -> Dict:
     """
-    Complete windowed ensemble analysis for all processes.
+    Extract scaling exponents ζ(q) from ensemble-averaged moments.
     
-    Computes increments, moments, and scaling exponents for all temporal windows
-    and all three processes (acceleration, velocity, displacement).
+    For each moment order q, performs linear fit in log-log space:
+        log(M_q) = ζ(q) * log(τ) + intercept
     
     Parameters
     ----------
-    df_acc : pd.DataFrame
-        Preprocessed acceleration data
-    df_vel : pd.DataFrame
-        Velocity data (from integration)
-    df_disp : pd.DataFrame
-        Displacement data (from integration)
-    df_windows : pd.DataFrame
-        Window boundaries from identify_windows_all_files()
-    tau_values : list of int
-        Time lags (will be filtered per window)
-    q_values : list of float
-        Moment orders
-    output_dir : str or Path
-        Base directory for saving results
-    tau_min : int, optional
-        Minimum tau for exponent fitting
-    tau_max : int, optional
-        Maximum tau for exponent fitting
-    
+    tau : np.ndarray
+        Time lags in seconds (n_tau,)
+    moments_mean : np.ndarray
+        Ensemble-averaged moments (n_tau, n_q)
+    q_values : np.ndarray
+        Moment orders (n_q,)
+    fit_range : tuple of float, optional
+        (tau_min, tau_max) to restrict fit range. If None, uses all tau.
+    threshold : float, optional
+        Minimum moment value to include in fit (default: 1e-15)
+        Values below threshold are excluded to avoid log(0)
+        
     Returns
     -------
-    dict
-        Nested dictionary:
+    results : dict
         {
-            'acceleration': {
-                'increments': {window: df},
-                'moments': {window: df},
-                'exponents': {window: df}
-            },
-            'velocity': {...},
-            'displacement': {...}
+            'zeta': np.ndarray (n_q,) - scaling exponents
+            'zeta_err': np.ndarray (n_q,) - standard errors from fit
+            'intercepts': np.ndarray (n_q,) - y-intercepts
+            'r_squared': np.ndarray (n_q,) - R² goodness of fit
+            'n_points': np.ndarray (n_q,) - number of points used in each fit
         }
         
-    Examples
-    --------
-    >>> from src.window_detection import identify_windows_all_files
-    >>> 
-    >>> # Detect windows
-    >>> df_windows = identify_windows_all_files(df_acc)
-    >>> 
-    >>> # Complete analysis
-    >>> results = compute_and_save_all_windowed(
-    ...     df_acc, df_vel, df_disp, df_windows,
-    ...     tau_values, q_values,
-    ...     output_dir='../data/processed/04b_ensemble'
-    ... )
-    >>> 
-    >>> # Access results
-    >>> df_zeta_p_disp = results['displacement']['exponents']['p_wave']
+    Notes
+    -----
+    Points are excluded from fit if:
+    - moment_mean < threshold (to avoid log of very small/zero values)
+    - tau outside fit_range (if specified)
+    - moment is NaN or Inf
+    
+    If fewer than 3 valid points remain for a given q, that exponent is set to NaN.
+    """
+    n_q = len(q_values)
+    
+    zeta = np.zeros(n_q)
+    zeta_err = np.zeros(n_q)
+    intercepts = np.zeros(n_q)
+    r_squared = np.zeros(n_q)
+    n_points = np.zeros(n_q, dtype=int)
+    
+    for i, q in enumerate(q_values):
+        moments_q = moments_mean[:, i]
+        
+        valid_mask = (moments_q > threshold) & np.isfinite(moments_q)
+        
+        if fit_range is not None:
+            tau_min_fit, tau_max_fit = fit_range
+            valid_mask &= (tau >= tau_min_fit) & (tau <= tau_max_fit)
+        
+        n_valid = valid_mask.sum()
+        n_points[i] = n_valid
+        
+        if n_valid < 3:
+            zeta[i] = np.nan
+            zeta_err[i] = np.nan
+            intercepts[i] = np.nan
+            r_squared[i] = np.nan
+            continue
+        
+        log_tau_valid = np.log10(tau[valid_mask])
+        log_M_valid = np.log10(moments_q[valid_mask])
+        
+        slope, intercept, r_value, p_value, std_err = stats.linregress(
+            log_tau_valid, log_M_valid
+        )
+        
+        zeta[i] = slope
+        zeta_err[i] = std_err
+        intercepts[i] = intercept
+        r_squared[i] = r_value ** 2
+    
+    results = {
+        'zeta': zeta,
+        'zeta_err': zeta_err,
+        'intercepts': intercepts,
+        'r_squared': r_squared,
+        'n_points': n_points
+    }
+    
+    return results
+
+
+def analyze_all_windows(
+    windowed_signals: Dict,
+    tau_min: float = 0.01,
+    n_tau: Optional[int] = None,
+    q_values: np.ndarray = None,
+    sampling_rate: float = 200.0,
+    fit_range: Optional[Tuple[float, float]] = None
+) -> Dict:
+    """
+    Analyze all four seismic windows with spatial ensemble averaging.
+    
+    Parameters
+    ----------
+    windowed_signals : dict
+        Output from segment_all_signals()
+    tau_min : float, optional
+        Minimum time lag in seconds (default: 0.01s, fixed for all windows)
+    n_tau : int, optional
+        Number of tau values per window. If None, computed automatically.
+    q_values : np.ndarray, optional
+        Moment orders. If None, uses [0.5, 0.75, ..., 5.0]
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200.0)
+    fit_range : tuple of float, optional
+        (tau_min_fit, tau_max_fit) for scaling exponent extraction
+        
+    Returns
+    -------
+    results : dict
+        {
+            'pre_event': {
+                'ensemble': {...},  # from compute_spatial_ensemble()
+                'scaling': {...}    # from extract_scaling_exponents()
+            },
+            'p_wave': {...},
+            's_wave': {...},
+            'coda': {...}
+        }
+        
+    Notes
+    -----
+    Each window may have different tau_max (based on shortest duration),
+    but tau_min is fixed across all windows for consistency.
+    
+    The function prints summary statistics for each window including:
+    - Number of signals in ensemble
+    - Tau range (seconds)
+    - Number of tau points
+    - Mean ζ(q) values
+    """
+    if q_values is None:
+        q_values = np.array([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5,
+                            2.75, 3.0, 3.25, 3.5, 3.75, 4.0, 4.25, 4.5, 4.75, 5.0])
+    
+    windows = ['pre_event', 'p_wave', 's_wave', 'coda']
+    results = {}
+    
+    print("="*80)
+    print("ENSEMBLE SPATIAL SCALING ANALYSIS")
+    print("="*80)
+    print(f"tau_min: {tau_min:.3f} s (fixed for all windows)")
+    print(f"q_values: {len(q_values)} values from {q_values.min():.2f} to {q_values.max():.2f}")
+    print(f"sampling_rate: {sampling_rate:.1f} Hz")
+    if fit_range is not None:
+        print(f"fit_range: [{fit_range[0]:.3f}, {fit_range[1]:.3f}] s")
+    print("="*80)
+    
+    for window_name in windows:
+        print(f"\nProcessing window: {window_name.upper()}")
+        print("-"*80)
+        
+        try:
+            ensemble_results = compute_spatial_ensemble(
+                windowed_signals=windowed_signals,
+                window_name=window_name,
+                tau_min=tau_min,
+                n_tau=n_tau,
+                q_values=q_values,
+                sampling_rate=sampling_rate
+            )
+            
+            scaling_results = extract_scaling_exponents(
+                tau=ensemble_results['tau'],
+                moments_mean=ensemble_results['moments_mean'],
+                q_values=ensemble_results['q'],
+                fit_range=fit_range
+            )
+            
+            results[window_name] = {
+                'ensemble': ensemble_results,
+                'scaling': scaling_results
+            }
+            
+            tau = ensemble_results['tau']
+            n_signals = ensemble_results['n_signals']
+            zeta = scaling_results['zeta']
+            r_squared = scaling_results['r_squared']
+            
+            print(f"Ensemble size: {n_signals} signals")
+            print(f"Tau range: [{tau.min():.4f}, {tau.max():.4f}] s")
+            print(f"Number of tau points: {len(tau)}")
+            print(f"Mean ζ(q): {np.nanmean(zeta):.4f} ± {np.nanstd(zeta):.4f}")
+            print(f"Mean R²: {np.nanmean(r_squared):.4f}")
+            print(f"ζ(q=1): {zeta[np.argmin(np.abs(q_values - 1.0))]:.4f}")
+            print(f"ζ(q=2): {zeta[np.argmin(np.abs(q_values - 2.0))]:.4f}")
+            
+        except Exception as e:
+            print(f"Error processing {window_name}: {e}")
+            results[window_name] = None
+    
+    print("\n" + "="*80)
+    print("ANALYSIS COMPLETE")
+    print("="*80)
+    
+    return results
+
+
+def save_results_parquet(
+    results: Dict,
+    output_dir: str = '../data/processed/ensemble_spatial'
+) -> None:
+    """
+    Save ensemble scaling results in parquet format.
+    
+    Creates two types of files:
+    1. Summary file: scaling exponents for all windows
+    2. Moments files: detailed moment data per window
+    
+    Parameters
+    ----------
+    results : dict
+        Output from analyze_all_windows()
+    output_dir : str or Path
+        Directory to save parquet files
+        
+    Output Files
+    ------------
+    ensemble_spatial_summary.parquet:
+        Columns: window, q, zeta, zeta_err, r_squared, intercept, n_points,
+                 n_signals, tau_min, tau_max, n_tau
+                 
+    ensemble_spatial_moments_{window}.parquet (one per window):
+        Columns: tau, q, moment_mean, moment_std, n_signals
+        
+    Notes
+    -----
+    Uses long format (one row per tau-q combination) for easy filtering and plotting.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    processes = {
-        'acceleration': df_acc,
-        'velocity': df_vel,
-        'displacement': df_disp
-    }
-    
-    results = {}
-    
-    for process_name, df in processes.items():
-        print(f"\n{'#'*80}")
-        print(f"# Processing: {process_name.upper()}")
-        print(f"{'#'*80}")
-        
-        increments = compute_increments_all_windows(df, df_windows, tau_values, 
-                                                    column=process_name)
-        
-        moments = compute_moments_all_windows(increments, q_values)
-        
-        exponents = compute_exponents_all_windows(moments, tau_min=tau_min, 
-                                                 tau_max=tau_max)
-        
-        save_windowed_results(increments, moments, exponents, 
-                            output_dir, process_name)
-        
-        results[process_name] = {
-            'increments': increments,
-            'moments': moments,
-            'exponents': exponents
-        }
-    
-    print(f"\n{'#'*80}")
-    print(f"# Analysis complete!")
-    print(f"# Results saved to: {output_dir}")
-    print(f"{'#'*80}")
-    
-    return results
-
-
-# ===============================================================================================
-# ==================================== Validation ===============================================
-# ===============================================================================================
-
-def validate_moments_ensemble(df_moments, expected_n_stations=None):
-    """
-    Validate ensemble-averaged moments.
-    
-    Parameters
-    ----------
-    df_moments : pd.DataFrame
-        Moments from compute_moments_from_increments_ensemble()
-        Must have columns: ['q', 'tau', 'moment', 'n_stations']
-    expected_n_stations : int, optional
-        Expected number of stations in ensemble
-    
-    Returns
-    -------
-    bool
-        True if validation passes
-    """
-    if len(df_moments) == 0:
-        print("Warning: Empty moments DataFrame, skipping validation")
-        return True
-    
-    print("Validating ensemble moments...")
-    
-    n_stations_unique = df_moments['n_stations'].unique()
-    print(f"  Ensemble size(s): {n_stations_unique}")
-    
-    if expected_n_stations is not None:
-        n_stations = n_stations_unique[0]
-        assert n_stations == expected_n_stations, \
-            f"Expected {expected_n_stations} stations, got {n_stations}"
-        print(f"  Ensemble size matches expected: {n_stations} stations")
-    
-    assert df_moments['moment'].isna().sum() == 0, "NaN found in moments"
-    print(f"  No NaN in moments")
-    
-    assert np.isinf(df_moments['moment']).sum() == 0, "Inf found in moments"
-    print(f"  No Inf in moments")
-    
-    assert (df_moments['moment'] > 0).all(), "Non-positive moments found"
-    print(f"  All moments positive")
-    
-    for tau in df_moments['tau'].unique()[:5]:
-        df_tau = df_moments[df_moments['tau'] == tau].sort_values('q')
-        moments = df_tau['moment'].values
-        if len(moments) > 1:
-            assert np.all(np.diff(moments) > 0), \
-                f"Moments not monotonic in q at tau={tau}"
-    print(f"  Moments monotonic in q")
-    
-    print("All validation checks passed!\n")
-    return True
-
-
-def analyze_increments_ensemble(df_increments, output_dir=None):
-    """
-    Analyze ensemble increment statistics.
-    
-    Parameters
-    ----------
-    df_increments : pd.DataFrame
-        Increments from compute_increments_ensemble_windowed()
-    output_dir : str or Path, optional
-        Directory to save diagnostic plots
-    
-    Returns
-    -------
-    pd.DataFrame
-        Summary statistics per tau across ensemble
-    """
-    if len(df_increments) == 0:
-        return pd.DataFrame()
-    
     summary_rows = []
     
-    for tau, group in df_increments.groupby('tau'):
-        increments = group['increment'].values
+    for window_name, window_results in results.items():
+        if window_results is None:
+            continue
         
-        summary_rows.append({
-            'tau': tau,
-            'n_stations': len(increments),
-            'mean': np.mean(increments),
-            'std': np.std(increments),
-            'median': np.median(increments),
-            'min': np.min(increments),
-            'max': np.max(increments),
-            'skewness': stats.skew(increments),
-            'kurtosis': stats.kurtosis(increments),
-        })
+        ensemble = window_results['ensemble']
+        scaling = window_results['scaling']
+        
+        tau = ensemble['tau']
+        q_values = ensemble['q']
+        n_signals = ensemble['n_signals']
+        tau_min = tau.min()
+        tau_max = tau.max()
+        n_tau = len(tau)
+        
+        moments_rows = []
+        
+        for i, tau_val in enumerate(tau):
+            for j, q_val in enumerate(q_values):
+                moments_rows.append({
+                    'tau': tau_val,
+                    'q': q_val,
+                    'moment_mean': ensemble['moments_mean'][i, j],
+                    'moment_std': ensemble['moments_std'][i, j],
+                    'n_signals': n_signals
+                })
+        
+        df_moments = pd.DataFrame(moments_rows)
+        moments_file = output_dir / f'ensemble_spatial_moments_{window_name}.parquet'
+        df_moments.to_parquet(moments_file, index=False)
+        print(f"Saved: {moments_file}")
+        
+        for j, q_val in enumerate(q_values):
+            summary_rows.append({
+                'window': window_name,
+                'q': q_val,
+                'zeta': scaling['zeta'][j],
+                'zeta_err': scaling['zeta_err'][j],
+                'r_squared': scaling['r_squared'][j],
+                'intercept': scaling['intercepts'][j],
+                'n_points': scaling['n_points'][j],
+                'n_signals': n_signals,
+                'tau_min': tau_min,
+                'tau_max': tau_max,
+                'n_tau': n_tau
+            })
     
     df_summary = pd.DataFrame(summary_rows)
+    summary_file = output_dir / 'ensemble_spatial_summary.parquet'
+    df_summary.to_parquet(summary_file, index=False)
+    print(f"Saved: {summary_file}")
     
-    print("Ensemble increment statistics summary:")
-    print(f"  Tau range: {df_summary['tau'].min()} - {df_summary['tau'].max()}")
-    print(f"  Ensemble size: {df_summary['n_stations'].iloc[0]} stations")
-    print(f"  Mean across all tau: {df_summary['mean'].mean():.6f}")
-    print(f"  Std range: [{df_summary['std'].min():.6f}, {df_summary['std'].max():.6f}]")
-    print()
+    print(f"\nAll results saved to: {output_dir}")
+
+
+def plot_scaling_curves(
+    results: Dict,
+    output_dir: Optional[str] = None,
+    figsize: Tuple[float, float] = (14, 12),
+    q_subset: Optional[np.ndarray] = None
+) -> plt.Figure:
+    """
+    Plot log(M_q) vs log(tau) for all windows (2x2 subplots).
     
-    if output_dir:
+    Parameters
+    ----------
+    results : dict
+        Output from analyze_all_windows()
+    output_dir : str or Path, optional
+        Directory to save figure. If None, figure is displayed but not saved.
+    figsize : tuple of float, optional
+        Figure size in inches (default: (14, 12))
+    q_subset : np.ndarray, optional
+        Subset of q values to plot. If None, plots all q values.
+        
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        
+    Notes
+    -----
+    Each subplot shows one seismic window with:
+    - One curve per q value (colored by q)
+    - Dashed lines showing linear fits
+    - Slope (ζ) annotated in legend
+    """
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    axes = axes.flatten()
+    
+    windows = ['pre_event', 'p_wave', 's_wave', 'coda']
+    window_titles = {
+        'pre_event': 'Pre-event (noise)',
+        'p_wave': 'P-wave',
+        's_wave': 'S-wave',
+        'coda': 'Coda'
+    }
+    
+    cmap = plt.cm.viridis
+    
+    for idx, window_name in enumerate(windows):
+        ax = axes[idx]
+        
+        if window_name not in results or results[window_name] is None:
+            ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(window_titles[window_name])
+            continue
+        
+        ensemble = results[window_name]['ensemble']
+        scaling = results[window_name]['scaling']
+        
+        tau = ensemble['tau']
+        q_values = ensemble['q']
+        moments_mean = ensemble['moments_mean']
+        zeta = scaling['zeta']
+        intercepts = scaling['intercepts']
+        
+        if q_subset is not None:
+            q_mask = np.isin(q_values, q_subset)
+            q_plot = q_values[q_mask]
+            moments_plot = moments_mean[:, q_mask]
+            zeta_plot = zeta[q_mask]
+            intercepts_plot = intercepts[q_mask]
+        else:
+            q_plot = q_values
+            moments_plot = moments_mean
+            zeta_plot = zeta
+            intercepts_plot = intercepts
+        
+        n_q = len(q_plot)
+        colors = [cmap(i / (n_q - 1)) for i in range(n_q)]
+        
+        for i, (q, color) in enumerate(zip(q_plot, colors)):
+            M_q = moments_plot[:, i]
+            valid = M_q > 0
+            
+            if valid.sum() < 2:
+                continue
+            
+            tau_valid = tau[valid]
+            M_q_valid = M_q[valid]
+            
+            ax.loglog(tau_valid, M_q_valid, 'o', color=color, markersize=4,
+                     alpha=0.6, label=f'q={q:.2f}, ζ={zeta_plot[i]:.3f}')
+            
+            if not np.isnan(zeta_plot[i]):
+                tau_fit = tau_valid
+                log_M_fit = zeta_plot[i] * np.log10(tau_fit) + intercepts_plot[i]
+                M_fit = 10 ** log_M_fit
+                ax.loglog(tau_fit, M_fit, '--', color=color, linewidth=1, alpha=0.8)
+        
+        ax.set_xlabel('τ (s)', fontsize=11)
+        ax.set_ylabel('⟨|Δx(τ)|^q⟩', fontsize=11)
+        ax.set_title(window_titles[window_name], fontsize=12, fontweight='bold')
+        ax.grid(True, alpha=0.3, which='both')
+        ax.legend(fontsize=7, ncol=2, loc='best', framealpha=0.9)
+    
+    plt.tight_layout()
+    
+    if output_dir is not None:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        
-        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-        
-        axes[0, 0].semilogx(df_summary['tau'], df_summary['mean'], 'o-')
-        axes[0, 0].axhline(0, color='red', linestyle='--', alpha=0.5)
-        axes[0, 0].set_xlabel('τ (samples)')
-        axes[0, 0].set_ylabel('Mean increment')
-        axes[0, 0].set_title('Ensemble Mean vs τ')
-        axes[0, 0].grid(alpha=0.3)
-        
-        axes[0, 1].loglog(df_summary['tau'], df_summary['std'], 'o-')
-        axes[0, 1].set_xlabel('τ (samples)')
-        axes[0, 1].set_ylabel('Std increment')
-        axes[0, 1].set_title('Ensemble Std vs τ')
-        axes[0, 1].grid(alpha=0.3)
-        
-        axes[1, 0].semilogx(df_summary['tau'], df_summary['skewness'], 'o-')
-        axes[1, 0].axhline(0, color='red', linestyle='--', alpha=0.5)
-        axes[1, 0].set_xlabel('τ (samples)')
-        axes[1, 0].set_ylabel('Skewness')
-        axes[1, 0].set_title('Ensemble Skewness vs τ')
-        axes[1, 0].grid(alpha=0.3)
-        
-        axes[1, 1].semilogx(df_summary['tau'], df_summary['kurtosis'], 'o-')
-        axes[1, 1].axhline(0, color='red', linestyle='--', alpha=0.5, label='Gaussian')
-        axes[1, 1].set_xlabel('τ (samples)')
-        axes[1, 1].set_ylabel('Excess kurtosis')
-        axes[1, 1].set_title('Ensemble Kurtosis vs τ')
-        axes[1, 1].legend()
-        axes[1, 1].grid(alpha=0.3)
-        
-        plt.tight_layout()
-        plt.savefig(output_dir / 'increment_diagnostics_ensemble.pdf')
-        plt.close()
-        
-        print(f"Saved diagnostics to {output_dir / 'increment_diagnostics_ensemble.pdf'}")
+        output_file = output_dir / 'ensemble_scaling_curves.pdf'
+        plt.savefig(output_file, dpi=300, bbox_inches='tight')
+        print(f"Saved: {output_file}")
     
-    return df_summary
+    return fig
+
+
+def plot_scaling_exponents(
+    results: Dict,
+    output_dir: Optional[str] = None,
+    figsize: Tuple[float, float] = (14, 12)
+) -> plt.Figure:
+    """
+    Plot scaling exponents ζ(q) vs q for all windows (2x2 subplots).
+    
+    Parameters
+    ----------
+    results : dict
+        Output from analyze_all_windows()
+    output_dir : str or Path, optional
+        Directory to save figure. If None, figure is displayed but not saved.
+    figsize : tuple of float, optional
+        Figure size in inches (default: (14, 12))
+        
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        
+    Notes
+    -----
+    Each subplot shows one seismic window with:
+    - ζ(q) vs q with error bars
+    - Reference line ζ=q/2 (normal diffusion)
+    - Comparison allows identifying anomalous diffusion regimes
+    """
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    axes = axes.flatten()
+    
+    windows = ['pre_event', 'p_wave', 's_wave', 'coda']
+    window_titles = {
+        'pre_event': 'Pre-event (noise)',
+        'p_wave': 'P-wave',
+        's_wave': 'S-wave',
+        'coda': 'Coda'
+    }
+    
+    for idx, window_name in enumerate(windows):
+        ax = axes[idx]
+        
+        if window_name not in results or results[window_name] is None:
+            ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(window_titles[window_name])
+            continue
+        
+        q_values = results[window_name]['ensemble']['q']
+        zeta = results[window_name]['scaling']['zeta']
+        zeta_err = results[window_name]['scaling']['zeta_err']
+        r_squared = results[window_name]['scaling']['r_squared']
+        
+        valid = np.isfinite(zeta)
+        
+        ax.errorbar(q_values[valid], zeta[valid], yerr=zeta_err[valid],
+                   fmt='o', markersize=6, capsize=3, capthick=1.5,
+                   color='navy', label='Measured ζ(q)')
+        
+        q_ref = np.linspace(q_values.min(), q_values.max(), 100)
+        zeta_normal = q_ref / 2
+        ax.plot(q_ref, zeta_normal, '--', color='red', linewidth=2,
+               label='Normal diffusion (ζ=q/2)', alpha=0.7)
+        
+        ax.set_xlabel('q', fontsize=11)
+        ax.set_ylabel('ζ(q)', fontsize=11)
+        ax.set_title(window_titles[window_name], fontsize=12, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=9, loc='best', framealpha=0.9)
+        
+        mean_r2 = np.nanmean(r_squared[valid])
+        ax.text(0.05, 0.95, f'Mean R² = {mean_r2:.3f}',
+               transform=ax.transAxes, fontsize=9,
+               verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    
+    plt.tight_layout()
+    
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = output_dir / 'ensemble_scaling_exponents.pdf'
+        plt.savefig(output_file, dpi=300, bbox_inches='tight')
+        print(f"Saved: {output_file}")
+    
+    return fig
