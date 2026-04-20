@@ -611,7 +611,7 @@ def save_results_parquet(
 def plot_scaling_curves(
     results: Dict,
     output_dir: Optional[str] = None,
-    figsize: Tuple[float, float] = (14, 12),
+    figsize: Tuple[float, float] = (16, 12),
     q_subset: Optional[np.ndarray] = None
 ) -> plt.Figure:
     """
@@ -624,9 +624,10 @@ def plot_scaling_curves(
     output_dir : str or Path, optional
         Directory to save figure. If None, figure is displayed but not saved.
     figsize : tuple of float, optional
-        Figure size in inches (default: (14, 12))
+        Figure size in inches (default: (16, 12))
     q_subset : np.ndarray, optional
-        Subset of q values to plot. If None, plots all q values.
+        Subset of q values to plot. If None, uses default subset:
+        [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0]
         
     Returns
     -------
@@ -638,6 +639,8 @@ def plot_scaling_curves(
     - One curve per q value (colored by q)
     - Dashed lines showing linear fits
     - Slope (ζ) annotated in legend
+    
+    Default q_subset reduces visual clutter from 19 to 8 curves per panel.
     """
     fig, axes = plt.subplots(2, 2, figsize=figsize)
     axes = axes.flatten()
@@ -650,14 +653,18 @@ def plot_scaling_curves(
         'coda': 'Coda'
     }
     
+    if q_subset is None:
+        q_subset = np.array([0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0])
+    
     cmap = plt.cm.viridis
     
     for idx, window_name in enumerate(windows):
         ax = axes[idx]
         
         if window_name not in results or results[window_name] is None:
-            ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(window_titles[window_name])
+            ax.text(0.5, 0.5, 'No data', ha='center', va='center', 
+                   transform=ax.transAxes, fontsize=14)
+            ax.set_title(window_titles[window_name], fontsize=13, fontweight='bold')
             continue
         
         ensemble = results[window_name]['ensemble']
@@ -669,24 +676,18 @@ def plot_scaling_curves(
         zeta = scaling['zeta']
         intercepts = scaling['intercepts']
         
-        if q_subset is not None:
-            q_mask = np.isin(q_values, q_subset)
-            q_plot = q_values[q_mask]
-            moments_plot = moments_mean[:, q_mask]
-            zeta_plot = zeta[q_mask]
-            intercepts_plot = intercepts[q_mask]
-        else:
-            q_plot = q_values
-            moments_plot = moments_mean
-            zeta_plot = zeta
-            intercepts_plot = intercepts
+        q_mask = np.isin(q_values, q_subset)
+        q_plot = q_values[q_mask]
+        moments_plot = moments_mean[:, q_mask]
+        zeta_plot = zeta[q_mask]
+        intercepts_plot = intercepts[q_mask]
         
         n_q = len(q_plot)
-        colors = [cmap(i / (n_q - 1)) for i in range(n_q)]
+        colors = [cmap(i / max(1, n_q - 1)) for i in range(n_q)]
         
         for i, (q, color) in enumerate(zip(q_plot, colors)):
             M_q = moments_plot[:, i]
-            valid = M_q > 0
+            valid = (M_q > 0) & np.isfinite(M_q)
             
             if valid.sum() < 2:
                 continue
@@ -694,20 +695,26 @@ def plot_scaling_curves(
             tau_valid = tau[valid]
             M_q_valid = M_q[valid]
             
-            ax.loglog(tau_valid, M_q_valid, 'o', color=color, markersize=4,
-                     alpha=0.6, label=f'q={q:.2f}, ζ={zeta_plot[i]:.3f}')
+            label = f'q={q:.1f}, ζ={zeta_plot[i]:.2f}'
+            
+            ax.loglog(tau_valid, M_q_valid, 'o', color=color, markersize=6,
+                     alpha=0.7, label=label, markeredgewidth=0.5, 
+                     markeredgecolor='white')
             
             if not np.isnan(zeta_plot[i]):
                 tau_fit = tau_valid
                 log_M_fit = zeta_plot[i] * np.log10(tau_fit) + intercepts_plot[i]
                 M_fit = 10 ** log_M_fit
-                ax.loglog(tau_fit, M_fit, '--', color=color, linewidth=1, alpha=0.8)
+                ax.loglog(tau_fit, M_fit, '--', color=color, linewidth=1.5, alpha=0.5)
         
-        ax.set_xlabel('τ (s)', fontsize=11)
-        ax.set_ylabel('⟨|Δx(τ)|^q⟩', fontsize=11)
-        ax.set_title(window_titles[window_name], fontsize=12, fontweight='bold')
-        ax.grid(True, alpha=0.3, which='both')
-        ax.legend(fontsize=7, ncol=2, loc='best', framealpha=0.9)
+        ax.set_xlabel('τ (s)', fontsize=12)
+        ax.set_ylabel('⟨|Δx(τ)|^q⟩', fontsize=12)
+        ax.set_title(window_titles[window_name], fontsize=13, fontweight='bold')
+        ax.grid(True, alpha=0.3, which='both', linewidth=0.5)
+        
+        ax.legend(fontsize=8, ncol=2, loc='lower right', framealpha=0.95,
+                 edgecolor='gray', fancybox=False, columnspacing=1.0,
+                 handletextpad=0.5, borderpad=0.4)
     
     plt.tight_layout()
     
@@ -724,7 +731,7 @@ def plot_scaling_curves(
 def plot_scaling_exponents(
     results: Dict,
     output_dir: Optional[str] = None,
-    figsize: Tuple[float, float] = (14, 12)
+    figsize: Tuple[float, float] = (16, 12)
 ) -> plt.Figure:
     """
     Plot scaling exponents ζ(q) vs q for all windows (2x2 subplots).
@@ -736,7 +743,7 @@ def plot_scaling_exponents(
     output_dir : str or Path, optional
         Directory to save figure. If None, figure is displayed but not saved.
     figsize : tuple of float, optional
-        Figure size in inches (default: (14, 12))
+        Figure size in inches (default: (16, 12))
         
     Returns
     -------
@@ -747,6 +754,7 @@ def plot_scaling_exponents(
     Each subplot shows one seismic window with:
     - ζ(q) vs q with error bars
     - Reference line ζ=q/2 (normal diffusion)
+    - Mean R² value displayed
     - Comparison allows identifying anomalous diffusion regimes
     """
     fig, axes = plt.subplots(2, 2, figsize=figsize)
@@ -764,8 +772,9 @@ def plot_scaling_exponents(
         ax = axes[idx]
         
         if window_name not in results or results[window_name] is None:
-            ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(window_titles[window_name])
+            ax.text(0.5, 0.5, 'No data', ha='center', va='center', 
+                   transform=ax.transAxes, fontsize=14)
+            ax.set_title(window_titles[window_name], fontsize=13, fontweight='bold')
             continue
         
         q_values = results[window_name]['ensemble']['q']
@@ -776,24 +785,30 @@ def plot_scaling_exponents(
         valid = np.isfinite(zeta)
         
         ax.errorbar(q_values[valid], zeta[valid], yerr=zeta_err[valid],
-                   fmt='o', markersize=6, capsize=3, capthick=1.5,
-                   color='navy', label='Measured ζ(q)')
+                   fmt='o', markersize=7, capsize=4, capthick=1.5,
+                   color='navy', ecolor='navy', alpha=0.8,
+                   label='Measured ζ(q)', zorder=3)
         
         q_ref = np.linspace(q_values.min(), q_values.max(), 100)
         zeta_normal = q_ref / 2
-        ax.plot(q_ref, zeta_normal, '--', color='red', linewidth=2,
-               label='Normal diffusion (ζ=q/2)', alpha=0.7)
+        ax.plot(q_ref, zeta_normal, '--', color='red', linewidth=2.5,
+               label='Normal diffusion (ζ=q/2)', alpha=0.7, zorder=2)
         
-        ax.set_xlabel('q', fontsize=11)
-        ax.set_ylabel('ζ(q)', fontsize=11)
-        ax.set_title(window_titles[window_name], fontsize=12, fontweight='bold')
-        ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=9, loc='best', framealpha=0.9)
+        ax.set_xlabel('q', fontsize=12)
+        ax.set_ylabel('ζ(q)', fontsize=12)
+        ax.set_title(window_titles[window_name], fontsize=13, fontweight='bold')
+        ax.grid(True, alpha=0.3, linewidth=0.5)
+        ax.legend(fontsize=10, loc='upper left', framealpha=0.95,
+                 edgecolor='gray', fancybox=False)
         
         mean_r2 = np.nanmean(r_squared[valid])
-        ax.text(0.05, 0.95, f'Mean R² = {mean_r2:.3f}',
-               transform=ax.transAxes, fontsize=9,
-               verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+        ax.text(0.98, 0.05, f'Mean R² = {mean_r2:.3f}',
+               transform=ax.transAxes, fontsize=10,
+               verticalalignment='bottom', horizontalalignment='right',
+               bbox=dict(boxstyle='round,pad=0.5', facecolor='wheat', 
+                        alpha=0.7, edgecolor='gray'))
+        
+        ax.set_xlim(q_values.min() - 0.2, q_values.max() + 0.2)
     
     plt.tight_layout()
     

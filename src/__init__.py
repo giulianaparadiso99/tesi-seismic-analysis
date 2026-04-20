@@ -93,7 +93,7 @@ from .segmentation.onset_detection import (
     compute_coda_method_statistics
 )
 
-from segmentation.window_segmentation import (
+from .segmentation.window_segmentation import (
     segment_signal_into_windows,
     segment_all_signals
 )
