@@ -324,6 +324,7 @@ def detect_coda_start(signal, t_s_detected, t_p_detected=None, origin_time=None,
         - 'rautian': Lapse time = 2 × S-wave travel time (Rautian & Khalturin, 1978)
         - 'arias': Cumulative Arias Intensity threshold (Trifunac & Brady, 1975; Lanzano et al., 2019)
         - 'envelope': Amplitude envelope decay (Boore, 2005)
+        - 'median': Median of rautian, arias, envelope (robust to outliers)
     threshold_arias : float
         Threshold for 'arias' method (default: 0.75 for D5-75)
         Common values: 0.75 (D5-75), 0.95 (D5-95)
@@ -514,11 +515,64 @@ def detect_coda_start(signal, t_s_detected, t_p_detected=None, origin_time=None,
             'threshold_factor': threshold_envelope,
             'smoothing_window_s': 1.0
         }
+    elif method == 'median':
+        """
+        Robust median-based method.
+        Computes coda onset using all three methods and takes the median.
+        Requires origin_time for Rautian method.
+        """
+        if origin_time is None:
+            raise ValueError("origin_time required for 'median' method (needs Rautian)")
+        
+        # Calcola tutti e 3 i metodi
+        methods_to_combine = ['rautian', 'arias', 'envelope']
+        t_codas = []
+        results_dict = {}
+        
+        for m in methods_to_combine:
+            try:
+                res = detect_coda_start(
+                    signal, t_s_detected, t_p_detected=t_p_detected,
+                    origin_time=origin_time, sampling_rate=sampling_rate,
+                    method=m, threshold_arias=threshold_arias,
+                    threshold_envelope=threshold_envelope
+                )
+                t_codas.append(res['t_coda'])
+                results_dict[m] = res
+            except Exception as e:
+                print(f"Warning: {m} method failed: {e}")
+                continue
+        
+        if len(t_codas) < 2:
+            raise ValueError("Median method requires at least 2 valid methods")
+        
+        # Calcola mediana
+        t_coda = np.median(t_codas)
+        
+        # Diagnostic info
+        diagnostic = {
+            'method_values': {
+                'rautian': results_dict.get('rautian', {}).get('t_coda'),
+                'arias': results_dict.get('arias', {}).get('t_coda'),
+                'envelope': results_dict.get('envelope', {}).get('t_coda')
+            },
+            'median_value': t_coda,
+            's_duration': t_coda - t_s_detected,
+            'std': np.std(t_codas),
+            'range': (np.min(t_codas), np.max(t_codas)),
+            'reference': 'Median of Rautian, Arias, and Envelope methods'
+        }
+        
+        params = {
+            'threshold_arias': threshold_arias,
+            'threshold_envelope': threshold_envelope,
+            'methods_used': methods_to_combine
+        }
     
     else:
         raise ValueError(
             f"Unknown method '{method}'. Choose from: "
-            "'rautian', 'arias', 'envelope'"
+            "'rautian', 'arias', 'envelope', 'median'"
         )
     
     # Ensure coda is within signal bounds
@@ -573,7 +627,7 @@ def detect_coda_start_all_methods(signal, t_s_detected, origin_time=None,
     ...                                         threshold_envelope=0.25)
     """
     
-    methods = ['rautian', 'arias', 'envelope']
+    methods = ['rautian', 'arias', 'envelope', 'median']
     results = {}
     
     for method in methods:
@@ -599,11 +653,31 @@ def add_coda_onsets_to_dataframe(df_full, signals_dict,
                                  threshold_arias=0.75,
                                  threshold_envelope=0.3,
                                  sampling_rate=200):
-    """Populate coda onset columns in df_full."""
+    """
+    Populate coda onset columns in df_full.
+    
+    Optimized: Rautian method computed once per station (not per component).
+    """
     
     methods = ['rautian', 'arias', 'envelope']
     
-    print(f"Calculating coda onset for {len(df_full)} components...")
+    print("Pre-computing Rautian coda onset per station...")
+    rautian_cache = {}
+    
+    for station in df_full['STATION_CODE'].unique():
+        station_row = df_full[df_full['STATION_CODE'] == station].iloc[0]
+        t_s = station_row['t_s_detected']
+        origin_time = station_row['origin_time']
+        s_lapse_time = t_s - origin_time
+        t_coda_rautian = origin_time + 2.0 * s_lapse_time
+        
+        rautian_cache[station] = {
+            't_coda': t_coda_rautian,
+            's_duration': t_coda_rautian - t_s
+        }
+    
+    print(f"  Computed Rautian for {len(rautian_cache)} stations")    
+    print(f"Calculating Arias and Envelope coda onset for {len(df_full)} components...")
     
     for idx, row in df_full.iterrows():
         station = row['STATION_CODE']
@@ -617,18 +691,39 @@ def add_coda_onsets_to_dataframe(df_full, signals_dict,
         origin_time = row['origin_time']
         
         try:
-            # Chiama detect_coda_start_all_methods (invariata!)
-            results = detect_coda_start_all_methods(
-                signal, t_s, origin_time,
-                sampling_rate=sampling_rate,
+            # ===== RAUTIAN: =====
+            if station in rautian_cache:
+                df_full.loc[idx, 't_coda_rautian'] = rautian_cache[station]['t_coda']
+                df_full.loc[idx, 's_duration_rautian'] = rautian_cache[station]['s_duration']
+            
+            # ===== ARIAS: =====
+            result_arias = detect_coda_start(
+                signal, t_s, origin_time=origin_time,
+                sampling_rate=sampling_rate, method='arias',
                 threshold_arias=threshold_arias,
                 threshold_envelope=threshold_envelope
             )
+            df_full.loc[idx, 't_coda_arias'] = result_arias['t_coda']
+            df_full.loc[idx, 's_duration_arias'] = result_arias['diagnostic']['s_duration']
             
-            # Popola DataFrame
-            for method in methods:
-                df_full.loc[idx, f't_coda_{method}'] = results[method]['t_coda']
-                df_full.loc[idx, f's_duration_{method}'] = results[method]['diagnostic']['s_duration']
+            # ===== ENVELOPE: =====
+            result_envelope = detect_coda_start(
+                signal, t_s, origin_time=origin_time,
+                sampling_rate=sampling_rate, method='envelope',
+                threshold_arias=threshold_arias,
+                threshold_envelope=threshold_envelope
+            )
+            df_full.loc[idx, 't_coda_envelope'] = result_envelope['t_coda']
+            df_full.loc[idx, 's_duration_envelope'] = result_envelope['diagnostic']['s_duration']
+            
+            # ===== MEDIAN =====
+            t_coda_median = np.median([
+                rautian_cache[station]['t_coda'],
+                result_arias['t_coda'],
+                result_envelope['t_coda']
+            ])
+            df_full.loc[idx, 't_coda_median'] = t_coda_median
+            df_full.loc[idx, 's_duration_median'] = t_coda_median - t_s
         
         except Exception as e:
             print(f"Warning: Coda detection failed for {station}-{component}: {e}")
