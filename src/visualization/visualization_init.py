@@ -48,6 +48,11 @@ from .plots_segmentation import (
     plot_window_comparison
 )
 
+from .plots_moment_scaling import (
+    plot_scaling_curves,
+    plot_scaling_exponents
+)
+
 __all__ = [
     # Settings
     'set_plot_style',

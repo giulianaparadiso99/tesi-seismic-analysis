@@ -77,7 +77,8 @@ import warnings
 
 def prepare_window_data(
     windowed_signals: Dict,
-    window_name: str
+    window_name: str,
+    exclude_components: Optional[List[str]] = None 
 ) -> Tuple[List[np.ndarray], List[np.ndarray], float, int]:
     """
     Extract signal and time arrays for a specific seismic window across all stations.
@@ -89,6 +90,9 @@ def prepare_window_data(
         {station: {component: {window_name: {'signal': array, 'time': array, ...}}}}
     window_name : str
         Window to extract: 'pre_event', 'p_wave', 's_wave', 'coda'
+    exclude_components : list of str, optional
+        Component codes to exclude (e.g., ['HNZ', 'HGZ'] for vertical)
+        If None, includes all components
         
     Returns
     -------
@@ -111,12 +115,17 @@ def prepare_window_data(
     Stations with the same code but different components are treated as
     independent ensemble members (as instructed by advisor).
     """
+    if exclude_components is None:
+        exclude_components = []
+
     signals_list = []
     times_list = []
     durations = []
     
     for station in windowed_signals:
         for component in windowed_signals[station]:
+            if component in exclude_components:
+                continue
             if window_name not in windowed_signals[station][component]:
                 continue
             
@@ -133,8 +142,13 @@ def prepare_window_data(
             durations.append(duration)
     
     if len(signals_list) == 0:
-        raise ValueError(f"No valid signals found for window '{window_name}'")
-    
+        if exclude_components:
+            raise ValueError(
+                f"No valid signals found for window '{window_name}' "
+                f"after excluding components: {exclude_components}"
+            )
+        else:
+            raise ValueError(f"No valid signals found for window '{window_name}'")
     tau_max_seconds = min(durations)
     n_signals = len(signals_list)
     
@@ -205,7 +219,8 @@ def compute_spatial_ensemble(
     tau_min: float = 0.01,
     n_tau: Optional[int] = None,
     q_values: np.ndarray = None,
-    sampling_rate: float = 200.0
+    sampling_rate: float = 200.0,
+    exclude_components: Optional[List[str]] = None 
 ) -> Dict:
     """
     Compute spatial ensemble-averaged moments for a single seismic window.
@@ -224,6 +239,8 @@ def compute_spatial_ensemble(
         Moment orders to compute. If None, uses default range [0.5, ..., 5.0]
     sampling_rate : float, optional
         Sampling rate in Hz (default: 200.0)
+     exclude_components : list of str, optional
+        Component codes to exclude from ensemble
         
     Returns
     -------
@@ -258,7 +275,7 @@ def compute_spatial_ensemble(
                             2.75, 3.0, 3.25, 3.5, 3.75, 4.0, 4.25, 4.5, 4.75, 5.0])
     
     signals_list, times_list, tau_max_seconds, n_signals = prepare_window_data(
-        windowed_signals, window_name
+        windowed_signals, window_name, exclude_components=exclude_components
     )
     
     if tau_max_seconds <= tau_min:
@@ -407,7 +424,8 @@ def analyze_all_windows(
     n_tau: Optional[int] = None,
     q_values: np.ndarray = None,
     sampling_rate: float = 200.0,
-    fit_range: Optional[Tuple[float, float]] = None
+    fit_range: Optional[Tuple[float, float]] = None,
+    exclude_components: Optional[List[str]] = None
 ) -> Dict:
     """
     Analyze all four seismic windows with spatial ensemble averaging.
@@ -426,6 +444,8 @@ def analyze_all_windows(
         Sampling rate in Hz (default: 200.0)
     fit_range : tuple of float, optional
         (tau_min_fit, tau_max_fit) for scaling exponent extraction
+    exclude_components : list of str, optional
+        Component codes to exclude from ensemble
         
     Returns
     -------
@@ -479,7 +499,8 @@ def analyze_all_windows(
                 tau_min=tau_min,
                 n_tau=n_tau,
                 q_values=q_values,
-                sampling_rate=sampling_rate
+                sampling_rate=sampling_rate,
+                exclude_components=exclude_components
             )
             
             scaling_results = extract_scaling_exponents(
@@ -493,12 +514,20 @@ def analyze_all_windows(
                 'ensemble': ensemble_results,
                 'scaling': scaling_results
             }
+
+            if exclude_components:
+                n_excluded = len(exclude_components)
+                print(f"  Excluded {n_excluded} component type(s): {exclude_components}")
             
+            if exclude_components:
+                n_excluded = len(exclude_components)
+                print(f"  Excluded {n_excluded} component type(s): {exclude_components}")
+
             tau = ensemble_results['tau']
             n_signals = ensemble_results['n_signals']
             zeta = scaling_results['zeta']
             r_squared = scaling_results['r_squared']
-            
+
             print(f"Ensemble size: {n_signals} signals")
             print(f"Tau range: [{tau.min():.4f}, {tau.max():.4f}] s")
             print(f"Number of tau points: {len(tau)}")
@@ -606,217 +635,3 @@ def save_results_parquet(
     print(f"Saved: {summary_file}")
     
     print(f"\nAll results saved to: {output_dir}")
-
-
-def plot_scaling_curves(
-    results: Dict,
-    output_dir: Optional[str] = None,
-    figsize: Tuple[float, float] = (16, 12),
-    q_subset: Optional[np.ndarray] = None
-) -> plt.Figure:
-    """
-    Plot log(M_q) vs log(tau) for all windows (2x2 subplots).
-    
-    Parameters
-    ----------
-    results : dict
-        Output from analyze_all_windows()
-    output_dir : str or Path, optional
-        Directory to save figure. If None, figure is displayed but not saved.
-    figsize : tuple of float, optional
-        Figure size in inches (default: (16, 12))
-    q_subset : np.ndarray, optional
-        Subset of q values to plot. If None, uses default subset:
-        [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0]
-        
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        
-    Notes
-    -----
-    Each subplot shows one seismic window with:
-    - One curve per q value (colored by q)
-    - Dashed lines showing linear fits
-    - Slope (ζ) annotated in legend
-    
-    Default q_subset reduces visual clutter from 19 to 8 curves per panel.
-    """
-    fig, axes = plt.subplots(2, 2, figsize=figsize)
-    axes = axes.flatten()
-    
-    windows = ['pre_event', 'p_wave', 's_wave', 'coda']
-    window_titles = {
-        'pre_event': 'Pre-event (noise)',
-        'p_wave': 'P-wave',
-        's_wave': 'S-wave',
-        'coda': 'Coda'
-    }
-    
-    if q_subset is None:
-        q_subset = np.array([0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0])
-    
-    cmap = plt.cm.viridis
-    
-    for idx, window_name in enumerate(windows):
-        ax = axes[idx]
-        
-        if window_name not in results or results[window_name] is None:
-            ax.text(0.5, 0.5, 'No data', ha='center', va='center', 
-                   transform=ax.transAxes, fontsize=14)
-            ax.set_title(window_titles[window_name], fontsize=13, fontweight='bold')
-            continue
-        
-        ensemble = results[window_name]['ensemble']
-        scaling = results[window_name]['scaling']
-        
-        tau = ensemble['tau']
-        q_values = ensemble['q']
-        moments_mean = ensemble['moments_mean']
-        zeta = scaling['zeta']
-        intercepts = scaling['intercepts']
-        
-        q_mask = np.isin(q_values, q_subset)
-        q_plot = q_values[q_mask]
-        moments_plot = moments_mean[:, q_mask]
-        zeta_plot = zeta[q_mask]
-        intercepts_plot = intercepts[q_mask]
-        
-        n_q = len(q_plot)
-        colors = [cmap(i / max(1, n_q - 1)) for i in range(n_q)]
-        
-        for i, (q, color) in enumerate(zip(q_plot, colors)):
-            M_q = moments_plot[:, i]
-            valid = (M_q > 0) & np.isfinite(M_q)
-            
-            if valid.sum() < 2:
-                continue
-            
-            tau_valid = tau[valid]
-            M_q_valid = M_q[valid]
-            
-            label = f'q={q:.1f}, ζ={zeta_plot[i]:.2f}'
-            
-            ax.loglog(tau_valid, M_q_valid, 'o', color=color, markersize=6,
-                     alpha=0.7, label=label, markeredgewidth=0.5, 
-                     markeredgecolor='white')
-            
-            if not np.isnan(zeta_plot[i]):
-                tau_fit = tau_valid
-                log_M_fit = zeta_plot[i] * np.log10(tau_fit) + intercepts_plot[i]
-                M_fit = 10 ** log_M_fit
-                ax.loglog(tau_fit, M_fit, '--', color=color, linewidth=1.5, alpha=0.5)
-        
-        ax.set_xlabel('τ (s)', fontsize=12)
-        ax.set_ylabel('⟨|Δx(τ)|^q⟩', fontsize=12)
-        ax.set_title(window_titles[window_name], fontsize=13, fontweight='bold')
-        ax.grid(True, alpha=0.3, which='both', linewidth=0.5)
-        
-        ax.legend(fontsize=8, ncol=2, loc='lower right', framealpha=0.95,
-                 edgecolor='gray', fancybox=False, columnspacing=1.0,
-                 handletextpad=0.5, borderpad=0.4)
-    
-    plt.tight_layout()
-    
-    if output_dir is not None:
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / 'ensemble_scaling_curves.pdf'
-        plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"Saved: {output_file}")
-    
-    return fig
-
-
-def plot_scaling_exponents(
-    results: Dict,
-    output_dir: Optional[str] = None,
-    figsize: Tuple[float, float] = (16, 12)
-) -> plt.Figure:
-    """
-    Plot scaling exponents ζ(q) vs q for all windows (2x2 subplots).
-    
-    Parameters
-    ----------
-    results : dict
-        Output from analyze_all_windows()
-    output_dir : str or Path, optional
-        Directory to save figure. If None, figure is displayed but not saved.
-    figsize : tuple of float, optional
-        Figure size in inches (default: (16, 12))
-        
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        
-    Notes
-    -----
-    Each subplot shows one seismic window with:
-    - ζ(q) vs q with error bars
-    - Reference line ζ=q/2 (normal diffusion)
-    - Mean R² value displayed
-    - Comparison allows identifying anomalous diffusion regimes
-    """
-    fig, axes = plt.subplots(2, 2, figsize=figsize)
-    axes = axes.flatten()
-    
-    windows = ['pre_event', 'p_wave', 's_wave', 'coda']
-    window_titles = {
-        'pre_event': 'Pre-event (noise)',
-        'p_wave': 'P-wave',
-        's_wave': 'S-wave',
-        'coda': 'Coda'
-    }
-    
-    for idx, window_name in enumerate(windows):
-        ax = axes[idx]
-        
-        if window_name not in results or results[window_name] is None:
-            ax.text(0.5, 0.5, 'No data', ha='center', va='center', 
-                   transform=ax.transAxes, fontsize=14)
-            ax.set_title(window_titles[window_name], fontsize=13, fontweight='bold')
-            continue
-        
-        q_values = results[window_name]['ensemble']['q']
-        zeta = results[window_name]['scaling']['zeta']
-        zeta_err = results[window_name]['scaling']['zeta_err']
-        r_squared = results[window_name]['scaling']['r_squared']
-        
-        valid = np.isfinite(zeta)
-        
-        ax.errorbar(q_values[valid], zeta[valid], yerr=zeta_err[valid],
-                   fmt='o', markersize=7, capsize=4, capthick=1.5,
-                   color='navy', ecolor='navy', alpha=0.8,
-                   label='Measured ζ(q)', zorder=3)
-        
-        q_ref = np.linspace(q_values.min(), q_values.max(), 100)
-        zeta_normal = q_ref / 2
-        ax.plot(q_ref, zeta_normal, '--', color='red', linewidth=2.5,
-               label='Normal diffusion (ζ=q/2)', alpha=0.7, zorder=2)
-        
-        ax.set_xlabel('q', fontsize=12)
-        ax.set_ylabel('ζ(q)', fontsize=12)
-        ax.set_title(window_titles[window_name], fontsize=13, fontweight='bold')
-        ax.grid(True, alpha=0.3, linewidth=0.5)
-        ax.legend(fontsize=10, loc='upper left', framealpha=0.95,
-                 edgecolor='gray', fancybox=False)
-        
-        mean_r2 = np.nanmean(r_squared[valid])
-        ax.text(0.98, 0.05, f'Mean R² = {mean_r2:.3f}',
-               transform=ax.transAxes, fontsize=10,
-               verticalalignment='bottom', horizontalalignment='right',
-               bbox=dict(boxstyle='round,pad=0.5', facecolor='wheat', 
-                        alpha=0.7, edgecolor='gray'))
-        
-        ax.set_xlim(q_values.min() - 0.2, q_values.max() + 0.2)
-    
-    plt.tight_layout()
-    
-    if output_dir is not None:
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / 'ensemble_scaling_exponents.pdf'
-        plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"Saved: {output_file}")
-    
-    return fig

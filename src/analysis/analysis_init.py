@@ -18,23 +18,16 @@ from .signals_pdf import (
 )
 
 # Moment Scaling (Time-Averaged)
-from .signals_scaling import (
-    compute_increments,
-    compute_moments_from_increments,
-    compute_moment_scaling,
-    compute_scaling_exponents,
-    test_scaling_linearity,
-    fit_piecewise_scaling,
-    build_scaling_summary,
-    trim_to_event_window
+from .signals_scaling_temporal import (
+    compute_temporal_ensemble_moments,
+    compute_scaling_exponents_temporal,
+    compute_ensemble_single_window_temporal
 )
 
 # Moment Scaling (Ensemble-Averaged)
-from .signals_scaling_ensemble import (
+from .signals_scaling_spatial import (
     analyze_all_windows,
-    save_results_parquet,
-    plot_scaling_curves,
-    plot_scaling_exponents
+    save_results_parquet
 )
 
 __all__ = [

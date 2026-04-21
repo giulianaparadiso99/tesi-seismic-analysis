@@ -111,26 +111,19 @@ from .segmentation.window_validation import (
 # Analysis - Moment Scaling (Time-Averaged)
 # ===============================================================================
 
-from .analysis.signals_scaling import (
-    compute_increments,
-    compute_moments_from_increments,
-    compute_moment_scaling,
-    compute_scaling_exponents,
-    test_scaling_linearity,
-    fit_piecewise_scaling,
-    build_scaling_summary,
-    trim_to_event_window
+from .analysis.signals_scaling_temporal import (
+    compute_temporal_ensemble_moments,
+    compute_scaling_exponents_temporal,
+    compute_ensemble_single_window_temporal
 )
 
 # ===============================================================================
 # Analysis - Moment Scaling (Ensemble-Averaged)
 # ===============================================================================
 
-from .analysis.signals_scaling_ensemble import (
+from .analysis.signals_scaling_spatial import (
     analyze_all_windows,
-    save_results_parquet,
-    plot_scaling_curves,
-    plot_scaling_exponents
+    save_results_parquet
 )
 
 # ===============================================================================
@@ -176,6 +169,10 @@ from .visualization.plots_segmentation import (
     plot_window_comparison
 )
 
+from .visualization.plots_moment_scaling import (
+    plot_scaling_curves,
+    plot_scaling_exponents
+)
 
 # ===============================================================================
 # Export Utilities
