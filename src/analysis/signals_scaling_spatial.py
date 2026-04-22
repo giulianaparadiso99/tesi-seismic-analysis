@@ -217,6 +217,7 @@ def compute_spatial_ensemble(
     window_name: str,
     tau_min: float = 0.01,
     n_tau: Optional[int] = None,
+    tau_max_fraction: Optional[float] = None,
     q_values: np.ndarray = None,
     sampling_rate: float = 200.0,
     exclude_components: Optional[List[str]] = None 
@@ -234,6 +235,13 @@ def compute_spatial_ensemble(
         Minimum time lag in seconds (default: 0.01s)
     n_tau : int, optional
         Number of tau values. If None, computed automatically from tau range
+    tau_max_fraction : float or None, optional
+        Fraction of shortest window duration to use for tau_max (default: None)
+        - None (default): use full window duration (tau_max = 100%)
+        - 0.5: use first 50% of window (recommended for scaling analysis)
+        - 0.3: use first 30% (conservative)
+        Values < 1.0 avoid finite-size effects in scaling analysis
+        Use < 1.0 to avoid finite-size effects in scaling analysis
     q_values : np.ndarray, optional
         Moment orders to compute. If None, uses default range [0.5, ..., 5.0]
     sampling_rate : float, optional
@@ -276,6 +284,11 @@ def compute_spatial_ensemble(
     signals_list, times_list, tau_max_seconds, n_signals = prepare_window_data(
         windowed_signals, window_name, exclude_components=exclude_components
     )
+
+    if tau_max_fraction is None:
+        tau_max_seconds = tau_max_seconds
+    else:
+        tau_max_seconds = tau_max_fraction * tau_max_seconds
     
     if tau_max_seconds <= tau_min:
         raise ValueError(
@@ -421,6 +434,7 @@ def analyze_all_windows(
     windowed_signals: Dict,
     tau_min: float = 0.01,
     n_tau: Optional[int] = None,
+    tau_max_fraction: Optional[float] = None,
     q_values: np.ndarray = None,
     sampling_rate: float = 200.0,
     fit_range: Optional[Tuple[float, float]] = None,
@@ -437,6 +451,12 @@ def analyze_all_windows(
         Minimum time lag in seconds (default: 0.01s, fixed for all windows)
     n_tau : int, optional
         Number of tau values per window. If None, computed automatically.
+    tau_max_fraction : float or None, optional
+        Fraction of shortest window duration to use for tau_max (default: None)
+        - None (default): use full window duration for each phase
+        - 0.5: use first 50% (recommended to avoid finite-size effects)
+        - 0.3: use first 30% (conservative)
+        Applied independently to each window based on its shortest duration
     q_values : np.ndarray, optional
         Moment orders. If None, uses [0.5, 0.75, ..., 5.0]
     sampling_rate : float, optional
@@ -481,6 +501,10 @@ def analyze_all_windows(
     print("ENSEMBLE SPATIAL SCALING ANALYSIS")
     print("="*80)
     print(f"tau_min: {tau_min:.3f} s (fixed for all windows)")
+    if tau_max_fraction is None:
+        print("tau_max_fraction: None (use full window duration)")
+    else:
+        print(f"tau_max_fraction: {tau_max_fraction:.1%} of shortest window duration")
     print(f"q_values: {len(q_values)} values from {q_values.min():.2f} to {q_values.max():.2f}")
     print(f"sampling_rate: {sampling_rate:.1f} Hz")
     if fit_range is not None:
@@ -496,6 +520,7 @@ def analyze_all_windows(
                 windowed_signals=windowed_signals,
                 window_name=window_name,
                 tau_min=tau_min,
+                tau_max_fraction=tau_max_fraction,
                 n_tau=n_tau,
                 q_values=q_values,
                 sampling_rate=sampling_rate,
