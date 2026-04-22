@@ -9,11 +9,21 @@ This module provides validation functions to check:
 
 import numpy as np
 import pandas as pd
-from typing import Dict, Literal, Optional, Tuple
 
-def check_pga_in_s_wave(windowed_signals, station, component):
+def check_pga_in_s_wave(df_metadata, station, component, coda_method='rautian'):
     """
-    Check if PGA occurs in S-wave window.
+    Check if PGA occurs in S-wave window using only metadata.
+    
+    Parameters
+    ----------
+    df_metadata : pd.DataFrame
+        Metadata with onset times and PGA info
+    station : str
+        Station code
+    component : str
+        Component name
+    coda_method : str
+        Which coda method to use: 'rautian', 'arias', 'envelope', 'median'
     
     Returns
     -------
@@ -22,36 +32,64 @@ def check_pga_in_s_wave(windowed_signals, station, component):
             'passed': bool,
             'pga_window': str,
             'pga_value': float,
-            'pga_values_all': dict  # for debugging
+            'pga_time': float
         }
     """
+    mask = (df_metadata['STATION_CODE'] == station) & \
+           (df_metadata['COMPONENT'] == component)
     
-    windows = windowed_signals[station][component]
+    if not mask.any():
+        return {
+            'passed': False,
+            'pga_window': 'UNKNOWN',
+            'pga_value': np.nan,
+            'pga_time': np.nan
+        }
     
-    # Find PGA in each window
-    pga_values = {}
-    for window_name in ['pre_event', 'p_wave', 's_wave', 'coda']:
-        signal = windows[window_name]['signal']
-        pga_values[window_name] = np.max(np.abs(signal))
+    row = df_metadata[mask].iloc[0]
     
-    # Which window has global PGA?
-    pga_window = max(pga_values, key=pga_values.get)
+    pga_time = row['TIME_PGA_S']
+    pga_value = row['PGA_CM/S^2']
+    t_p = row['t_p_detected']
+    t_s = row['t_s_detected']
+    t_coda = row[f't_coda_{coda_method}']
+    
+    # Determine window
+    if pga_time < t_p:
+        pga_window = 'pre_event'
+    elif t_p <= pga_time < t_s:
+        pga_window = 'p_wave'
+    elif t_s <= pga_time < t_coda:
+        pga_window = 's_wave'
+    else:  # pga_time >= t_coda
+        pga_window = 'coda'
     
     return {
         'passed': pga_window == 's_wave',
         'pga_window': pga_window,
-        'pga_value': pga_values[pga_window],
-        'pga_values_all': pga_values
+        'pga_value': pga_value,
+        'pga_time': pga_time
     }
 
 
-def check_monotonicity_station(df_onsets, station, component, phase='p'):
+def check_monotonicity_station(df_meta_stations, station, phase='p'):
     """
     Check if arrival time is monotonic with distance for this station.
     
     Logic:
-    - Sort stations by epicentral distance
+    - Stations are sorted by epicentral distance
     - For station i: check t_p[i-1] < t_p[i] < t_p[i+1]
+    
+    Parameters
+    ----------
+    df_meta_stations : pd.DataFrame
+        Station-level metadata (one row per station, not per component)
+        Must contain: 'STATION_CODE', 'EPICENTRAL_DISTANCE_KM', 
+                      't_p_detected', 't_s_detected'
+    station : str
+        Station code
+    phase : str
+        'p' or 's'
     
     Returns
     -------
@@ -66,25 +104,18 @@ def check_monotonicity_station(df_onsets, station, component, phase='p'):
             'violation_side': str or None  # 'prev', 'next', or None
         }
     """
-    
-    # Group by station (average t_p across components)
-    df_stations = df_onsets.groupby('STATION_CODE').agg({
-        'EPICENTRAL_DISTANCE_KM': 'first',
-        f't_{phase}_detected': 'mean'
-    }).reset_index()
-    
-    # Sort by distance
-    df_stations = df_stations.sort_values('EPICENTRAL_DISTANCE_KM').reset_index(drop=True)
+    # Sort by distance (no groupby needed, already aggregated)
+    df_sorted = df_meta_stations.sort_values('EPICENTRAL_DISTANCE_KM').reset_index(drop=True)
     
     # Find position of this station
-    idx = df_stations[df_stations['STATION_CODE'] == station].index[0]
-    n_stations = len(df_stations)
+    idx = df_sorted[df_sorted['STATION_CODE'] == station].index[0]
+    n_stations = len(df_sorted)
     
-    t_this = df_stations.loc[idx, f't_{phase}_detected']
+    t_this = df_sorted.loc[idx, f't_{phase}_detected']
     
     # Get neighbors
-    t_prev = df_stations.loc[idx - 1, f't_{phase}_detected'] if idx > 0 else None
-    t_next = df_stations.loc[idx + 1, f't_{phase}_detected'] if idx < n_stations - 1 else None
+    t_prev = df_sorted.loc[idx - 1, f't_{phase}_detected'] if idx > 0 else None
+    t_next = df_sorted.loc[idx + 1, f't_{phase}_detected'] if idx < n_stations - 1 else None
     
     # Check monotonicity
     violation_prev = (t_prev is not None) and (t_prev >= t_this)
@@ -108,12 +139,29 @@ def check_monotonicity_station(df_onsets, station, component, phase='p'):
         'violation_side': violation_side
     }
 
-
-def check_snr(signals_dict, df_onsets, station, component, 
-              phase='p', threshold=3.0,
-              noise_duration=5.0, signal_duration=5.0):
+def check_snr(windowed_signals, station, component, 
+              phase='p', threshold=3.0, signal_duration=5.0, dt=0.005):
     """
-    Check SNR for P or S pick.
+    Check SNR for P or S pick using windowed signals.
+    
+    Uses pre_event window as noise reference and beginning of phase window as signal.
+    
+    Parameters
+    ----------
+    windowed_signals : dict
+        Output from segment_all_signals()
+    station : str
+        Station code
+    component : str
+        Component name
+    phase : str
+        'p' or 's'
+    threshold : float
+        SNR threshold (default: 3.0)
+    signal_duration : float
+        Duration of signal window in seconds (default: 5.0)
+    dt : float
+        Sampling interval in seconds (default: 0.005)
     
     Returns
     -------
@@ -126,41 +174,41 @@ def check_snr(signals_dict, df_onsets, station, component,
             'threshold': float
         }
     """
+    windows = windowed_signals[station][component]
     
-    # Get signal and time
-    signal = signals_dict[station][component]
-    time = signals_dict[station]['time']
+    # Noise window: use entire pre_event window
+    noise_signal = windows['pre_event']['signal']
     
-    # Get onset time
-    row = df_onsets[(df_onsets['STATION_CODE'] == station) & 
-                    (df_onsets['COMPONENT'] == component)].iloc[0]
-    onset_time = row[f't_{phase}_detected']
-    
-    # Define windows
-    noise_start = onset_time - noise_duration
-    noise_end = onset_time
-    signal_start = onset_time
-    signal_end = onset_time + signal_duration
-    
-    # Extract windows
-    mask_noise = (time >= noise_start) & (time < noise_end)
-    mask_signal = (time >= signal_start) & (time < signal_end)
-    
-    noise_window = signal[mask_noise]
-    signal_window = signal[mask_signal]
-    
-    # Check validity
-    if len(noise_window) == 0 or len(signal_window) == 0:
+    if len(noise_signal) == 0:
         return {
             'passed': False,
             'snr': np.nan,
             'rms_signal': np.nan,
             'rms_noise': np.nan,
-            'threshold': threshold
+            'threshold': threshold,
+            'error': 'Empty pre_event window'
+        }
+    
+    # Signal window: first N seconds of phase window
+    phase_window_name = 'p_wave' if phase == 'p' else 's_wave'
+    phase_signal = windows[phase_window_name]['signal']
+    
+    # Extract first signal_duration seconds
+    n_samples = int(signal_duration / dt)
+    signal_window = phase_signal[:n_samples]
+    
+    if len(signal_window) == 0:
+        return {
+            'passed': False,
+            'snr': np.nan,
+            'rms_signal': np.nan,
+            'rms_noise': np.nan,
+            'threshold': threshold,
+            'error': f'Empty {phase_window_name} window'
         }
     
     # Compute RMS
-    rms_noise = np.sqrt(np.mean(noise_window**2))
+    rms_noise = np.sqrt(np.mean(noise_signal**2))
     rms_signal = np.sqrt(np.mean(signal_window**2))
     
     # SNR
@@ -177,10 +225,27 @@ def check_snr(signals_dict, df_onsets, station, component,
         'threshold': threshold
     }
 
-def quality_control_all_stations(signals_dict, windowed_signals, df_onsets,
-                                 snr_threshold=3.0):
+def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
+                                 snr_threshold=3.0, coda_method='rautian'):
     """
     Run all quality checks for all stations and components.
+    
+    Parameters
+    ----------
+    windowed_signals : dict
+        Segmented signals from segment_all_signals()
+    df_full : pd.DataFrame
+        Component-level metadata (used for PGA check)
+        Must contain: 'STATION_CODE', 'COMPONENT', 'PGA_CM/S^2', 'TIME_PGA_S',
+                      't_p_detected', 't_s_detected', 't_coda_{method}'
+    df_meta_stations : pd.DataFrame
+        Station-level metadata (used for monotonicity check)
+        Must contain: 'STATION_CODE', 'EPICENTRAL_DISTANCE_KM',
+                      't_p_detected', 't_s_detected'
+    snr_threshold : float
+        SNR threshold for quality check (default: 3.0)
+    coda_method : str
+        Coda detection method: 'rautian', 'arias', 'envelope', 'median'
     
     Returns
     -------
@@ -207,18 +272,30 @@ def quality_control_all_stations(signals_dict, windowed_signals, df_onsets,
         
         for component in windowed_signals[station].keys():
             
-            # Run all checks
-            pga_check = check_pga_in_s_wave(windowed_signals, station, component)
+            # PGA check (uses df_full, component-specific)
+            pga_check = check_pga_in_s_wave(
+                df_full, station, component, coda_method=coda_method
+            )
             
-            mono_p = check_monotonicity_station(df_onsets, station, component, phase='p')
-            mono_s = check_monotonicity_station(df_onsets, station, component, phase='s')
+            # Monotonicity checks (uses df_meta_stations, station-level)
+            mono_p = check_monotonicity_station(
+                df_meta_stations, station, phase='p'
+            )
+            mono_s = check_monotonicity_station(
+                df_meta_stations, station, phase='s'
+            )
             
-            snr_p = check_snr(signals_dict, df_onsets, station, component, 
-                             phase='p', threshold=snr_threshold)
-            snr_s = check_snr(signals_dict, df_onsets, station, component,
-                             phase='s', threshold=snr_threshold)
+            # SNR checks (uses windowed_signals)
+            snr_p = check_snr(
+                windowed_signals, station, component, 
+                phase='p', threshold=snr_threshold
+            )
+            snr_s = check_snr(
+                windowed_signals, station, component,
+                phase='s', threshold=snr_threshold
+            )
             
-            # Aggregate
+            # Aggregate results
             all_passed = (
                 pga_check['passed'] and
                 mono_p['passed'] and

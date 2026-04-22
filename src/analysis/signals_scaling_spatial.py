@@ -74,7 +74,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import warnings
 
-
 def prepare_window_data(
     windowed_signals: Dict,
     window_name: str,

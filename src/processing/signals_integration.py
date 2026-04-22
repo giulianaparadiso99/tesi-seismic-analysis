@@ -68,7 +68,7 @@ except ImportError:
 # ==================================== Process Integration ======================================
 # ===============================================================================================
 
-def integrate_to_velocity(df_acc, dt=0.005, normalized=False, method='trapz'):
+def integrate_to_velocity(df_acc, dt=0.005, normalized=False, method='obspy'):
     """
     Integrate acceleration to obtain velocity: v(t) = ∫a(t)dt
     
@@ -156,7 +156,7 @@ def integrate_to_velocity(df_acc, dt=0.005, normalized=False, method='trapz'):
     return df
 
 
-def integrate_to_displacement(df_acc, dt=0.005, normalized=False, method='trapz'):
+def integrate_to_displacement(df_acc, dt=0.005, normalized=False, method='obspy'):
     """
     Integrate acceleration twice to obtain displacement: x(t) = ∫∫a(t)dt²
     
@@ -684,33 +684,33 @@ def validate_windowed_integration(windowed_integrated, check_field='velocity'):
     passed = True
     
     if n_nan > 0:
-        print(f"  ✗ Validation FAILED: Found NaN values")
+        print(f"Validation FAILED: Found NaN values")
         passed = False
     else:
-        print(f"  ✓ No NaN values")
+        print(f"No NaN values")
     
     if n_inf > 0:
-        print(f"  ✗ Validation FAILED: Found Inf values")
+        print(f"Validation FAILED: Found Inf values")
         passed = False
     else:
-        print(f"  ✓ No Inf values")
+        print(f"No Inf values")
     
     if check_field == 'velocity' and max_value > 1000:
-        print(f"  ⚠ Warning: Very large velocity ({max_value:.2f} cm/s), check baseline")
+        print(f"Warning: Very large velocity ({max_value:.2f} cm/s), check baseline")
     elif check_field == 'displacement' and max_value > 10000:
-        print(f"  ⚠ Warning: Very large displacement ({max_value:.2f} cm), check baseline")
+        print(f"Warning: Very large displacement ({max_value:.2f} cm), check baseline")
     else:
-        print(f"  ✓ {check_field.capitalize()} range reasonable")
+        print(f"{check_field.capitalize()} range reasonable")
     
     if mean_of_means > 1.0:
-        print(f"  ⚠ Warning: Large mean detected, baseline may not be properly corrected")
+        print(f"Warning: Large mean detected, baseline may not be properly corrected")
     else:
-        print(f"  ✓ Baseline check passed")
+        print(f"Baseline check passed")
     
     if passed:
-        print(f"\n✓ Validation PASSED\n")
+        print(f"\nValidation PASSED\n")
     else:
-        print(f"\n✗ Validation FAILED\n")
+        print(f"\nValidation FAILED\n")
     
     return {
         'n_windows': n_windows,

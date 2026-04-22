@@ -7,7 +7,7 @@ based on detected phase onsets (P-wave, S-wave, coda).
 
 import numpy as np
 import pandas as pd
-from typing import Dict, Literal, Optional, Tuple
+from typing import Dict, Literal, Optional, Tuple, Union
 
 
 """
@@ -16,11 +16,6 @@ Signal windowing functions for seismic phase segmentation.
 This module provides functions to segment seismic signals into temporal windows
 based on detected phase onsets (P-wave, S-wave, coda).
 """
-
-import numpy as np
-import pandas as pd
-from typing import Dict, Literal, Optional, Tuple, Union
-
 
 def segment_signal_into_windows(
     signal: np.ndarray,
