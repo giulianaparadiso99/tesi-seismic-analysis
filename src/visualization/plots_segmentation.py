@@ -75,6 +75,155 @@ def display_theoretical_arrivals_table(df_stations, n_rows=10):
     
     return table
 
+def plot_apparent_vs_crustal_velocities(df_meta_stations, figsize=(16, 6)):
+    """
+    Compare apparent velocities (from detected arrivals) with CRUST1.0 velocities.
+    
+    Apparent velocity = distance / (t_detected - origin_time)
+    
+    Parameters
+    ----------
+    df_meta_stations : pd.DataFrame
+        Station metadata
+    figsize : tuple
+        Figure size
+        
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    """
+    import matplotlib.pyplot as plt
+    
+    # Calculate apparent velocities
+    df = df_meta_stations.copy()
+    df['v_p_apparent'] = df['EPICENTRAL_DISTANCE_KM'] / (df['t_p_detected'] - df['origin_time'])
+    df['v_s_apparent'] = df['EPICENTRAL_DISTANCE_KM'] / (df['t_s_detected'] - df['origin_time'])
+    
+    # Remove outliers (negative or unrealistic velocities)
+    df = df[(df['v_p_apparent'] > 0) & (df['v_p_apparent'] < 15)]
+    df = df[(df['v_s_apparent'] > 0) & (df['v_s_apparent'] < 10)]
+    
+    fig, axes = plt.subplots(1, 2, figsize=figsize)
+    
+    # P-wave
+    axes[0].scatter(df['vp_crust'], df['v_p_apparent'], 
+                    s=80, alpha=0.7, edgecolor='black', linewidth=0.5)
+    
+    # 1:1 line
+    lim = [min(df['vp_crust'].min(), df['v_p_apparent'].min()),
+           max(df['vp_crust'].max(), df['v_p_apparent'].max())]
+    axes[0].plot(lim, lim, 'r--', linewidth=2, label='1:1 line', zorder=0)
+    
+    axes[0].set_xlabel('v_P CRUST1.0 (km/s)', fontsize=12)
+    axes[0].set_ylabel('v_P apparent (km/s)', fontsize=12)
+    axes[0].set_title('P-wave: CRUST1.0 vs Apparent velocity', fontsize=13, fontweight='bold')
+    axes[0].legend(fontsize=10)
+    axes[0].grid(True, alpha=0.3)
+    axes[0].set_aspect('equal')
+    
+    # S-wave
+    axes[1].scatter(df['vs_crust'], df['v_s_apparent'],
+                    s=80, alpha=0.7, edgecolor='black', linewidth=0.5, color='coral')
+    
+    lim = [min(df['vs_crust'].min(), df['v_s_apparent'].min()),
+           max(df['vs_crust'].max(), df['v_s_apparent'].max())]
+    axes[1].plot(lim, lim, 'r--', linewidth=2, label='1:1 line', zorder=0)
+    
+    axes[1].set_xlabel('v_S CRUST1.0 (km/s)', fontsize=12)
+    axes[1].set_ylabel('v_S apparent (km/s)', fontsize=12)
+    axes[1].set_title('S-wave: CRUST1.0 vs Apparent velocity', fontsize=13, fontweight='bold')
+    axes[1].legend(fontsize=10)
+    axes[1].grid(True, alpha=0.3)
+    axes[1].set_aspect('equal')
+    
+    plt.tight_layout()
+    return fig
+
+def plot_crustal_velocities_vs_distance(df_meta_stations, figsize=(16, 6), output_path=None):
+    """
+    Plot crustal velocities (v_P and v_S) vs epicentral distance.
+    
+    Shows how CRUST1.0-derived velocities vary across stations.
+    
+    Parameters
+    ----------
+    df_meta_stations : pd.DataFrame
+        Station-level metadata with columns:
+        'STATION_CODE', 'EPICENTRAL_DISTANCE_KM', 'vp_crust', 'vs_crust'
+    figsize : tuple
+        Figure size
+    output_path : str or Path, optional
+        If provided, save figure to this path
+        
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    """
+    import matplotlib.pyplot as plt
+    
+    df_sorted = df_meta_stations.sort_values('EPICENTRAL_DISTANCE_KM')
+    
+    fig, axes = plt.subplots(1, 2, figsize=figsize)
+    
+    # v_P plot
+    axes[0].scatter(df_sorted['EPICENTRAL_DISTANCE_KM'],
+                    df_sorted['vp_crust'],
+                    s=80, alpha=0.7, color='steelblue', edgecolor='black', linewidth=0.5)
+    
+    vp_mean = df_sorted['vp_crust'].mean()
+    vp_std = df_sorted['vp_crust'].std()
+    
+    axes[0].axhline(vp_mean, color='red', linestyle='--', linewidth=2, 
+                    label=f'Mean: {vp_mean:.2f} km/s')
+    axes[0].axhline(vp_mean + vp_std, color='red', linestyle=':', linewidth=1.5, alpha=0.5)
+    axes[0].axhline(vp_mean - vp_std, color='red', linestyle=':', linewidth=1.5, alpha=0.5)
+    
+    axes[0].set_xlabel('Epicentral Distance (km)', fontsize=12)
+    axes[0].set_ylabel('v_P (km/s)', fontsize=12)
+    axes[0].set_title('P-wave velocity vs Distance (CRUST1.0)', fontsize=13, fontweight='bold')
+    axes[0].legend(fontsize=10)
+    axes[0].grid(True, alpha=0.3)
+    axes[0].set_ylim(vp_mean - 3*vp_std, vp_mean + 3*vp_std)
+    
+    # v_S plot
+    axes[1].scatter(df_sorted['EPICENTRAL_DISTANCE_KM'],
+                    df_sorted['vs_crust'],
+                    s=80, alpha=0.7, color='coral', edgecolor='black', linewidth=0.5)
+    
+    vs_mean = df_sorted['vs_crust'].mean()
+    vs_std = df_sorted['vs_crust'].std()
+    
+    axes[1].axhline(vs_mean, color='red', linestyle='--', linewidth=2,
+                    label=f'Mean: {vs_mean:.2f} km/s')
+    axes[1].axhline(vs_mean + vs_std, color='red', linestyle=':', linewidth=1.5, alpha=0.5)
+    axes[1].axhline(vs_mean - vs_std, color='red', linestyle=':', linewidth=1.5, alpha=0.5)
+    
+    axes[1].set_xlabel('Epicentral Distance (km)', fontsize=12)
+    axes[1].set_ylabel('v_S (km/s)', fontsize=12)
+    axes[1].set_title('S-wave velocity vs Distance (CRUST1.0)', fontsize=13, fontweight='bold')
+    axes[1].legend(fontsize=10)
+    axes[1].grid(True, alpha=0.3)
+    axes[1].set_ylim(vs_mean - 3*vs_std, vs_mean + 3*vs_std)
+    
+    # Add statistics text
+    stats_text = (f"v_P: {vp_mean:.2f} ± {vp_std:.2f} km/s (range: {df_sorted['vp_crust'].min():.2f}-{df_sorted['vp_crust'].max():.2f})\n"
+                  f"v_S: {vs_mean:.2f} ± {vs_std:.2f} km/s (range: {df_sorted['vs_crust'].min():.2f}-{df_sorted['vs_crust'].max():.2f})\n"
+                  f"v_P/v_S: {vp_mean/vs_mean:.2f}")
+    
+    fig.text(0.5, 0.02, stats_text, ha='center', fontsize=10,
+             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    
+    plt.tight_layout(rect=[0, 0.05, 1, 1])
+    
+    if output_path is not None:
+        from pathlib import Path
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {output_path}")
+    
+    return fig
+
 def plot_theoretical_arrivals(df_stations, figsize=(12, 6), save_path=None):
     """
     Plot theoretical P and S arrival times vs epicentral distance.

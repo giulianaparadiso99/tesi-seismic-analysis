@@ -9,6 +9,7 @@ This module provides validation functions to check:
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 def check_pga_in_s_wave(df_metadata, station, component, coda_method='rautian'):
     """
@@ -459,3 +460,325 @@ def print_detailed_failures(qc_results):
                 print(f"  ✗ SNRS: {snr['snr']:.2f} < {snr['threshold']} (RMS_signal={snr['rms_signal']:.4f}, RMS_noise={snr['rms_noise']:.4f})")
     
     print("\n" + "="*80)
+
+# ===============================================================================================
+# ========================== Monotonicity Violation Analysis ===================================
+# ===============================================================================================
+
+def analyze_monotonicity_violations(df_meta_stations, phase='p'):
+    """
+    Analyze all monotonicity violations for a given phase.
+    
+    Creates a detailed report showing:
+    - Stations with violations
+    - Their neighbors in the distance-sorted list
+    - Distances and arrival times
+    - Theoretical vs detected times
+    
+    Parameters
+    ----------
+    df_meta_stations : pd.DataFrame
+        Station-level metadata with columns:
+        'STATION_CODE', 'EPICENTRAL_DISTANCE_KM', 
+        't_p_detected', 't_s_detected', 't_p_theo', 't_s_theo',
+        'p_residual', 's_residual'
+    phase : str
+        'p' or 's'
+    
+    Returns
+    -------
+    pd.DataFrame
+        Detailed violation report with columns:
+        - station: station code
+        - distance_km: epicentral distance
+        - t_detected: detected arrival time
+        - t_theo: theoretical arrival time
+        - residual: t_detected - t_theo
+        - prev_station: previous station code
+        - prev_distance: previous station distance
+        - prev_t_detected: previous station time
+        - prev_residual: previous station residual
+        - next_station: next station code
+        - next_distance: next station distance
+        - next_t_detected: next station time
+        - next_residual: next station residual
+        - violation_type: 'prev', 'next', 'prev+next'
+    
+    Examples
+    --------
+    >>> violations_p = analyze_monotonicity_violations(df_meta_stations, phase='p')
+    >>> print(f"Found {len(violations_p)} P-wave violations")
+    >>> 
+    >>> # Most problematic station
+    >>> worst = violations_p.iloc[violations_p['residual'].abs().argmax()]
+    >>> print(f"Worst: {worst['station']} with residual {worst['residual']:.3f}s")
+    """
+    
+    df_sorted = df_meta_stations.sort_values('EPICENTRAL_DISTANCE_KM').reset_index(drop=True)
+    
+    violations = []
+    
+    for idx in range(len(df_sorted)):
+        station = df_sorted.loc[idx, 'STATION_CODE']
+        distance = df_sorted.loc[idx, 'EPICENTRAL_DISTANCE_KM']
+        t_detected = df_sorted.loc[idx, f't_{phase}_detected']
+        t_theo = df_sorted.loc[idx, f't_{phase}_theo']
+        residual = df_sorted.loc[idx, f'{phase}_residual']
+        
+        prev_station = df_sorted.loc[idx - 1, 'STATION_CODE'] if idx > 0 else None
+        prev_distance = df_sorted.loc[idx - 1, 'EPICENTRAL_DISTANCE_KM'] if idx > 0 else None
+        prev_t = df_sorted.loc[idx - 1, f't_{phase}_detected'] if idx > 0 else None
+        prev_t_theo = df_sorted.loc[idx - 1, f't_{phase}_theo'] if idx > 0 else None
+        prev_residual = df_sorted.loc[idx - 1, f'{phase}_residual'] if idx > 0 else None
+        
+        next_station = df_sorted.loc[idx + 1, 'STATION_CODE'] if idx < len(df_sorted) - 1 else None
+        next_distance = df_sorted.loc[idx + 1, 'EPICENTRAL_DISTANCE_KM'] if idx < len(df_sorted) - 1 else None
+        next_t = df_sorted.loc[idx + 1, f't_{phase}_detected'] if idx < len(df_sorted) - 1 else None
+        next_t_theo = df_sorted.loc[idx + 1, f't_{phase}_theo'] if idx < len(df_sorted) - 1 else None
+        next_residual = df_sorted.loc[idx + 1, f'{phase}_residual'] if idx < len(df_sorted) - 1 else None
+        
+        violation_prev = (prev_t is not None) and (prev_t >= t_detected)
+        violation_next = (next_t is not None) and (next_t <= t_detected)
+        
+        if violation_prev or violation_next:
+            violation_type = []
+            if violation_prev:
+                violation_type.append('prev')
+            if violation_next:
+                violation_type.append('next')
+            
+            violations.append({
+                'station': station,
+                'distance_km': distance,
+                't_detected': t_detected,
+                't_theo': t_theo,
+                'residual': residual,
+                'prev_station': prev_station,
+                'prev_distance': prev_distance,
+                'prev_t_detected': prev_t,
+                'prev_residual': prev_residual,
+                'next_station': next_station,
+                'next_distance': next_distance,
+                'next_t_detected': next_t,
+                'next_residual': next_residual,
+                'violation_type': '+'.join(violation_type)
+            })
+    
+    return pd.DataFrame(violations)
+
+
+def print_violation_summary(df_violations, phase='p'):
+    """
+    Print human-readable summary of monotonicity violations.
+    
+    Parameters
+    ----------
+    df_violations : pd.DataFrame
+        Output from analyze_monotonicity_violations()
+    phase : str
+        'p' or 's'
+        
+    Examples
+    --------
+    >>> violations_p = analyze_monotonicity_violations(df_meta_stations, 'p')
+    >>> print_violation_summary(violations_p, 'p')
+    """
+    
+    n_violations = len(df_violations)
+    
+    if n_violations == 0:
+        print("="*80)
+        print(f"MONOTONICITY VIOLATIONS - {phase.upper()}-WAVE")
+        print("="*80)
+        print("No violations found!")
+        print("="*80)
+        return
+    
+    n_prev_only = len(df_violations[df_violations['violation_type'] == 'prev'])
+    n_next_only = len(df_violations[df_violations['violation_type'] == 'next'])
+    n_both = len(df_violations[df_violations['violation_type'] == 'prev+next'])
+    
+    print("="*80)
+    print(f"MONOTONICITY VIOLATIONS - {phase.upper()}-WAVE")
+    print("="*80)
+    print(f"Total violations: {n_violations}")
+    print(f"  Violations with previous station: {n_prev_only + n_both}")
+    print(f"  Violations with next station: {n_next_only + n_both}")
+    print(f"  Violations with both neighbors: {n_both}")
+    print("="*80)
+    
+    print("\nDETAILED VIOLATIONS:")
+    print("-"*80)
+    
+    for idx, row in df_violations.iterrows():
+        print(f"\n[{idx+1}] {row['station']} (distance: {row['distance_km']:.2f} km)")
+        print(f"    Detected: {row['t_detected']:.3f}s | Theoretical: {row['t_theo']:.3f}s | Residual: {row['residual']:.3f}s")
+        
+        if 'prev' in row['violation_type']:
+            print(f"    ⚠ PREV VIOLATION:")
+            print(f"       {row['prev_station']} (d={row['prev_distance']:.2f}km) arrived at {row['prev_t_detected']:.3f}s")
+            print(f"       → Closer station arrived LATER or same time (Δt = {row['prev_t_detected'] - row['t_detected']:+.3f}s)")
+            if row['prev_residual'] is not None:
+                print(f"       → Residuals: prev={row['prev_residual']:+.3f}s, this={row['residual']:+.3f}s")
+        
+        if 'next' in row['violation_type']:
+            print(f"    ⚠ NEXT VIOLATION:")
+            print(f"       {row['next_station']} (d={row['next_distance']:.2f}km) arrived at {row['next_t_detected']:.3f}s")
+            print(f"       → Farther station arrived EARLIER or same time (Δt = {row['next_t_detected'] - row['t_detected']:+.3f}s)")
+            if row['next_residual'] is not None:
+                print(f"       → Residuals: this={row['residual']:+.3f}s, next={row['next_residual']:+.3f}s")
+    
+    print("\n" + "="*80)
+
+
+def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violations_s=None,
+                               figsize=(16, 6), output_path=None):
+    """
+    Plot distance vs arrival time showing monotonicity violations.
+    
+    Creates a 2-panel plot:
+    - Left: P-wave arrivals vs distance
+    - Right: S-wave arrivals vs distance
+    
+    Shows detected times, theoretical times, and highlights violations.
+    
+    Parameters
+    ----------
+    df_meta_stations : pd.DataFrame
+        Station-level metadata
+    df_violations_p : pd.DataFrame, optional
+        P-wave violations from analyze_monotonicity_violations()
+    df_violations_s : pd.DataFrame, optional
+        S-wave violations from analyze_monotonicity_violations()
+    figsize : tuple
+        Figure size (default: (16, 6))
+    output_path : str or Path, optional
+        If provided, save figure to this path
+        
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    
+    Examples
+    --------
+    >>> violations_p = analyze_monotonicity_violations(df_meta_stations, 'p')
+    >>> violations_s = analyze_monotonicity_violations(df_meta_stations, 's')
+    >>> fig = plot_monotonicity_analysis(df_meta_stations, violations_p, violations_s)
+    >>> plt.show()
+    """
+    
+    import matplotlib.pyplot as plt
+    
+    df_sorted = df_meta_stations.sort_values('EPICENTRAL_DISTANCE_KM')
+    
+    fig, axes = plt.subplots(1, 2, figsize=figsize)
+    
+    for idx, (phase, df_viol, ax) in enumerate([
+        ('p', df_violations_p, axes[0]),
+        ('s', df_violations_s, axes[1])
+    ]):
+        ax.scatter(df_sorted['EPICENTRAL_DISTANCE_KM'],
+                   df_sorted[f't_{phase}_detected'],
+                   label='Detected', alpha=0.7, s=50, color='steelblue')
+        
+        ax.plot(df_sorted['EPICENTRAL_DISTANCE_KM'],
+                df_sorted[f't_{phase}_theo'],
+                'r--', label='Theoretical', linewidth=2, alpha=0.7)
+        
+        if df_viol is not None and len(df_viol) > 0:
+            violation_stations = df_viol['station'].values
+            df_viol_plot = df_sorted[df_sorted['STATION_CODE'].isin(violation_stations)]
+            
+            ax.scatter(df_viol_plot['EPICENTRAL_DISTANCE_KM'],
+                       df_viol_plot[f't_{phase}_detected'],
+                       color='red', s=150, marker='x', linewidth=3,
+                       label=f'Violations ({len(df_viol)})', zorder=5)
+        
+        ax.set_xlabel('Epicentral Distance (km)', fontsize=12)
+        ax.set_ylabel(f'{phase.upper()}-wave arrival time (s)', fontsize=12)
+        ax.set_title(f'{phase.upper()}-wave Monotonicity', fontsize=13, fontweight='bold')
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if output_path is not None:
+        from pathlib import Path
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {output_path}")
+    
+    return fig
+
+
+def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violations_s,
+                                    figsize=(16, 10)):
+    """
+    Analyze relationship between residuals and violations.
+    
+    Creates plots showing:
+    - Residual distributions for stations with/without violations
+    - Residuals vs distance
+    
+    Parameters
+    ----------
+    df_meta_stations : pd.DataFrame
+        Station-level metadata
+    df_violations_p : pd.DataFrame
+        P-wave violations
+    df_violations_s : pd.DataFrame
+        S-wave violations
+    figsize : tuple
+        Figure size
+        
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    
+    Examples
+    --------
+    >>> violations_p = analyze_monotonicity_violations(df_meta_stations, 'p')
+    >>> violations_s = analyze_monotonicity_violations(df_meta_stations, 's')
+    >>> fig = analyze_residuals_vs_violations(df_meta_stations, violations_p, violations_s)
+    """
+    
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    
+    for col_idx, (phase, df_viol) in enumerate([('p', df_violations_p), ('s', df_violations_s)]):
+        
+        violation_stations = set(df_viol['station'].values) if len(df_viol) > 0 else set()
+        df_meta_stations_copy = df_meta_stations.copy()
+        df_meta_stations_copy['has_violation'] = df_meta_stations_copy['STATION_CODE'].isin(violation_stations)
+        
+        residuals_ok = df_meta_stations_copy[~df_meta_stations_copy['has_violation']][f'{phase}_residual']
+        residuals_viol = df_meta_stations_copy[df_meta_stations_copy['has_violation']][f'{phase}_residual']
+        
+        ax_hist = axes[0, col_idx]
+        ax_hist.hist(residuals_ok, bins=15, alpha=0.6, label='No violation',
+                    edgecolor='black', color='steelblue')
+        ax_hist.hist(residuals_viol, bins=15, alpha=0.6, label='Violation',
+                    edgecolor='black', color='red')
+        ax_hist.axvline(0, color='black', linestyle='--', linewidth=2, alpha=0.5)
+        ax_hist.set_xlabel(f'{phase.upper()}-wave residual (s)', fontsize=11)
+        ax_hist.set_ylabel('Count', fontsize=11)
+        ax_hist.set_title(f'{phase.upper()}-wave: Residual distribution', fontsize=12, fontweight='bold')
+        ax_hist.legend(fontsize=9)
+        ax_hist.grid(True, alpha=0.3)
+        
+        ax_scatter = axes[1, col_idx]
+        ax_scatter.scatter(df_meta_stations_copy[~df_meta_stations_copy['has_violation']]['EPICENTRAL_DISTANCE_KM'],
+                          df_meta_stations_copy[~df_meta_stations_copy['has_violation']][f'{phase}_residual'],
+                          alpha=0.6, s=50, label='No violation', color='steelblue')
+        ax_scatter.scatter(df_meta_stations_copy[df_meta_stations_copy['has_violation']]['EPICENTRAL_DISTANCE_KM'],
+                          df_meta_stations_copy[df_meta_stations_copy['has_violation']][f'{phase}_residual'],
+                          alpha=0.8, s=100, marker='x', linewidth=2, label='Violation', color='red')
+        ax_scatter.axhline(0, color='black', linestyle='--', linewidth=2, alpha=0.5)
+        ax_scatter.set_xlabel('Epicentral Distance (km)', fontsize=11)
+        ax_scatter.set_ylabel(f'{phase.upper()}-wave residual (s)', fontsize=11)
+        ax_scatter.set_title(f'{phase.upper()}-wave: Residuals vs Distance', fontsize=12, fontweight='bold')
+        ax_scatter.legend(fontsize=9)
+        ax_scatter.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    return fig

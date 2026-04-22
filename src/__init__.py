@@ -107,7 +107,11 @@ from .segmentation.window_validation import (
     check_snr,
     quality_control_all_stations,
     print_quality_control_summary,
-    print_detailed_failures
+    print_detailed_failures,
+    analyze_monotonicity_violations,
+    print_violation_summary,
+    plot_monotonicity_analysis,
+    analyze_residuals_vs_violations
 )
 
 # ===============================================================================
@@ -159,6 +163,8 @@ from .visualization.plots_signals import (
 
 from .visualization.plots_segmentation import (
     display_theoretical_arrivals_table,
+    plot_crustal_velocities_vs_distance,
+     plot_apparent_vs_crustal_velocities,
     plot_theoretical_arrivals,
     plot_onset_detection_results,
     plot_coda_onset_results,
