@@ -1,7 +1,10 @@
 from .signals_integration import (
     integrate_to_velocity,
     integrate_to_displacement,
-    validate_integration
+    validate_integration,
+    integrate_windowed_signals_to_velocity,
+    integrate_windowed_signals_to_displacement,
+    validate_windowed_integration
 )
 
 from .signal_conversion import (

@@ -51,7 +51,10 @@ from .preprocessing.cleaning_signals import (
 from .processing.signals_integration import (
     integrate_to_velocity,
     integrate_to_displacement,
-    validate_integration
+    validate_integration,
+    integrate_windowed_signals_to_velocity,
+    integrate_windowed_signals_to_displacement,
+    validate_windowed_integration
 )
 
 from .processing.signal_conversion import (
