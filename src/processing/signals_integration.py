@@ -7,26 +7,49 @@ This module provides integration functions with support for both custom
 implementations and ObsPy's optimized methods.
 
 Main functions:
+    DataFrame-based (full signals):
     - integrate_to_velocity: Single integration (acceleration → velocity)
     - integrate_to_displacement: Double integration (acceleration → displacement)
+    
+    Window-based (segmented signals):
+    - integrate_windowed_signals_to_velocity: Integrate windowed signals to velocity
+    - integrate_windowed_signals_to_displacement: Integrate windowed signals to displacement
+    - validate_windowed_integration: Validate windowed integration results
 
 Integration Methods:
     - 'trapz': Trapezoidal rule (scipy.integrate.cumulative_trapezoid)
     - 'obspy': ObsPy's integration (uses cumtrapz, optimized for seismic data)
+    - 'euler': Simple Euler integration (less accurate, not recommended)
 
 Notes:
     - Baseline correction MUST be applied before integration to avoid drift
     - Physical units preserved: acceleration (cm/s²) → velocity (cm/s) → displacement (cm)
     - ObsPy method is recommended when available (more robust for seismic data)
+    - Windowed functions support initial condition propagation between windows
 
 Usage:
+    # Full signals (DataFrame)
     from src.signals_integration import integrate_to_velocity, integrate_to_displacement
     
-    # Velocity
     df_vel = integrate_to_velocity(df_acc, method='obspy')
-    
-    # Displacement
     df_disp = integrate_to_displacement(df_acc, method='obspy')
+    
+    # Windowed signals (nested dict)
+    from src.signals_integration import (
+        integrate_windowed_signals_to_velocity,
+        integrate_windowed_signals_to_displacement,
+        validate_windowed_integration
+    )
+    
+    windowed_vel = integrate_windowed_signals_to_velocity(
+        windowed_signals, method='obspy', propagate_initial_conditions=True
+    )
+    
+    windowed_disp = integrate_windowed_signals_to_displacement(
+        windowed_signals, method='obspy', propagate_initial_conditions=True
+    )
+    
+    stats = validate_windowed_integration(windowed_vel, check_field='velocity')
 """
 
 import numpy as np
@@ -268,7 +291,6 @@ def integrate_to_displacement(df_acc, dt=0.005, normalized=False, method='trapz'
     
     return df
 
-
 # ===============================================================================================
 # ==================================== Validation ===============================================
 # ===============================================================================================
@@ -330,3 +352,371 @@ def validate_integration(df_integrated, process='velocity'):
     
     print(f"Validation passed!\n")
     return True
+
+# ===============================================================================================
+# ========================== Windowed Signals Integration ======================================
+# ===============================================================================================
+
+def integrate_windowed_signals_to_velocity(
+    windowed_signals,
+    dt=0.005,
+    method='obspy',
+    apply_baseline=False,
+    propagate_initial_conditions=True
+):
+    """
+    Integrate windowed acceleration signals to velocity.
+    
+    Integrates each temporal window (pre_event, p_wave, s_wave, coda)
+    independently and optionally propagates final conditions between windows.
+    
+    Parameters
+    ----------
+    windowed_signals : dict
+        Output from segment_all_signals():
+        {station: {component: {window_name: {'signal': array, 'time': array, ...}}}}
+    dt : float, default=0.005
+        Sampling interval in seconds (200 Hz)
+    method : str, default='obspy'
+        Integration method:
+        - 'trapz': Scipy trapezoidal rule
+        - 'obspy': ObsPy integration (recommended)
+        - 'euler': Simple Euler method
+    apply_baseline : bool, default=False
+        If True, apply baseline correction (mean removal) to each window
+        before integration. Use only if baseline was not already corrected
+        on the full signal before segmentation.
+    propagate_initial_conditions : bool, default=True
+        If True, propagate final velocity from one window as initial
+        condition for the next window (maintains continuity).
+        Order: pre_event → p_wave → s_wave → coda
+        If False, each window starts from v₀=0 independently.
+        
+    Returns
+    -------
+    dict
+        Same nested structure with added 'velocity' array in each window
+        
+    Examples
+    --------
+    >>> # Standard usage (recommended)
+    >>> windowed_vel = integrate_windowed_signals_to_velocity(
+    ...     windowed_signals, method='obspy', propagate_initial_conditions=True
+    ... )
+    >>> 
+    >>> # Access velocity for a specific window
+    >>> vel = windowed_vel['AMT']['HGE']['s_wave']['velocity']
+    >>> time = windowed_vel['AMT']['HGE']['s_wave']['time']
+    
+    Notes
+    -----
+    Baseline correction should already be applied to the full signal before
+    segmentation. Set apply_baseline=True only if you need to correct each
+    window independently (e.g., for comparison purposes).
+    
+    When propagate_initial_conditions=True, missing windows are skipped
+    and the last valid final condition is propagated forward.
+    """
+    if method == 'obspy' and not OBSPY_AVAILABLE:
+        print("Warning: ObsPy not available, falling back to 'trapz' method")
+        method = 'trapz'
+    
+    integrated = {}
+    window_order = ['pre_event', 'p_wave', 's_wave', 'coda']
+    
+    for station in windowed_signals:
+        integrated[station] = {}
+        
+        for component in windowed_signals[station]:
+            integrated[station][component] = {}
+            
+            v_final = 0.0
+            
+            for window_name in window_order:
+                if window_name not in windowed_signals[station][component]:
+                    print(f"Warning: {station}-{component} missing window '{window_name}', "
+                          f"propagating last valid condition")
+                    continue
+                
+                window = windowed_signals[station][component][window_name].copy()
+                signal = window['signal']
+                
+                if len(signal) == 0:
+                    print(f"Warning: {station}-{component}-{window_name} is empty, skipping")
+                    integrated[station][component][window_name] = window
+                    continue
+                
+                if apply_baseline:
+                    signal = signal - np.mean(signal)
+                
+                v0 = v_final if propagate_initial_conditions else 0.0
+                
+                if method == 'obspy':
+                    trace = Trace(data=signal)
+                    trace.stats.delta = dt
+                    trace.integrate(method='cumtrapz')
+                    velocity = trace.data + v0
+                    
+                elif method == 'trapz':
+                    velocity = cumulative_trapezoid(signal, dx=dt, initial=0) + v0
+                    
+                elif method == 'euler':
+                    velocity = np.cumsum(signal) * dt + v0
+                    
+                else:
+                    raise ValueError(f"method must be 'trapz', 'obspy', or 'euler', got '{method}'")
+                
+                window['velocity'] = velocity
+                integrated[station][component][window_name] = window
+                
+                v_final = velocity[-1]
+    
+    return integrated
+
+
+def integrate_windowed_signals_to_displacement(
+    windowed_signals,
+    dt=0.005,
+    method='obspy',
+    apply_baseline=False,
+    propagate_initial_conditions=True
+):
+    """
+    Integrate windowed acceleration signals to displacement.
+    
+    Performs double integration (acceleration → velocity → displacement)
+    for each temporal window, with optional propagation of initial conditions.
+    
+    Parameters
+    ----------
+    windowed_signals : dict
+        Output from segment_all_signals():
+        {station: {component: {window_name: {'signal': array, 'time': array, ...}}}}
+    dt : float, default=0.005
+        Sampling interval in seconds (200 Hz)
+    method : str, default='obspy'
+        Integration method:
+        - 'trapz': Scipy trapezoidal rule
+        - 'obspy': ObsPy integration (recommended)
+        - 'euler': Simple Euler method
+    apply_baseline : bool, default=False
+        If True, apply baseline correction (mean removal) to each window
+        before integration. Use only if baseline was not already corrected
+        on the full signal before segmentation.
+    propagate_initial_conditions : bool, default=True
+        If True, propagate final velocity and displacement from one window
+        as initial conditions for the next window (maintains continuity).
+        Order: pre_event → p_wave → s_wave → coda
+        If False, each window starts from v₀=0, x₀=0 independently.
+        
+    Returns
+    -------
+    dict
+        Same nested structure with added 'velocity' and 'displacement' arrays
+        in each window
+        
+    Examples
+    --------
+    >>> # Standard usage (recommended)
+    >>> windowed_disp = integrate_windowed_signals_to_displacement(
+    ...     windowed_signals, method='obspy', propagate_initial_conditions=True
+    ... )
+    >>> 
+    >>> # Access displacement for a specific window
+    >>> disp = windowed_disp['AMT']['HGE']['coda']['displacement']
+    >>> vel = windowed_disp['AMT']['HGE']['coda']['velocity']
+    >>> time = windowed_disp['AMT']['HGE']['coda']['time']
+    
+    Notes
+    -----
+    Baseline correction should already be applied to the full signal before
+    segmentation. Set apply_baseline=True only if you need to correct each
+    window independently.
+    
+    When propagate_initial_conditions=True, missing windows are skipped
+    and the last valid final conditions (v_final, x_final) are propagated.
+    
+    Physical units:
+        Input: acceleration in cm/s²
+        Output: velocity in cm/s, displacement in cm
+    """
+    if method == 'obspy' and not OBSPY_AVAILABLE:
+        print("Warning: ObsPy not available, falling back to 'trapz' method")
+        method = 'trapz'
+    
+    integrated = {}
+    window_order = ['pre_event', 'p_wave', 's_wave', 'coda']
+    
+    for station in windowed_signals:
+        integrated[station] = {}
+        
+        for component in windowed_signals[station]:
+            integrated[station][component] = {}
+            
+            v_final = 0.0
+            x_final = 0.0
+            
+            for window_name in window_order:
+                if window_name not in windowed_signals[station][component]:
+                    print(f"Warning: {station}-{component} missing window '{window_name}', "
+                          f"propagating last valid condition")
+                    continue
+                
+                window = windowed_signals[station][component][window_name].copy()
+                signal = window['signal']
+                
+                if len(signal) == 0:
+                    print(f"Warning: {station}-{component}-{window_name} is empty, skipping")
+                    integrated[station][component][window_name] = window
+                    continue
+                
+                if apply_baseline:
+                    signal = signal - np.mean(signal)
+                
+                v0 = v_final if propagate_initial_conditions else 0.0
+                x0 = x_final if propagate_initial_conditions else 0.0
+                
+                if method == 'obspy':
+                    trace = Trace(data=signal)
+                    trace.stats.delta = dt
+                    
+                    trace.integrate(method='cumtrapz')
+                    velocity = trace.data + v0
+                    
+                    trace.integrate(method='cumtrapz')
+                    displacement = trace.data + x0
+                    
+                elif method == 'trapz':
+                    velocity = cumulative_trapezoid(signal, dx=dt, initial=0) + v0
+                    displacement = cumulative_trapezoid(velocity, dx=dt, initial=0) + x0
+                    
+                elif method == 'euler':
+                    velocity = np.cumsum(signal) * dt + v0
+                    displacement = np.cumsum(velocity) * dt + x0
+                    
+                else:
+                    raise ValueError(f"method must be 'trapz', 'obspy', or 'euler', got '{method}'")
+                
+                window['velocity'] = velocity
+                window['displacement'] = displacement
+                integrated[station][component][window_name] = window
+                
+                v_final = velocity[-1]
+                x_final = displacement[-1]
+    
+    return integrated
+
+
+def validate_windowed_integration(windowed_integrated, check_field='velocity'):
+    """
+    Validate integration results for windowed signals.
+    
+    Checks for NaN, Inf, and physically reasonable ranges across all
+    windows in the nested structure.
+    
+    Parameters
+    ----------
+    windowed_integrated : dict
+        Output from integrate_windowed_signals_to_velocity() or
+        integrate_windowed_signals_to_displacement()
+    check_field : str, default='velocity'
+        Which field to validate: 'velocity' or 'displacement'
+        
+    Returns
+    -------
+    dict
+        Validation statistics with keys:
+        - 'n_windows': total number of windows checked
+        - 'n_nan': number of windows with NaN values
+        - 'n_inf': number of windows with Inf values
+        - 'max_value': maximum absolute value across all windows
+        - 'mean_of_means': average of window means (baseline check)
+        - 'passed': True if validation passed
+        
+    Examples
+    --------
+    >>> stats = validate_windowed_integration(windowed_vel, check_field='velocity')
+    >>> print(f"Validation passed: {stats['passed']}")
+    >>> 
+    >>> stats_disp = validate_windowed_integration(windowed_disp, check_field='displacement')
+    """
+    print(f"Validating windowed {check_field} integration...")
+    
+    n_windows = 0
+    n_nan = 0
+    n_inf = 0
+    max_value = 0.0
+    all_means = []
+    
+    for station in windowed_integrated:
+        for component in windowed_integrated[station]:
+            for window_name in windowed_integrated[station][component]:
+                window = windowed_integrated[station][component][window_name]
+                
+                if check_field not in window:
+                    print(f"Warning: {station}-{component}-{window_name} "
+                          f"missing '{check_field}' field, skipping")
+                    continue
+                
+                data = window[check_field]
+                n_windows += 1
+                
+                if np.isnan(data).any():
+                    n_nan += 1
+                    print(f"  ⚠ NaN found in {station}-{component}-{window_name}")
+                
+                if np.isinf(data).any():
+                    n_inf += 1
+                    print(f"  ⚠ Inf found in {station}-{component}-{window_name}")
+                
+                max_value = max(max_value, np.abs(data).max())
+                all_means.append(np.mean(data))
+    
+    mean_of_means = np.mean(np.abs(all_means)) if all_means else 0.0
+    
+    print(f"\nValidation Summary:")
+    print(f"  Total windows checked: {n_windows}")
+    print(f"  Windows with NaN: {n_nan}")
+    print(f"  Windows with Inf: {n_inf}")
+    print(f"  Max absolute value: {max_value:.2f}")
+    print(f"  Mean of window means: {mean_of_means:.4f}")
+    
+    passed = True
+    
+    if n_nan > 0:
+        print(f"  ✗ Validation FAILED: Found NaN values")
+        passed = False
+    else:
+        print(f"  ✓ No NaN values")
+    
+    if n_inf > 0:
+        print(f"  ✗ Validation FAILED: Found Inf values")
+        passed = False
+    else:
+        print(f"  ✓ No Inf values")
+    
+    if check_field == 'velocity' and max_value > 1000:
+        print(f"  ⚠ Warning: Very large velocity ({max_value:.2f} cm/s), check baseline")
+    elif check_field == 'displacement' and max_value > 10000:
+        print(f"  ⚠ Warning: Very large displacement ({max_value:.2f} cm), check baseline")
+    else:
+        print(f"  ✓ {check_field.capitalize()} range reasonable")
+    
+    if mean_of_means > 1.0:
+        print(f"  ⚠ Warning: Large mean detected, baseline may not be properly corrected")
+    else:
+        print(f"  ✓ Baseline check passed")
+    
+    if passed:
+        print(f"\n✓ Validation PASSED\n")
+    else:
+        print(f"\n✗ Validation FAILED\n")
+    
+    return {
+        'n_windows': n_windows,
+        'n_nan': n_nan,
+        'n_inf': n_inf,
+        'max_value': max_value,
+        'mean_of_means': mean_of_means,
+        'passed': passed
+    }

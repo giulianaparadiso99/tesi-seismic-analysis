@@ -3,14 +3,14 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List
 from src.visualization.plot_settings import set_plot_style
-colors = set_plot_style()
+colors, colors1 = set_plot_style()
 
 def plot_scaling_curves(
     results: Dict,
     output_dir: Optional[str] = None,
     figsize: Tuple[float, float] = (16, 12),
     q_subset: Optional[np.ndarray] = None,
-    colors: Optional[List] = None 
+    colors: Optional[List] = colors1 
 ) -> plt.Figure:
     """
     Plot log(M_q) vs log(tau) for all windows (2x2 subplots).
@@ -47,11 +47,6 @@ def plot_scaling_curves(
     if q_subset is None:
         q_subset = np.array([0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0])
     
-    if colors is None:
-        cmap = plt.cm.inferno
-    else:
-        cmap = None  # Non serve se abbiamo colors
-    
     for idx, window_name in enumerate(windows):
         ax = axes[idx]
         
@@ -78,13 +73,8 @@ def plot_scaling_curves(
         
         n_q = len(q_plot)
         
-        if colors is not None:
-            # Usa i colori forniti, ripetendo se necessario
-            plot_colors = colors * (n_q // len(colors) + 1)
-            plot_colors = plot_colors[:n_q]
-        else:
-            # Fallback a inferno
-            plot_colors = [cmap(i / max(1, n_q - 1)) for i in range(n_q)]
+        plot_colors = colors * (n_q // len(colors) + 1)
+        plot_colors = plot_colors[:n_q]
         
         for i, (q, color) in enumerate(zip(q_plot, plot_colors)):
             M_q = moments_plot[:, i]
@@ -165,7 +155,7 @@ def plot_scaling_exponents(
     }
     
     if point_color is None:
-        point_color = 'purple'
+        point_color = 'black'
     
     for idx, window_name in enumerate(windows):
         ax = axes[idx]

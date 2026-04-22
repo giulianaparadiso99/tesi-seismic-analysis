@@ -54,5 +54,6 @@ def set_plot_style():
     })
     plt.rcParams['image.cmap'] = 'inferno'
     inferno = cm.get_cmap('inferno')
-    colors = [inferno(i) for i in [0.2, 0.4, 0.6, 0.8]]
-    return colors
+    colors = [inferno(i) for i in [0.3, 0.4, 0.6, 0.8]]
+    colors1 = [inferno(i) for i in [0.15, 0.35, 0.55, 0.75]]
+    return colors, colors1
