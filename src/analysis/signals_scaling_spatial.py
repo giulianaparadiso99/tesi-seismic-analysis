@@ -149,7 +149,9 @@ def prepare_window_data(
             )
         else:
             raise ValueError(f"No valid signals found for window '{window_name}'")
-    tau_max_seconds = min(durations)
+    min_signal_length = min([len(s) for s in signals_list])
+    dt = 1.0 / 200
+    tau_max_seconds = min_signal_length * dt
     n_signals = len(signals_list)
     
     return signals_list, times_list, tau_max_seconds, n_signals
