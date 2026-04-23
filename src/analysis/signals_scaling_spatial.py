@@ -78,6 +78,7 @@ def prepare_window_data(
     windowed_signals: Dict,
     window_name: str,
     signal_field: str = 'signal',
+    sampling_rate: float = 200.0,
     exclude_components: Optional[List[str]] = None 
 ) -> Tuple[List[np.ndarray], List[np.ndarray], float, int]:
     """
@@ -150,7 +151,7 @@ def prepare_window_data(
         else:
             raise ValueError(f"No valid signals found for window '{window_name}'")
     min_signal_length = min([len(s) for s in signals_list])
-    dt = 1.0 / 200
+    dt = 1.0 / sampling_rate
     tau_max_seconds = min_signal_length * dt
     n_signals = len(signals_list)
     
@@ -289,10 +290,10 @@ def compute_spatial_ensemble(
         windowed_signals, window_name, signal_field=signal_field, exclude_components=exclude_components
     )
 
-    if tau_max_fraction is None:
-        tau_max_seconds = tau_max_seconds
-    else:
-        tau_max_seconds = tau_max_fraction * tau_max_seconds
+    if tau_max_fraction is not None:
+        if not (0 < tau_max_fraction <= 1):
+            raise ValueError("tau_max_fraction must be in (0, 1]")
+        tau_max_seconds *= tau_max_fraction
     
     if tau_max_seconds <= tau_min:
         raise ValueError(
@@ -310,7 +311,6 @@ def compute_spatial_ensemble(
     n_tau = len(tau_indices)
     
     moments_individual = []
-    
     for signal in signals_list:
         moments = compute_moments_single_signal(signal, tau_indices, q_values, t0_index=0)
         moments_individual.append(moments)
@@ -436,6 +436,7 @@ def extract_scaling_exponents(
 
 def analyze_all_windows(
     windowed_signals: Dict,
+    signal_field: str = 'signal',
     tau_min: float = 0.01,
     n_tau: Optional[int] = None,
     tau_max_fraction: Optional[float] = None,
@@ -523,6 +524,7 @@ def analyze_all_windows(
             ensemble_results = compute_spatial_ensemble(
                 windowed_signals=windowed_signals,
                 window_name=window_name,
+                signal_field=signal_field,
                 tau_min=tau_min,
                 tau_max_fraction=tau_max_fraction,
                 n_tau=n_tau,
