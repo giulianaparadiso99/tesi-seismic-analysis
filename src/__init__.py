@@ -130,7 +130,12 @@ from .analysis.signals_scaling_temporal import (
 
 from .analysis.signals_scaling_spatial import (
     analyze_all_windows,
-    save_results_parquet
+    save_results_parquet,
+    prepare_window_data,
+    compute_moments_single_signal,
+    compute_spatial_ensemble,
+    extract_scaling_exponents,
+    analyze_single_signal
 )
 
 # ===============================================================================
@@ -180,7 +185,9 @@ from .visualization.plots_segmentation import (
 
 from .visualization.plots_moment_scaling import (
     plot_scaling_curves,
-    plot_scaling_exponents
+    plot_scaling_exponents,
+    plot_single_scaling_exponents,
+    plot_single_scaling_curves
 )
 
 # ===============================================================================

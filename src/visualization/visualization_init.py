@@ -52,7 +52,9 @@ from .plots_segmentation import (
 
 from .plots_moment_scaling import (
     plot_scaling_curves,
-    plot_scaling_exponents
+    plot_scaling_exponents,
+    plot_single_scaling_curves,
+    plot_single_scaling_exponents
 )
 
 __all__ = [

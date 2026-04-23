@@ -77,6 +77,7 @@ import warnings
 def prepare_window_data(
     windowed_signals: Dict,
     window_name: str,
+    signal_field: str = 'signal',
     exclude_components: Optional[List[str]] = None 
 ) -> Tuple[List[np.ndarray], List[np.ndarray], float, int]:
     """
@@ -129,7 +130,7 @@ def prepare_window_data(
                 continue
             
             window_data = windowed_signals[station][component][window_name]
-            signal = window_data['signal']
+            signal = window_data[signal_field]
             time = window_data['time']
             duration = window_data['duration']
             
@@ -215,6 +216,7 @@ def compute_moments_single_signal(
 def compute_spatial_ensemble(
     windowed_signals: Dict,
     window_name: str,
+    signal_field: str = 'signal',
     tau_min: float = 0.01,
     n_tau: Optional[int] = None,
     tau_max_fraction: Optional[float] = None,
@@ -282,7 +284,7 @@ def compute_spatial_ensemble(
                             2.75, 3.0, 3.25, 3.5, 3.75, 4.0, 4.25, 4.5, 4.75, 5.0])
     
     signals_list, times_list, tau_max_seconds, n_signals = prepare_window_data(
-        windowed_signals, window_name, exclude_components=exclude_components
+        windowed_signals, window_name, signal_field=signal_field, exclude_components=exclude_components
     )
 
     if tau_max_fraction is None:
@@ -659,3 +661,114 @@ def save_results_parquet(
     print(f"Saved: {summary_file}")
     
     print(f"\nAll results saved to: {output_dir}")
+
+def analyze_single_signal(
+    signal: np.ndarray,
+    tau_min: float = 0.01,
+    tau_max_fraction: Optional[float] = None,
+    n_tau: Optional[int] = None,
+    q_values: np.ndarray = None,
+    sampling_rate: float = 200.0
+) -> Dict:
+    """
+    Analyze moment scaling for a single signal.
+    
+    Parameters
+    ----------
+    signal : np.ndarray
+        Time series (acceleration, velocity, or displacement)
+    tau_min : float, optional
+        Minimum time lag in seconds (default: 0.01s)
+    tau_max_fraction : float, optional
+        Maximum tau as fraction of signal duration (default: None)
+    n_tau : int, optional
+        Number of tau values. If None, computed automatically
+    q_values : np.ndarray, optional
+        Moment orders. If None, uses [0.5, 0.75, ..., 5.0]
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200.0)
+        
+    Returns
+    -------
+    results : dict
+        {
+            'tau': array of time lags,
+            'q': array of moment orders,
+            'moments': moments M_q(tau), shape (n_tau, n_q),
+            'zeta': scaling exponents,
+            'zeta_err': standard errors,
+            'intercepts': fit intercepts,
+            'r_squared': R² values,
+            'n_points': number of points in each fit
+        }
+    """
+    if q_values is None:
+        q_values = np.array([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5,
+                            2.75, 3.0, 3.25, 3.5, 3.75, 4.0, 4.25, 4.5, 4.75, 5.0])
+    
+    # Calcola tau
+    dt = 1.0 / sampling_rate
+    duration = len(signal) * dt
+    
+    if tau_max_fraction is None:
+        tau_max_seconds = duration
+    else:
+        tau_max_seconds = tau_max_fraction * duration
+    
+    if tau_max_seconds <= tau_min:
+        raise ValueError(f"Signal too short: tau_max={tau_max_seconds:.3f}s <= tau_min={tau_min:.3f}s")
+    
+    if n_tau is None:
+        n_decades = np.log10(tau_max_seconds / tau_min)
+        n_tau = max(30, int(n_decades * 20))
+    
+    tau_values_seconds = np.logspace(np.log10(tau_min), np.log10(tau_max_seconds), n_tau)
+    tau_indices = np.round(tau_values_seconds * sampling_rate).astype(int)
+    tau_indices = np.unique(tau_indices)
+    tau_values_seconds = tau_indices / sampling_rate
+    
+    # Calcola momenti
+    moments = compute_moments_single_signal(signal, tau_indices, q_values, t0_index=0)
+    
+    # Fit per ogni q
+    zeta = np.zeros(len(q_values))
+    zeta_err = np.zeros(len(q_values))
+    intercepts = np.zeros(len(q_values))
+    r_squared = np.zeros(len(q_values))
+    n_points = np.zeros(len(q_values), dtype=int)
+    
+    for i, q in enumerate(q_values):
+        M_q = moments[:, i]
+        valid = (M_q > 0) & np.isfinite(M_q)
+        
+        if valid.sum() < 2:
+            zeta[i] = np.nan
+            zeta_err[i] = np.nan
+            intercepts[i] = np.nan
+            r_squared[i] = np.nan
+            n_points[i] = 0
+            continue
+        
+        slope, intercept, r_value, p_value, std_err = stats.linregress(
+            np.log10(tau_values_seconds[valid]),
+            np.log10(M_q[valid])
+        )
+        
+        zeta[i] = slope
+        zeta_err[i] = std_err
+        intercepts[i] = intercept
+        r_squared[i] = r_value ** 2
+        n_points[i] = valid.sum()
+    
+    results = {
+        'tau': tau_values_seconds,
+        'q': q_values,
+        'moments': moments,
+        'zeta': zeta,
+        'zeta_err': zeta_err,
+        'intercepts': intercepts,
+        'r_squared': r_squared,
+        'n_points': n_points
+    }
+    
+    return results
