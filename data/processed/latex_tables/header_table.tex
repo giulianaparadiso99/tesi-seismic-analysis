@@ -1,0 +1,88 @@
+\begin{longtable}{
+  >{\raggedright\arraybackslash}p{4cm}  >{\raggedright\arraybackslash}p{8cm}  >{\centering\arraybackslash}p{2cm}
+}
+\caption{Summary of header fields, their description, and constancy across files.}
+\label{tab:metadata_fields} \\
+\toprule
+\textbf{Field} & \textbf{Description} & \textbf{Constant} \\
+\midrule
+\endfirsthead
+
+\multicolumn{3}{c}{\tablename~\thetable{} -- continued from previous page} \\
+\toprule
+\textbf{Field} & \textbf{Description} & \textbf{Constant} \\
+\midrule
+\endhead
+
+\midrule
+\multicolumn{3}{r}{\textit{Continued on next page}} \\
+\endfoot
+
+\bottomrule
+\endlastfoot
+
+EVENT NAME & Event name & Yes \\
+EVENT ID & Unique event identifier & Yes \\
+EVENT DATE YYYYMMDD & Event date (YYYYMMDD) & Yes \\
+EVENT TIME HHMMSS & UTC event time & Yes \\
+EVENT LATITUDE DEGREE & Hypocentral latitude & Yes \\
+EVENT LONGITUDE DEGREE & Hypocentral longitude & Yes \\
+EVENT DEPTH KM & Hypocentral depth (km) & Yes \\
+HYPOCENTER REFERENCE & Source of hypocentral location & Yes \\
+MAGNITUDE W & Moment magnitude $M_w$ & Yes \\
+MAGNITUDE W REFERENCE & Source of $M_w$ estimate & Yes \\
+MAGNITUDE L & Local magnitude $M_L$ & Yes \\
+MAGNITUDE L REFERENCE & Source of $M_L$ estimate & Yes \\
+FOCAL MECHANISM & Focal mechanism (fault type) & Yes \\
+NETWORK & Network code & No \\
+STATION CODE & Station identifier & No \\
+STATION NAME & Station name & No \\
+STATION LATITUDE DEGREE & Station latitude & No \\
+STATION LONGITUDE DEGREE & Station longitude & No \\
+STATION ELEVATION M & Station elevation (m a.s.l.) & No \\
+LOCATION & Sub-location code & No \\
+SENSOR DEPTH M & Sensor depth below ground (m) & No \\
+VS30 M/S & Average shear-wave velocity in top 30 m & No \\
+SITE CLASSIFICATION EC8 & EC8 site class & No \\
+MORPHOLOGIC CLASSIFICATION & Morphological site classification & Yes \\
+EPICENTRAL DISTANCE KM & Epicentral distance (km) & No \\
+EARTHQUAKE BACKAZIMUTH DEGREE & Back-azimuth ($^\circ$) & No \\
+DATE TIME FIRST SAMPLE YYYYMMDD HHMMSS & Timestamp of first sample & No \\
+DATE TIME FIRST SAMPLE PRECISION & Precision of first sample timestamp & Yes \\
+SAMPLING INTERVAL S & Sampling interval (s) & Yes \\
+NDATA & Number of recorded samples & No \\
+DURATION S & Recording duration (s) & No \\
+STREAM & Channel code (orientation) & No \\
+UNITS & Data units (cm/s$^2$) & Yes \\
+INSTRUMENT & Instrument type code & No \\
+INSTRUMENT ANALOG/DIGITAL & Analog or digital & Yes \\
+INSTRUMENTAL FREQUENCY HZ & Natural frequency (Hz) & Yes \\
+INSTRUMENTAL DAMPING & Critical damping ratio & Yes \\
+FULL SCALE G & Full-scale range (g) & Yes \\
+N BIT DIGITAL CONVERTER & ADC resolution (bit) & Yes \\
+PGA CM/S^2 & Peak Ground Acceleration & No \\
+TIME PGA S & Time of PGA from start (s) & No \\
+BASELINE CORRECTION & Baseline correction type & Yes \\
+FILTER TYPE & Filter type (Butterworth) & Yes \\
+FILTER ORDER & Filter order & Yes \\
+LOW CUT FREQUENCY HZ & Low-cut frequency (Hz) & No \\
+HIGH CUT FREQUENCY HZ & High-cut frequency (Hz) & No \\
+LATE/NORMAL TRIGGERED & Trigger type (NT/LT) & Yes \\
+DATABASE VERSION & Database version & Yes \\
+HEADER FORMAT & Header format version & Yes \\
+DATA TYPE & Data type (acceleration) & Yes \\
+PROCESSING & Processing information & Yes \\
+DATA TIMESTAMP YYYYMMDD HHMMSS & Data timestamp & No \\
+DATA LICENSE & Data license & Yes \\
+DATA CITATION & Bibliographic citation & Yes \\
+DATA CREATOR & Data creator & Yes \\
+ORIGINAL DATA MEDIATOR CITATION & Citation for the original data mediator & No \\
+ORIGINAL DATA MEDIATOR & Original data mediator & No \\
+ORIGINAL DATA CREATOR CITATION & Citation for the original data creator & No \\
+ORIGINAL DATA CREATOR & Original data creator & No \\
+USER1 & Free annotation field & Yes \\
+USER2 & Free annotation field & Yes \\
+USER3 & Free annotation field & Yes \\
+USER4 & Free annotation field & Yes \\
+USER5 & Free annotation field & Yes \\
+\end{longtable}

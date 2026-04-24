@@ -1,0 +1,25 @@
+\begin{table}[H]
+\centering
+\caption{Statistically significant correlation differences by distance group ($p < 0.05$)}
+\label{tab:corr_diff}
+\begin{tabular}{lllrr}
+\toprule
+Comparison & Variable 1 & Variable 2 & Corr.\ diff. & $p$-value \\
+\midrule
+Mid vs Far & SENSOR_DEPTH_M & STATION_LATITUDE_DEGREE & -1.34 & 0.0002 \\
+Mid vs Far & EARTHQUAKE_BACKAZIMUTH_DEGREE & SENSOR_DEPTH_M & -1.13 & 0.0003 \\
+Mid vs Far & SENSOR_DEPTH_M & STATION_LONGITUDE_DEGREE & 1.0 & 0.0031 \\
+Mid vs Far & LOW_CUT_FREQUENCY_HZ & TIME_PGA_S & 0.88 & 0.0304 \\
+Mid vs Far & EARTHQUAKE_BACKAZIMUTH_DEGREE & STATION_LONGITUDE_DEGREE & 0.22 & 0.0 \\
+Near vs Far & PGA_CM/S^2 & SENSOR_DEPTH_M & 1.33 & 0.0 \\
+Near vs Far & EPICENTRAL_DISTANCE_KM & SENSOR_DEPTH_M & -1.1 & 0.0441 \\
+Near vs Far & SENSOR_DEPTH_M & STATION_LATITUDE_DEGREE & -1.03 & 0.0013 \\
+Near vs Far & EARTHQUAKE_BACKAZIMUTH_DEGREE & STATION_LATITUDE_DEGREE & -0.94 & 0.0242 \\
+Near vs Far & EARTHQUAKE_BACKAZIMUTH_DEGREE & SENSOR_DEPTH_M & -0.66 & 0.0034 \\
+Near vs Far & SENSOR_DEPTH_M & STATION_LONGITUDE_DEGREE & 0.63 & 0.0169 \\
+Near vs Far & EARTHQUAKE_BACKAZIMUTH_DEGREE & STATION_LONGITUDE_DEGREE & 0.1 & 0.0 \\
+Near vs Mid & EPICENTRAL_DISTANCE_KM & STATION_ELEVATION_M & -1.36 & 0.0072 \\
+Near vs Mid & PGA_CM/S^2 & SENSOR_DEPTH_M & 0.98 & 0.0002 \\
+\bottomrule
+\end{tabular}
+\end{table}
