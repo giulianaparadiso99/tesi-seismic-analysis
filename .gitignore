@@ -10,4 +10,4 @@ data/raw/*.asc
 !data/raw/*.zip
 
 *.egg-info/
-data/processed/
+data/processed/data/Crust1.0/
