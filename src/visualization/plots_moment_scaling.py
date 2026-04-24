@@ -112,7 +112,7 @@ def plot_scaling_curves(
     if output_dir is not None:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / 'ensemble_scaling_curves.pdf'
+        output_file = output_dir / f'ensemble_scaling_curves_q{q_subset.min():.2f}-{q_subset.max():.2f}_n{n_q}.pdf'
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
         print(f"Saved: {output_file}")
     
