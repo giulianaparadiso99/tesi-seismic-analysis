@@ -46,6 +46,8 @@ def plot_scaling_curves(
     
     if q_subset is None:
         q_subset = np.array([0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0])
+    else:
+        q_subset = np.asarray(q_subset)
     
     for idx, window_name in enumerate(windows):
         ax = axes[idx]
@@ -112,7 +114,9 @@ def plot_scaling_curves(
     if output_dir is not None:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / f'ensemble_scaling_curves_q{q_subset.min():.2f}-{q_subset.max():.2f}_n{n_q}.pdf'
+        q_min = q_subset.min()
+        q_max = q_subset.max()
+        output_file = output_dir / f'ensemble_scaling_curves_q{q_min:.2f}-{q_max:.2f}_n{n_q}.pdf'
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
         print(f"Saved: {output_file}")
     
