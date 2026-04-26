@@ -434,8 +434,6 @@ def expand_to_component_level(df_meta_stations, df_meta_clean):
     #   HNN        12.34         20.67
     #   HNZ        12.34         20.67
     """
-    import pandas as pd
-    import numpy as np
     
     # Start from component-level metadata
     df_full = df_meta_clean.copy()

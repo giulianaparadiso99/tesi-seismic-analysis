@@ -1,5 +1,4 @@
 # .gitignore
-
 __pycache__/
 .ipynb_checkpoints/
 .DS_Store
@@ -11,3 +10,4 @@ data/raw/*.asc
 
 *.egg-info/
 data/processed/data/Crust1.0/
+Crust1.0/
