@@ -12,69 +12,64 @@ def get_component_from_filename(filename):
     parts = filename.split('.')
     return parts[3] if len(parts) > 3 else filename
 
-def build_component_dict(df_station):
-    """Build dictionary of components from station DataFrame."""
-    components = {}
-    for file_name in df_station['file'].unique():
-        component = get_component_from_filename(file_name)
-        df_comp = df_station[df_station['file'] == file_name].sort_values('sample')
-        components[component] = df_comp['acceleration'].values
-    return components
-
-def map_components_to_zne(components):
-    """Map available components to Z, N, E standard orientation."""
+def create_obspy_stream_from_dataframe(df_station, station_code, sampling_rate):
+    """
+    Create ObsPy Stream directly from station DataFrame.
+    
+    Parameters
+    ----------
+    df_station : pd.DataFrame
+        DataFrame with columns ['file', 'sample', 'acceleration']
+        Contains 3 files (components) for one station
+    station_code : str
+        Station code
+    sampling_rate : float
+        Sampling rate in Hz
+        
+    Returns
+    -------
+    stream : obspy.Stream or None
+        Stream with 3 traces (Z, N, E) or None if incomplete
+    component_names : tuple or None
+        (Z_name, N_name, E_name) or None if incomplete
+    """
+    from obspy import Stream, Trace
+    
+    # Get available components
+    files = df_station['file'].unique()
+    components = {get_component_from_filename(f): f for f in files}
     available = set(components.keys())
     
-    # Vertical
+    # Determine vertical component
     if 'HNZ' in available:
-        Z, Z_name = components['HNZ'], 'HNZ'
+        Z_name = 'HNZ'
     elif 'HGZ' in available:
-        Z, Z_name = components['HGZ'], 'HGZ'
+        Z_name = 'HGZ'
     else:
-        return None, None, None, None, None, None
+        return None, None
     
-    # Horizontal
+    # Determine horizontal components
     if 'HNN' in available and 'HNE' in available:
-        N, E = components['HNN'], components['HNE']
         N_name, E_name = 'HNN', 'HNE'
     elif 'HGN' in available and 'HGE' in available:
-        N, E = components['HGN'], components['HGE']
         N_name, E_name = 'HGN', 'HGE'
     elif 'HN1' in available and 'HN2' in available:
-        N, E = components['HN1'], components['HN2']
         N_name, E_name = 'HN1', 'HN2'
     else:
-        return None, None, None, None, None, None
+        return None, None
     
-    return Z, N, E, Z_name, N_name, E_name
-
-def create_obspy_stream(Z, N, E, Z_name, N_name, E_name, station_code, sampling_rate):
-    """Create ObsPy Stream from component arrays."""
+    # Create Stream
     stream = Stream()
     
-    trace_z = Trace(data=Z)
-    trace_z.stats.sampling_rate = sampling_rate
-    trace_z.stats.station = station_code
-    trace_z.stats.channel = Z_name
-    stream.append(trace_z)
+    for comp_name in [Z_name, N_name, E_name]:
+        file_name = components[comp_name]
+        df_comp = df_station[df_station['file'] == file_name].sort_values('sample')
+        
+        trace = Trace(data=df_comp['acceleration'].values)
+        trace.stats.sampling_rate = sampling_rate
+        trace.stats.station = station_code
+        trace.stats.channel = comp_name
+        
+        stream.append(trace)
     
-    trace_n = Trace(data=N)
-    trace_n.stats.sampling_rate = sampling_rate
-    trace_n.stats.station = station_code
-    trace_n.stats.channel = N_name
-    stream.append(trace_n)
-    
-    trace_e = Trace(data=E)
-    trace_e.stats.sampling_rate = sampling_rate
-    trace_e.stats.station = station_code
-    trace_e.stats.channel = E_name
-    stream.append(trace_e)
-    
-    return stream
-
-def resample_components(Z, N, E, n_samples_target):
-    """Resample three components to target number of samples."""
-    Z_resampled = resample(Z, n_samples_target)
-    N_resampled = resample(N, n_samples_target)
-    E_resampled = resample(E, n_samples_target)
-    return Z_resampled, N_resampled, E_resampled
+    return stream, (Z_name, N_name, E_name)
