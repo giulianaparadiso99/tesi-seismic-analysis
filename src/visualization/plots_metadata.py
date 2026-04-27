@@ -41,9 +41,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import contextily as ctx
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
 from adjustText import adjust_text
 from src.visualization.plot_settings import set_plot_style
-colors = set_plot_style()
+colors, colors1 = set_plot_style()
 
 # ===============================================================================================
 # ============================= Metadata — column types pie chart ================================
@@ -302,11 +304,12 @@ def plot_significant_corr_diff(diff, significant_mask, title, output_path=None):
 # ===============================================================================================
 # ================================= Metadata — station map ======================================
 # ===============================================================================================
- 
+
 def plot_station_map(df, event_lat, event_lon, output_path=None):
     """
     Map of seismic stations colored by PGA, with epicenter and station labels.
- 
+    Uses Cartopy for vector-based high-quality output.
+    
     Parameters
     ----------
     df : pd.DataFrame
@@ -316,55 +319,215 @@ def plot_station_map(df, event_lat, event_lon, output_path=None):
     event_lon : float
     output_path : str or Path or None
     """
-    fig, ax = plt.subplots(figsize=(10, 10))
- 
+    fig = plt.figure(figsize=(12, 10))
+    ax = plt.axes(projection=ccrs.PlateCarree())
+    
+    # Set extent based on data
+    lon_margin = 0.3
+    lat_margin = 0.3
+    lon_min = df['STATION_LONGITUDE_DEGREE'].min() - lon_margin
+    lon_max = df['STATION_LONGITUDE_DEGREE'].max() + lon_margin
+    lat_min = df['STATION_LATITUDE_DEGREE'].min() - lat_margin
+    lat_max = df['STATION_LATITUDE_DEGREE'].max() + lat_margin
+    ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
+    
+    # Add geographic features (high resolution)
+    ax.add_feature(cfeature.LAND.with_scale('10m'), facecolor='#f5f5f5', edgecolor='none', zorder=0)
+    ax.add_feature(cfeature.OCEAN.with_scale('10m'), facecolor='#e3f2fd', zorder=0)
+    ax.add_feature(cfeature.COASTLINE.with_scale('10m'), linewidth=0.8, edgecolor='#555555', zorder=1)
+    ax.add_feature(cfeature.BORDERS.with_scale('10m'), linewidth=1.2, edgecolor='#333333', linestyle='--', zorder=1)
+    ax.add_feature(cfeature.RIVERS.with_scale('10m'), linewidth=0.5, edgecolor='#64b5f6', zorder=1)
+    ax.add_feature(cfeature.LAKES.with_scale('10m'), facecolor='#e3f2fd', edgecolor='#64b5f6', linewidth=0.3, zorder=1)
+    
+    # Gridlines
+    gl = ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.4, linestyle='--', zorder=2)
+    gl.top_labels = False
+    gl.right_labels = False
+    gl.xlabel_style = {'size': 10}
+    gl.ylabel_style = {'size': 10}
+    
+    # Plot stations
     scatter = ax.scatter(
         df['STATION_LONGITUDE_DEGREE'],
         df['STATION_LATITUDE_DEGREE'],
         c=df['PGA_CM/S^2'],
         cmap='inferno',
-        s=80,
+        s=100,
         zorder=5,
         label='Seismic stations',
         edgecolors='black',
-        linewidths=1.5
+        linewidths=1.5,
+        transform=ccrs.PlateCarree()
     )
- 
+    
+    # Station labels
     texts = []
     for _, row in df.drop_duplicates('STATION_CODE').iterrows():
-        x_off = row['STATION_LONGITUDE_DEGREE'] - 0.15 \
-            if row['STATION_CODE'] == 'SURF' \
-            else row['STATION_LONGITUDE_DEGREE']
+        x_off = row['STATION_LONGITUDE_DEGREE'] - 0.15 if row['STATION_CODE'] == 'SURF' else row['STATION_LONGITUDE_DEGREE']
         texts.append(ax.text(
-            x_off, row['STATION_LATITUDE_DEGREE'],
+            x_off, 
+            row['STATION_LATITUDE_DEGREE'],
             row['STATION_CODE'],
-            fontsize=10, color='white', fontweight='bold',
-            path_effects=[
-                plt.matplotlib.patheffects.withStroke(linewidth=2, foreground='black')
-            ],
-            zorder=6
+            fontsize=9, 
+            color='white', 
+            fontweight='bold',
+            path_effects=[plt.matplotlib.patheffects.withStroke(linewidth=2.5, foreground='black')],
+            zorder=6,
+            transform=ccrs.PlateCarree()
         ))
+    
     adjust_text(texts, ax=ax, expand_points=(1.5, 1.5), expand_text=(1.5, 1.5))
- 
-    ax.scatter(event_lon, event_lat, marker='*', color='red', s=400, zorder=7,
-               label='Epicenter', edgecolors='black', linewidths=1.5)
- 
-    ctx.add_basemap(ax, crs='EPSG:4326',
-                    source=ctx.providers.OpenStreetMap.Mapnik, zoom=8)
-    plt.colorbar(scatter, ax=ax, label='PGA (cm/s²)')
-    ax.set_xlabel('Longitude')
-    ax.set_ylabel('Latitude')
-    ax.set_title('Seismic stations and epicenter')
-    ax.legend()
+    
+    # Epicenter
+    ax.scatter(
+        event_lon, event_lat, 
+        marker='*', 
+        color='red', 
+        s=500, 
+        zorder=7,
+        label='Epicenter', 
+        edgecolors='black', 
+        linewidths=1.5,
+        transform=ccrs.PlateCarree()
+    )
+    
+    # Colorbar
+    cbar = plt.colorbar(scatter, ax=ax, orientation='vertical', pad=0.05, fraction=0.046, shrink=0.8)
+    cbar.set_label('PGA (cm/s²)', fontsize=11)
+    
+    ax.set_xlabel('Longitude', fontsize=11)
+    ax.set_ylabel('Latitude', fontsize=11)
+    ax.set_title('Seismic stations and epicenter', fontsize=13, fontweight='bold')
+    ax.legend(loc='upper right', fontsize=10, framealpha=0.9)
+    
     plt.tight_layout()
- 
+    
     if output_path is not None:
         os.makedirs(os.path.dirname(str(output_path)), exist_ok=True)
-        plt.savefig(output_path, bbox_inches='tight')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
         print(f"Saved: {output_path}")
- 
+    
     plt.show()
     plt.close()
+
+import folium
+from folium import plugins
+import branca.colormap as cm
+import os
+
+def plot_station_map_folium(df, event_lat, event_lon, output_path=None):
+    """
+    Interactive map of seismic stations colored by PGA, with epicenter and station labels.
+    Uses Folium for web-based visualization.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain STATION_LONGITUDE_DEGREE, STATION_LATITUDE_DEGREE,
+        PGA_CM/S^2, STATION_CODE.
+    event_lat : float
+    event_lon : float
+    output_path : str or Path or None
+        If provided, saves HTML file.
+    
+    Returns
+    -------
+    folium.Map
+        Interactive map object
+    """
+    # Calculate center
+    center_lat = (df['STATION_LATITUDE_DEGREE'].min() + df['STATION_LATITUDE_DEGREE'].max()) / 2
+    center_lon = (df['STATION_LONGITUDE_DEGREE'].min() + df['STATION_LONGITUDE_DEGREE'].max()) / 2
+    
+    # Create map
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=9,
+        tiles='OpenStreetMap',
+        control_scale=True
+    )
+    
+    # Add alternative tile layers
+    folium.TileLayer('CartoDB positron', name='CartoDB Positron').add_to(m)
+    folium.TileLayer('Stamen Terrain', name='Terrain').add_to(m)
+    
+    # Create colormap for PGA
+    pga_min = df['PGA_CM/S^2'].min()
+    pga_max = df['PGA_CM/S^2'].max()
+    colormap = cm.LinearColormap(
+        colors=['#000004', '#420a68', '#932667', '#dd513a', '#fca50a', '#fcffa4'],
+        vmin=pga_min,
+        vmax=pga_max,
+        caption='PGA (cm/s²)'
+    )
+    colormap.add_to(m)
+    
+    # Add stations
+    for _, row in df.iterrows():
+        color = colormap(row['PGA_CM/S^2'])
+        
+        folium.CircleMarker(
+            location=[row['STATION_LATITUDE_DEGREE'], row['STATION_LONGITUDE_DEGREE']],
+            radius=8,
+            color='black',
+            weight=2,
+            fill=True,
+            fillColor=color,
+            fillOpacity=0.8,
+            popup=folium.Popup(
+                f"<b>{row['STATION_CODE']}</b><br>"
+                f"PGA: {row['PGA_CM/S^2']:.2f} cm/s²<br>"
+                f"Lat: {row['STATION_LATITUDE_DEGREE']:.4f}<br>"
+                f"Lon: {row['STATION_LONGITUDE_DEGREE']:.4f}",
+                max_width=200
+            ),
+            tooltip=f"{row['STATION_CODE']}: {row['PGA_CM/S^2']:.1f} cm/s²"
+        ).add_to(m)
+        
+        # Add station label (always visible)
+        folium.Marker(
+            location=[row['STATION_LATITUDE_DEGREE'], row['STATION_LONGITUDE_DEGREE']],
+            icon=folium.DivIcon(html=f"""
+                <div style="
+                    font-size: 10px; 
+                    font-weight: bold; 
+                    color: white; 
+                    text-shadow: -1px -1px 0 black, 1px -1px 0 black, -1px 1px 0 black, 1px 1px 0 black;
+                    white-space: nowrap;
+                    transform: translate(10px, -5px);
+                ">{row['STATION_CODE']}</div>
+            """)
+        ).add_to(m)
+    
+    # Add epicenter
+    folium.Marker(
+        location=[event_lat, event_lon],
+        icon=folium.Icon(color='red', icon='star', prefix='fa'),
+        popup=folium.Popup("<b>Epicenter</b>", max_width=150),
+        tooltip="Epicenter"
+    ).add_to(m)
+    
+    # Add layer control
+    folium.LayerControl().add_to(m)
+    
+    # Add fullscreen button
+    plugins.Fullscreen(
+        position='topright',
+        title='Fullscreen',
+        title_cancel='Exit fullscreen',
+        force_separate_button=True
+    ).add_to(m)
+    
+    # Add measure control
+    plugins.MeasureControl(position='topleft', primary_length_unit='kilometers').add_to(m)
+    
+    # Save if output path provided
+    if output_path is not None:
+        os.makedirs(os.path.dirname(str(output_path)), exist_ok=True)
+        m.save(str(output_path))
+        print(f"Saved: {output_path}")
+    
+    return m
  
  
 # ===============================================================================================

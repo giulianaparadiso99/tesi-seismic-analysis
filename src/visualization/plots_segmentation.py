@@ -21,6 +21,8 @@ from typing import Dict, List, Optional, Literal
 import os
 import matplotlib.patches as mpatches
 from IPython.display import display
+from src import set_plot_style
+colors, colors1 = set_plot_style()
 
 
 def display_theoretical_arrivals_table(df_stations, n_rows=10):

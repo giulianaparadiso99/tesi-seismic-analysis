@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
-from src.visualization.plot_settings import set_plot_style
-colors = set_plot_style()
+from src import set_plot_style
+colors, colors1 = set_plot_style()
 
 # ===============================================================================================
 # ========================= Signals — signal length distribution ================================
