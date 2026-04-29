@@ -829,122 +829,270 @@ def detect_coda_start_all_methods(signal, t_s_detected, t_p_detected=None, origi
     
     return results
 
-def add_coda_onsets_to_dataframe(df_full, signals_dict, 
-                                 threshold_arias=0.75,
+def add_coda_onsets_to_dataframe(df_full, signals_dict,
+                                 threshold_arias=0.95,
                                  threshold_envelope=0.3,
-                                 sampling_rate=200):
+                                 sampling_rate=200,
+                                 unit='samples'):
     """
-    Populate coda onset columns in df_full.
+    Populate coda onset columns in df_full with dual representation.
     
     Optimized: Rautian method computed once per station (not per component).
+    Creates both _samples and _seconds columns for all methods.
+    
+    Parameters
+    ----------
+    df_full : pd.DataFrame
+        DataFrame with columns:
+        - STATION_CODE, COMPONENT
+        - t_s_detected_samples, t_s_detected_seconds (or legacy t_s_detected)
+        - origin_time_samples, origin_time_seconds (or legacy origin_time)
+    signals_dict : dict
+        Nested dict: {station: {component: array, 'time': array}}
+    threshold_arias : float, optional
+        Arias Intensity threshold (default: 0.95 for D5-95)
+    threshold_envelope : float, optional
+        Envelope decay threshold (default: 0.3)
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200)
+    unit : {'samples', 'seconds'}, optional
+        Preferred unit for computation (default: 'samples')
+    
+    Returns
+    -------
+    pd.DataFrame
+        df_full with added columns (dual representation):
+        - t_coda_<method>_samples, t_coda_<method>_seconds (int, float)
+        - s_duration_<method>_samples, s_duration_<method>_seconds (int, float)
+        - t_coda_<method>, s_duration_<method> (legacy aliases based on unit)
+        
+        Methods: rautian, arias, envelope, median
+    
+    Notes
+    -----
+    Rautian method is station-dependent only (same for all components),
+    so it's computed once per station and cached.
+    
+    Arias and Envelope are component-dependent (use actual signal),
+    so they're computed per component.
     """
     
-    methods = ['rautian', 'arias', 'envelope']
+    # Auto-detect input columns (prefer samples, fallback seconds)
+    if 't_s_detected_samples' in df_full.columns:
+        t_s_col_samples = 't_s_detected_samples'
+        t_s_col_seconds = 't_s_detected_seconds'
+        has_onset_samples = True
+    elif 't_s_detected_seconds' in df_full.columns:
+        t_s_col_seconds = 't_s_detected_seconds'
+        t_s_col_samples = None
+        has_onset_samples = False
+    elif 't_s_detected' in df_full.columns:
+        t_s_col_seconds = 't_s_detected'
+        t_s_col_samples = None
+        has_onset_samples = False
+    else:
+        raise ValueError(
+            "No t_s_detected columns found. Expected 't_s_detected_samples'/"
+            "'t_s_detected_seconds' or 't_s_detected'"
+        )
     
-    print("Pre-computing Rautian coda onset per station...")
+    # Check for origin_time columns
+    if 'origin_time_samples' in df_full.columns:
+        origin_col_samples = 'origin_time_samples'
+        origin_col_seconds = 'origin_time_seconds'
+        has_origin_samples = True
+    elif 'origin_time_seconds' in df_full.columns:
+        origin_col_seconds = 'origin_time_seconds'
+        origin_col_samples = None
+        has_origin_samples = False
+    elif 'origin_time' in df_full.columns:
+        origin_col_seconds = 'origin_time'
+        origin_col_samples = None
+        has_origin_samples = False
+    else:
+        raise ValueError(
+            "No origin_time columns found. Expected 'origin_time_samples'/"
+            "'origin_time_seconds' or 'origin_time'"
+        )
+    
+    methods = ['rautian', 'arias', 'envelope', 'median']
+    
+    # Initialize all columns (dual representation)
+    for method in methods:
+        df_full[f't_coda_{method}_samples'] = pd.NA
+        df_full[f't_coda_{method}_seconds'] = np.nan
+        df_full[f's_duration_{method}_samples'] = pd.NA
+        df_full[f's_duration_{method}_seconds'] = np.nan
+    
+    print("Pre-computing Rautian coda onset per station (dual representation)...")
     rautian_cache = {}
     
     for station in df_full['STATION_CODE'].unique():
         station_row = df_full[df_full['STATION_CODE'] == station].iloc[0]
-        t_s = station_row['t_s_detected']
-        origin_time = station_row['origin_time']
-        s_lapse_time = t_s - origin_time
-        t_coda_rautian = origin_time + 2.0 * s_lapse_time
+        
+        # Get t_s and origin_time in both representations
+        if has_onset_samples:
+            t_s_samp = int(station_row[t_s_col_samples])
+            t_s_sec = float(station_row[t_s_col_seconds])
+        else:
+            t_s_sec = float(station_row[t_s_col_seconds])
+            t_s_samp = int(np.round(t_s_sec * sampling_rate))
+        
+        if has_origin_samples:
+            origin_samp = int(station_row[origin_col_samples])
+            origin_sec = float(station_row[origin_col_seconds])
+        else:
+            origin_sec = float(station_row[origin_col_seconds])
+            origin_samp = int(np.round(origin_sec * sampling_rate))
+        
+        # Rautian formula: t_coda = origin + 2*(t_s - origin)
+        s_lapse_time_sec = t_s_sec - origin_sec
+        s_lapse_time_samp = t_s_samp - origin_samp
+        
+        t_coda_rautian_sec = origin_sec + 2.0 * s_lapse_time_sec
+        t_coda_rautian_samp = origin_samp + 2 * s_lapse_time_samp
+        
+        s_duration_rautian_sec = t_coda_rautian_sec - t_s_sec
+        s_duration_rautian_samp = t_coda_rautian_samp - t_s_samp
         
         rautian_cache[station] = {
-            't_coda': t_coda_rautian,
-            's_duration': t_coda_rautian - t_s
+            't_coda_samples': t_coda_rautian_samp,
+            't_coda_seconds': t_coda_rautian_sec,
+            's_duration_samples': s_duration_rautian_samp,
+            's_duration_seconds': s_duration_rautian_sec
         }
     
-    print(f"  Computed Rautian for {len(rautian_cache)} stations")    
-    print(f"Calculating Arias and Envelope coda onset for {len(df_full)} components...")
+    print(f"  Computed Rautian for {len(rautian_cache)} stations")
+    
+    print(f"Calculating Arias, Envelope, and Median coda onsets for {len(df_full)} components...")
+    
+    n_processed = 0
+    n_failed = 0
     
     for idx, row in df_full.iterrows():
         station = row['STATION_CODE']
         component = row['COMPONENT']
         
         if station not in signals_dict or component not in signals_dict[station]:
+            n_failed += 1
             continue
         
         signal = signals_dict[station][component]
-        t_s = row['t_s_detected']
-        origin_time = row['origin_time']
+        
+        # Get t_s and origin_time (prefer samples for passing to detect_coda_start)
+        if has_onset_samples:
+            t_s_input = int(row[t_s_col_samples])
+            input_unit = 'samples'
+        else:
+            t_s_input = float(row[t_s_col_seconds])
+            input_unit = 'seconds'
+        
+        if has_origin_samples:
+            origin_input = int(row[origin_col_samples])
+        else:
+            origin_input = float(row[origin_col_seconds])
         
         try:
-            # ===== RAUTIAN: =====
+            # ===== RAUTIAN: Use cached values =====
             if station in rautian_cache:
-                df_full.loc[idx, 't_coda_rautian'] = rautian_cache[station]['t_coda']
-                df_full.loc[idx, 's_duration_rautian'] = rautian_cache[station]['s_duration']
+                df_full.loc[idx, 't_coda_rautian_samples'] = rautian_cache[station]['t_coda_samples']
+                df_full.loc[idx, 't_coda_rautian_seconds'] = rautian_cache[station]['t_coda_seconds']
+                df_full.loc[idx, 's_duration_rautian_samples'] = rautian_cache[station]['s_duration_samples']
+                df_full.loc[idx, 's_duration_rautian_seconds'] = rautian_cache[station]['s_duration_seconds']
             
-            # ===== ARIAS: =====
+            # ===== ARIAS: Component-specific =====
             result_arias = detect_coda_start(
-                signal, t_s, origin_time=origin_time,
+                signal, t_s_input, origin_time=origin_input,
                 sampling_rate=sampling_rate, method='arias',
+                unit=input_unit,
                 threshold_arias=threshold_arias,
                 threshold_envelope=threshold_envelope
             )
-            df_full.loc[idx, 't_coda_arias'] = result_arias['t_coda']
-            df_full.loc[idx, 's_duration_arias'] = result_arias['diagnostic']['s_duration']
+            df_full.loc[idx, 't_coda_arias_samples'] = result_arias['t_coda_samples']
+            df_full.loc[idx, 't_coda_arias_seconds'] = result_arias['t_coda_seconds']
+            df_full.loc[idx, 's_duration_arias_samples'] = result_arias['diagnostic']['s_duration_samples']
+            df_full.loc[idx, 's_duration_arias_seconds'] = result_arias['diagnostic']['s_duration_seconds']
             
-            # ===== ENVELOPE: =====
+            # ===== ENVELOPE: Component-specific =====
             result_envelope = detect_coda_start(
-                signal, t_s, origin_time=origin_time,
+                signal, t_s_input, origin_time=origin_input,
                 sampling_rate=sampling_rate, method='envelope',
+                unit=input_unit,
                 threshold_arias=threshold_arias,
                 threshold_envelope=threshold_envelope
             )
-            df_full.loc[idx, 't_coda_envelope'] = result_envelope['t_coda']
-            df_full.loc[idx, 's_duration_envelope'] = result_envelope['diagnostic']['s_duration']
+            df_full.loc[idx, 't_coda_envelope_samples'] = result_envelope['t_coda_samples']
+            df_full.loc[idx, 't_coda_envelope_seconds'] = result_envelope['t_coda_seconds']
+            df_full.loc[idx, 's_duration_envelope_samples'] = result_envelope['diagnostic']['s_duration_samples']
+            df_full.loc[idx, 's_duration_envelope_seconds'] = result_envelope['diagnostic']['s_duration_seconds']
             
-            # ===== MEDIAN =====
-            t_coda_median = np.median([
-                rautian_cache[station]['t_coda'],
-                result_arias['t_coda'],
-                result_envelope['t_coda']
+            # ===== MEDIAN: Compute from all three methods =====
+            # Median in samples
+            t_coda_median_samp = int(np.median([
+                rautian_cache[station]['t_coda_samples'],
+                result_arias['t_coda_samples'],
+                result_envelope['t_coda_samples']
+            ]))
+            
+            # Median in seconds
+            t_coda_median_sec = np.median([
+                rautian_cache[station]['t_coda_seconds'],
+                result_arias['t_coda_seconds'],
+                result_envelope['t_coda_seconds']
             ])
-            df_full.loc[idx, 't_coda_median'] = t_coda_median
-            df_full.loc[idx, 's_duration_median'] = t_coda_median - t_s
-        
+            
+            # Get t_s for duration calculation
+            if has_onset_samples:
+                t_s_samp = int(row[t_s_col_samples])
+                t_s_sec = float(row[t_s_col_seconds])
+            else:
+                t_s_sec = float(row[t_s_col_seconds])
+                t_s_samp = int(np.round(t_s_sec * sampling_rate))
+            
+            s_duration_median_samp = t_coda_median_samp - t_s_samp
+            s_duration_median_sec = t_coda_median_sec - t_s_sec
+            
+            df_full.loc[idx, 't_coda_median_samples'] = t_coda_median_samp
+            df_full.loc[idx, 't_coda_median_seconds'] = t_coda_median_sec
+            df_full.loc[idx, 's_duration_median_samples'] = s_duration_median_samp
+            df_full.loc[idx, 's_duration_median_seconds'] = s_duration_median_sec
+            
+            n_processed += 1
+            
         except Exception as e:
-            print(f"Warning: Coda detection failed for {station}-{component}: {e}")
+            print(f"\nWarning: Coda detection failed for {station}-{component}: {e}")
+            n_failed += 1
             continue
     
-    print("Done!")
+    # ===== CREATE LEGACY COLUMNS (aliases based on unit preference) =====
+    for method in methods:
+        if unit == 'samples':
+            df_full[f't_coda_{method}'] = df_full[f't_coda_{method}_samples']
+            df_full[f's_duration_{method}'] = df_full[f's_duration_{method}_samples']
+        else:  # unit == 'seconds'
+            df_full[f't_coda_{method}'] = df_full[f't_coda_{method}_seconds']
+            df_full[f's_duration_{method}'] = df_full[f's_duration_{method}_seconds']
+    
+    print(f"\nDone!")
+    print(f"  Successfully processed: {n_processed}/{len(df_full)} components")
+    print(f"  Failed: {n_failed}/{len(df_full)} components")
+    print(f"  Created columns with dual representation (_samples + _seconds)")
+    print(f"  Legacy columns (no suffix) point to: {unit}")
+    
     return df_full
 
-def compute_coda_method_statistics(df_onsets_full, distance_bins=None):
+def compute_coda_method_statistics(df_onsets_full, distance_bins=None, unit='seconds'):
     """
     Compute comprehensive statistics for coda onset method comparison.
     
-    Calculates pairwise statistics (correlation, bias, agreement) for all
-    method pairs, and stratifies results by epicentral distance bins.
+    ...
     
     Parameters
     ----------
-    df_onsets_full : pd.DataFrame
-        Full onset detection results (66 rows) with columns:
-        - STATION_CODE, COMPONENT
-        - EPICENTRAL_DISTANCE_KM
-        - t_coda_rautian, t_coda_arias, t_coda_envelope
-        - s_duration_rautian, s_duration_arias, s_duration_envelope
-    distance_bins : list of tuple, optional
-        Distance bin edges as [(min1, max1), (min2, max2), ...]
-        Default: [(0, 50), (50, 100), (100, 200)]
-    
-    Returns
-    -------
-    dict
-        Nested dictionary with structure:
-        - 'data': raw arrays (66 elements each)
-        - 'pairwise': statistics for each method pair
-        - 'by_distance': stratified statistics by distance bin
-        - 'summary': dataset summary info
-    
-    Examples
-    --------
-    >>> stats = compute_coda_method_statistics(df_onsets_full)
-    >>> print(f"Rautian-Arias correlation: {stats['pairwise']['rautian_arias']['correlation']:.3f}")
-    >>> print(f"Mean bias: {stats['pairwise']['rautian_arias']['mean_diff']:.2f}s")
+    ...
+    unit : {'samples', 'seconds'}, optional
+        Which representation to use for statistics (default: 'seconds')
+        Statistics are always computed in seconds as they represent physical times
     """
     
     # Default distance bins
@@ -954,11 +1102,35 @@ def compute_coda_method_statistics(df_onsets_full, distance_bins=None):
     # Method names
     methods = ['rautian', 'arias', 'envelope']
     
+    # ===== AUTO-DETECT COLUMN SUFFIXES =====
+    # Statistics should be in seconds (physical interpretation)
+    # but support both column naming schemes
+    
+    method_cols = {}
+    for method in methods:
+        col_samples = f't_coda_{method}_samples'
+        col_seconds = f't_coda_{method}_seconds'
+        col_legacy = f't_coda_{method}'
+        
+        if col_seconds in df_onsets_full.columns:
+            method_cols[method] = col_seconds
+        elif col_legacy in df_onsets_full.columns:
+            method_cols[method] = col_legacy
+        elif col_samples in df_onsets_full.columns:
+            # Convert samples to seconds for statistics
+            print(f"Warning: Using {col_samples}, converting to seconds for statistics")
+            # Create temporary seconds column
+            sampling_rate = 200  # Assumed, could be parameter
+            df_onsets_full[col_seconds] = df_onsets_full[col_samples] / sampling_rate
+            method_cols[method] = col_seconds
+        else:
+            raise ValueError(f"No t_coda columns found for method '{method}'")
+    
     # Extract data (filter out NaN values)
     valid_mask = (
-        df_onsets_full['t_coda_rautian'].notna() &
-        df_onsets_full['t_coda_arias'].notna() &
-        df_onsets_full['t_coda_envelope'].notna()
+        df_onsets_full[method_cols['rautian']].notna() &
+        df_onsets_full[method_cols['arias']].notna() &
+        df_onsets_full[method_cols['envelope']].notna()
     )
     
     df_valid = df_onsets_full[valid_mask].copy()
@@ -966,12 +1138,13 @@ def compute_coda_method_statistics(df_onsets_full, distance_bins=None):
     n_valid = len(df_valid)
     
     print(f"Computing statistics for {n_valid}/{len(df_onsets_full)} valid components")
+    print(f"Using columns: {list(method_cols.values())}")
     
     # Raw data arrays
     data = {
-        'rautian': df_valid['t_coda_rautian'].values,
-        'arias': df_valid['t_coda_arias'].values,
-        'envelope': df_valid['t_coda_envelope'].values,
+        'rautian': df_valid[method_cols['rautian']].values,
+        'arias': df_valid[method_cols['arias']].values,
+        'envelope': df_valid[method_cols['envelope']].values,
         'distance': df_valid['EPICENTRAL_DISTANCE_KM'].values,
         'station_codes': df_valid['STATION_CODE'].values,
         'component_codes': df_valid['COMPONENT'].values
