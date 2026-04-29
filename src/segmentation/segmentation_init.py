@@ -1,7 +1,7 @@
 
 
 # Window Detection
-from .theoretical_arrivals import (
+from .search_windows import (
     extract_crustal_velocities,
     add_crustal_velocities,
     add_theoretical_arrivals,

@@ -80,7 +80,7 @@ from .analysis.signals_pdf import (
 # Analysis - Window Detection
 # ===============================================================================
 
-from .segmentation.theoretical_arrivals import (
+from .segmentation.search_windows import (
     extract_crustal_velocities,
     add_crustal_velocities,
     add_theoretical_arrivals,
