@@ -5,7 +5,7 @@ Column names from preprocessing:
 - STATION_CODE: Station identifier
 - STATION_LATITUDE_DEGREE: Station latitude
 - STATION_LONGITUDE_DEGREE: Station longitude  
-- EPICENTRAL_DISTANCE_KM: Epicentral distance (already computed!)
+- EVENT_DEPTH_KM: Hypocentral distance
 
 References
 ----------
@@ -291,7 +291,7 @@ def add_crustal_velocities(df_stations,
     return df_result
 
 def add_theoretical_arrivals(df_stations, 
-                            hypo_depth_km,
+                            hypo_depth_km, sampling_rate=200,
                             distance_col='EPICENTRAL_DISTANCE_KM'):
     """
     Add theoretical P and S arrival time columns.
@@ -316,8 +316,10 @@ def add_theoretical_arrivals(df_stations,
         df_stations with added columns:
         - origin_time: Event time in file coordinates (s)
         - hypocentral_distance_km: 3D distance from hypocenter to station (km)
-        - t_p_theo: Theoretical P-wave arrival (s)
-        - t_s_theo: Theoretical S-wave arrival (s)
+        - t_p_theo_seconds: Theoretical P-wave arrival (s)
+        - t_s_theo_seconds: Theoretical S-wave arrival (s)
+        - t_p_theo_samples: Theoretical P-wave arrival (int)
+        - t_s_theo_samples: Theoretical S-wave arrival (int)
     
     Notes
     -----
@@ -353,16 +355,20 @@ def add_theoretical_arrivals(df_stations,
     df_result['origin_time'] = origin_time
     
     # Calculate theoretical arrivals: t = origin_time + distance_hypo / velocity
-    df_result['t_p_theo'] = origin_time + hypocentral_dist / df_result['vp_crust']
-    df_result['t_s_theo'] = origin_time + hypocentral_dist / df_result['vs_crust']
+    df_result['t_p_theo_seconds'] = origin_time + hypocentral_dist / df_result['vp_crust']
+    df_result['t_s_theo_seconds'] = origin_time + hypocentral_dist / df_result['vs_crust']
     
+    # Convert to samples
+    df_result['t_p_theo_samples'] = np.round(df_result['t_p_theo_seconds'] * sampling_rate).astype(int)
+    df_result['t_s_theo_samples'] = np.round(df_result['t_s_theo_seconds'] * sampling_rate).astype(int)
+
     print(f"Added theoretical arrival times:")
-    print(f"  Hypocenter depth: {hypo_depth_km} km")
-    print(f"  Epicentral distance range: {epicentral_dist.min():.2f} - {epicentral_dist.max():.2f} km")
-    print(f"  Hypocentral distance range: {hypocentral_dist.min():.2f} - {hypocentral_dist.max():.2f} km")
-    print(f"  Origin time range: {origin_time.min():.2f} - {origin_time.max():.2f} s")
-    print(f"  t_P range: {df_result['t_p_theo'].min():.2f} - {df_result['t_p_theo'].max():.2f} s")
-    print(f"  t_S range: {df_result['t_s_theo'].min():.2f} - {df_result['t_s_theo'].max():.2f} s")
+    print(f"Hypocenter depth: {hypo_depth_km} km")
+    print(f"Epicentral distance range: {epicentral_dist.min():.2f} - {epicentral_dist.max():.2f} km")
+    print(f"Hypocentral distance range: {hypocentral_dist.min():.2f} - {hypocentral_dist.max():.2f} km")
+    print(f"Origin time range: {origin_time.min():.2f} - {origin_time.max():.2f} s")
+    print(f"t_P range: {df_result['t_p_theo'].min():.2f} - {df_result['t_p_theo'].max():.2f} s")
+    print(f"t_S range: {df_result['t_s_theo'].min():.2f} - {df_result['t_s_theo'].max():.2f} s")
     
     # Quantify the difference caused by depth correction
     distance_diff = hypocentral_dist - epicentral_dist
@@ -636,7 +642,9 @@ def calculate_distance_thresholds(df_stations,
 
 def calculate_adaptive_windows(df_stations,
                                distance_thresholds,
+                               sampling_rate=200,
                                distance_col='hypocentral_distance_km',
+                               unit='samples',
                                window_widths=None,
                                gap=0.5):
     """
@@ -650,32 +658,42 @@ def calculate_adaptive_windows(df_stations,
     df_stations : pd.DataFrame
         Station metadata with columns:
         - distance_col: Distance from hypocenter/epicenter to station (km)
-        - 't_p_theo': Theoretical P-wave arrival time (s)
-        - 't_s_theo': Theoretical S-wave arrival time (s)
+        - 't_p_theo_samples', 't_s_theo_samples': Theoretical arrivals (int), OR
+        - 't_p_theo_seconds', 't_s_theo_seconds': Theoretical arrivals (float), OR
+        - 't_p_theo', 't_s_theo': Legacy columns (float, interpreted as seconds)
     distance_thresholds : list of float
         Distance cutoffs in km, in ascending order
         Example: [50, 150] creates 3 bins: (0,50], (50,150], (150,∞)
         Use calculate_distance_thresholds() to compute empirically
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200)
+        Used for conversions between samples and seconds
     distance_col : str, optional
         Column name for distance metric (default: 'hypocentral_distance_km')
         Can also be 'EPICENTRAL_DISTANCE_KM'
+    unit : {'samples', 'seconds'}, optional
+        Default unit for computations (default: 'samples')
+        Note: Both representations are ALWAYS computed and stored
     window_widths : list of tuple, optional
-        (p_halfwidth, s_halfwidth) for each distance bin
+        (p_halfwidth, s_halfwidth) for each distance bin, in SECONDS
         Length must be len(distance_thresholds) + 1
         Default: [(3, 6), (5, 10), (7, 14)] for 2 thresholds
     gap : float, optional
-        Minimum time separation between P and S windows (default: 0.5s)
+        Minimum time separation between P and S windows in SECONDS (default: 0.5s)
         Ensures temporal separation of phase arrivals
     
     Returns
     -------
-    pd.DataFrame
-        Copy of input with added columns:
-        - 'p_window_start': Start of P-wave search window (s)
-        - 'p_window_end': End of P-wave search window (s)
-        - 's_window_start': Start of S-wave search window (s)
-        - 's_window_end': End of S-wave search window (s)
-        - 'distance_bin': Assigned distance bin (1, 2, 3, ...)
+    df_stations : pd.DataFrame
+        Copy with added columns (BOTH representations always present):
+        - p_window_start_samples, p_window_end_samples (int)
+        - s_window_start_samples, s_window_end_samples (int)
+        - p_window_start_seconds, p_window_end_seconds (float)
+        - s_window_start_seconds, s_window_end_seconds (float)
+        
+        Legacy columns (for backward compatibility):
+        - p_window_start, p_window_end (alias for _samples if unit='samples', else _seconds)
+        - s_window_start, s_window_end (alias for _samples if unit='samples', else _seconds)
     
     Notes
     -----
@@ -684,51 +702,65 @@ def calculate_adaptive_windows(df_stations,
     - Wider windows for distant stations (accumulated velocity errors)
     - S-windows are 2× wider than P-windows (S arrivals more emergent)
     
+    Internal computation uses samples by default to avoid rounding artifacts.
+    Seconds representation is always available for interpretability.
+    
     S-window constraint:
     s_window_start = max(t_s_theo - s_halfwidth, p_window_end + gap)
     This ensures P and S detection regions never overlap.
     
     Examples
     --------
-    >>> # Empirical thresholds from data
+    >>> # Standard usage (samples-based, seconds also computed)
     >>> thresholds = calculate_distance_thresholds(df_stations)
     >>> df_stations = calculate_adaptive_windows(df_stations, thresholds)
-    >>> print(df_stations[['STATION_CODE', 'distance_bin', 'p_window_start']])
+    >>> print(df_stations[['STATION_CODE', 'p_window_start_samples', 'p_window_start_seconds']])
     
-    >>> # Fixed thresholds for comparison
-    >>> fixed_thresholds = [50.0, 150.0]
-    >>> df_stations = calculate_adaptive_windows(df_stations, fixed_thresholds)
-    
-    >>> # Custom window widths
-    >>> custom_widths = [(2, 4), (4, 8), (6, 12), (8, 16)]
-    >>> thresholds = [30, 60, 100]  # 3 thresholds → 4 bins
-    >>> df_stations = calculate_adaptive_windows(
-    ...     df_stations, 
-    ...     thresholds,
-    ...     window_widths=custom_widths
-    ... )
-    
-    >>> # Use epicentral distance instead
-    >>> df_stations = calculate_adaptive_windows(
-    ...     df_stations,
-    ...     thresholds,
-    ...     distance_col='EPICENTRAL_DISTANCE_KM'
-    ... )
+    >>> # Backward compatible (seconds-based)
+    >>> df_stations = calculate_adaptive_windows(df_stations, thresholds, unit='seconds')
+    >>> # Both _samples and _seconds columns are still created
     
     See Also
     --------
     calculate_distance_thresholds : Compute empirical distance thresholds
-    calculate_fixed_search_windows : Non-adaptive alternative
+    add_theoretical_arrivals : Create theoretical arrival columns with dual representation
     """
     # Validate inputs
-    required_cols = [distance_col, 't_p_theo', 't_s_theo']
-    missing = [col for col in required_cols if col not in df_stations.columns]
+    required_base_cols = [distance_col]
+    missing = [col for col in required_base_cols if col not in df_stations.columns]
     if missing:
+        raise ValueError(f"Missing required columns: {missing}")
+    
+    # Determine which theo columns are available (samples preferred, seconds fallback)
+    if 't_p_theo_samples' in df_stations.columns and 't_s_theo_samples' in df_stations.columns:
+        t_p_col_samples = 't_p_theo_samples'
+        t_s_col_samples = 't_s_theo_samples'
+        has_samples = True
+    else:
+        has_samples = False
+    
+    if 't_p_theo_seconds' in df_stations.columns and 't_s_theo_seconds' in df_stations.columns:
+        t_p_col_seconds = 't_p_theo_seconds'
+        t_s_col_seconds = 't_s_theo_seconds'
+        has_seconds = True
+    elif 't_p_theo' in df_stations.columns and 't_s_theo' in df_stations.columns:
+        # Legacy columns (assume seconds)
+        t_p_col_seconds = 't_p_theo'
+        t_s_col_seconds = 't_s_theo'
+        has_seconds = True
+    else:
+        has_seconds = False
+    
+    if not has_samples and not has_seconds:
         raise ValueError(
-            f"Missing required columns: {missing}. "
-            f"Run add_theoretical_arrivals() first."
+            "No theoretical arrival columns found. "
+            "Expected 't_p_theo_samples'/'t_s_theo_samples' or "
+            "'t_p_theo_seconds'/'t_s_theo_seconds' or "
+            "'t_p_theo'/'t_s_theo'. "
+            "Run add_theoretical_arrivals() first."
         )
     
+    # Validate distance thresholds
     if not isinstance(distance_thresholds, (list, tuple, np.ndarray)):
         raise TypeError("distance_thresholds must be a list, tuple, or array")
     
@@ -737,7 +769,6 @@ def calculate_adaptive_windows(df_stations,
     if len(distance_thresholds) == 0:
         raise ValueError("distance_thresholds cannot be empty")
     
-    # Validate thresholds are strictly increasing
     if not all(distance_thresholds[i] < distance_thresholds[i+1] 
                for i in range(len(distance_thresholds)-1)):
         raise ValueError(
@@ -751,16 +782,13 @@ def calculate_adaptive_windows(df_stations,
     # Number of bins = number of thresholds + 1
     n_bins = len(distance_thresholds) + 1
     
-    # Set default window widths if not provided
+    # Set default window widths if not provided (in seconds)
     if window_widths is None:
         if n_bins == 3:
-            # Default for tertiles (2 thresholds → 3 bins)
             window_widths = [(3.0, 6.0), (5.0, 10.0), (7.0, 14.0)]
         elif n_bins == 4:
-            # Default for quartiles (3 thresholds → 4 bins)
             window_widths = [(3.0, 6.0), (4.0, 8.0), (6.0, 12.0), (8.0, 16.0)]
         else:
-            # Generic default: scale linearly
             window_widths = [(3.0 + 2*i, 6.0 + 4*i) for i in range(n_bins)]
             print(f"Warning: Using generic window widths for {n_bins} bins: {window_widths}")
     
@@ -789,51 +817,118 @@ def calculate_adaptive_windows(df_stations,
     # Assign stations to distance bins
     distances = df_result[distance_col].values
     bins = [0] + distance_thresholds + [np.inf]
-    distance_bins = np.digitize(distances, bins[1:-1]) + 1  # bins numbered 1, 2, 3, ...
+    distance_bins = np.digitize(distances, bins[1:-1]) + 1
     df_result['distance_bin'] = distance_bins
     
+    # Prepare lists for both representations
+    p_starts_samples = []
+    p_ends_samples = []
+    s_starts_samples = []
+    s_ends_samples = []
+    
+    p_starts_seconds = []
+    p_ends_seconds = []
+    s_starts_seconds = []
+    s_ends_seconds = []
+    
     # Calculate windows for each station
-    p_starts = []
-    p_ends = []
-    s_starts = []
-    s_ends = []
-    
     for idx, row in df_result.iterrows():
-        bin_idx = row['distance_bin'] - 1  # Convert to 0-indexed for window_widths
-        p_hw, s_hw = window_widths[bin_idx]
+        bin_idx = row['distance_bin'] - 1
+        p_hw_sec, s_hw_sec = window_widths[bin_idx]
         
-        t_p = row['t_p_theo']
-        t_s = row['t_s_theo']
+        # Convert halfwidths to samples
+        p_hw_samp = int(np.round(p_hw_sec * sampling_rate))
+        s_hw_samp = int(np.round(s_hw_sec * sampling_rate))
+        gap_samp = int(np.round(gap * sampling_rate))
         
-        # P window
-        p_start = max(0, t_p - p_hw)  # Ensure non-negative
-        p_end = t_p + p_hw
+        # Get theoretical arrivals (prefer samples, fallback to seconds)
+        if has_samples:
+            t_p_samp = int(row[t_p_col_samples])
+            t_s_samp = int(row[t_s_col_samples])
+            
+            # Compute in samples (PRIMARY)
+            p_start_samp = max(0, t_p_samp - p_hw_samp)
+            p_end_samp = t_p_samp + p_hw_samp
+            
+            s_start_min_samp = p_end_samp + gap_samp
+            s_start_theo_samp = t_s_samp - s_hw_samp
+            s_start_samp = max(s_start_min_samp, s_start_theo_samp, 0)
+            s_end_samp = t_s_samp + s_hw_samp
+            
+            # Convert to seconds (DERIVED)
+            p_start_sec = p_start_samp / sampling_rate
+            p_end_sec = p_end_samp / sampling_rate
+            s_start_sec = s_start_samp / sampling_rate
+            s_end_sec = s_end_samp / sampling_rate
+            
+        else:
+            # has_seconds is True
+            t_p_sec = float(row[t_p_col_seconds])
+            t_s_sec = float(row[t_s_col_seconds])
+            
+            # Compute in seconds (PRIMARY)
+            p_start_sec = max(0.0, t_p_sec - p_hw_sec)
+            p_end_sec = t_p_sec + p_hw_sec
+            
+            s_start_min_sec = p_end_sec + gap
+            s_start_theo_sec = t_s_sec - s_hw_sec
+            s_start_sec = max(s_start_min_sec, s_start_theo_sec, 0.0)
+            s_end_sec = t_s_sec + s_hw_sec
+            
+            # Convert to samples (DERIVED)
+            p_start_samp = int(np.round(p_start_sec * sampling_rate))
+            p_end_samp = int(np.round(p_end_sec * sampling_rate))
+            s_start_samp = int(np.round(s_start_sec * sampling_rate))
+            s_end_samp = int(np.round(s_end_sec * sampling_rate))
         
-        # S window: starts after P ends (with gap) OR at theoretical position
-        s_start_min = p_end + gap  # Earliest S can start
-        s_start_theo = t_s - s_hw  # Theoretical S window start
-        s_start = max(s_start_min, s_start_theo, 0)  # Take later, ensure non-negative
-        s_end = t_s + s_hw
+        # Store BOTH representations
+        p_starts_samples.append(p_start_samp)
+        p_ends_samples.append(p_end_samp)
+        s_starts_samples.append(s_start_samp)
+        s_ends_samples.append(s_end_samp)
         
-        p_starts.append(p_start)
-        p_ends.append(p_end)
-        s_starts.append(s_start)
-        s_ends.append(s_end)
+        p_starts_seconds.append(p_start_sec)
+        p_ends_seconds.append(p_end_sec)
+        s_starts_seconds.append(s_start_sec)
+        s_ends_seconds.append(s_end_sec)
     
-    df_result['p_window_start'] = p_starts
-    df_result['p_window_end'] = p_ends
-    df_result['s_window_start'] = s_starts
-    df_result['s_window_end'] = s_ends
+    # Assign all columns (both representations)
+    df_result['p_window_start_samples'] = p_starts_samples
+    df_result['p_window_end_samples'] = p_ends_samples
+    df_result['s_window_start_samples'] = s_starts_samples
+    df_result['s_window_end_samples'] = s_ends_samples
+    
+    df_result['p_window_start_seconds'] = p_starts_seconds
+    df_result['p_window_end_seconds'] = p_ends_seconds
+    df_result['s_window_start_seconds'] = s_starts_seconds
+    df_result['s_window_end_seconds'] = s_ends_seconds
+    
+    # Legacy columns (for backward compatibility)
+    if unit == 'samples':
+        df_result['p_window_start'] = df_result['p_window_start_samples']
+        df_result['p_window_end'] = df_result['p_window_end_samples']
+        df_result['s_window_start'] = df_result['s_window_start_samples']
+        df_result['s_window_end'] = df_result['s_window_end_samples']
+    else:  # unit == 'seconds'
+        df_result['p_window_start'] = df_result['p_window_start_seconds']
+        df_result['p_window_end'] = df_result['p_window_end_seconds']
+        df_result['s_window_start'] = df_result['s_window_start_seconds']
+        df_result['s_window_end'] = df_result['s_window_end_seconds']
     
     # Print summary
     print(f"Adaptive search windows calculated:")
     print(f"  Distance metric: {distance_col}")
     print(f"  Number of bins: {n_bins}")
-    print(f"  S-P gap: {gap}s")
+    print(f"  S-P gap: {gap}s ({int(np.round(gap * sampling_rate))} samples)")
+    print(f"  Primary unit: {unit}")
+    print(f"  Sampling rate: {sampling_rate} Hz")
     print(f"\nWindow sizing by distance bin:")
     
     for i in range(n_bins):
-        p_hw, s_hw = window_widths[i]
+        p_hw_sec, s_hw_sec = window_widths[i]
+        p_hw_samp = int(np.round(p_hw_sec * sampling_rate))
+        s_hw_samp = int(np.round(s_hw_sec * sampling_rate))
+        
         if i == 0:
             range_str = f"(0, {distance_thresholds[0]:.2f}]"
         elif i == n_bins - 1:
@@ -842,27 +937,30 @@ def calculate_adaptive_windows(df_stations,
             range_str = f"({distance_thresholds[i-1]:.2f}, {distance_thresholds[i]:.2f}]"
         
         n_stations = (df_result['distance_bin'] == i+1).sum()
-        print(f"  Bin {i+1}: {range_str} km → P ±{p_hw}s, S ±{s_hw}s ({n_stations} stations)")
+        print(f"  Bin {i+1}: {range_str} km → "
+              f"P ±{p_hw_sec}s ({p_hw_samp} samp), "
+              f"S ±{s_hw_sec}s ({s_hw_samp} samp) "
+              f"({n_stations} stations)")
     
-    # Summary statistics
+    # Summary statistics (use seconds for display)
     print(f"\nP-wave windows:")
-    print(f"  Start: {df_result['p_window_start'].min():.2f} - "
-          f"{df_result['p_window_start'].max():.2f} s")
-    print(f"  End: {df_result['p_window_end'].min():.2f} - "
-          f"{df_result['p_window_end'].max():.2f} s")
-    print(f"  Width: {(df_result['p_window_end'] - df_result['p_window_start']).min():.2f} - "
-          f"{(df_result['p_window_end'] - df_result['p_window_start']).max():.2f} s")
+    print(f"  Start: {df_result['p_window_start_seconds'].min():.2f} - "
+          f"{df_result['p_window_start_seconds'].max():.2f} s")
+    print(f"  End: {df_result['p_window_end_seconds'].min():.2f} - "
+          f"{df_result['p_window_end_seconds'].max():.2f} s")
+    print(f"  Width: {(df_result['p_window_end_seconds'] - df_result['p_window_start_seconds']).min():.2f} - "
+          f"{(df_result['p_window_end_seconds'] - df_result['p_window_start_seconds']).max():.2f} s")
     
     print(f"\nS-wave windows:")
-    print(f"  Start: {df_result['s_window_start'].min():.2f} - "
-          f"{df_result['s_window_start'].max():.2f} s")
-    print(f"  End: {df_result['s_window_end'].min():.2f} - "
-          f"{df_result['s_window_end'].max():.2f} s")
-    print(f"  Width: {(df_result['s_window_end'] - df_result['s_window_start']).min():.2f} - "
-          f"{(df_result['s_window_end'] - df_result['s_window_start']).max():.2f} s")
+    print(f"  Start: {df_result['s_window_start_seconds'].min():.2f} - "
+          f"{df_result['s_window_start_seconds'].max():.2f} s")
+    print(f"  End: {df_result['s_window_end_seconds'].min():.2f} - "
+          f"{df_result['s_window_end_seconds'].max():.2f} s")
+    print(f"  Width: {(df_result['s_window_end_seconds'] - df_result['s_window_start_seconds']).min():.2f} - "
+          f"{(df_result['s_window_end_seconds'] - df_result['s_window_start_seconds']).max():.2f} s")
     
     # Check for P-S overlap (should be 0 by design)
-    overlaps = (df_result['s_window_start'] < df_result['p_window_end']).sum()
+    overlaps = (df_result['s_window_start_samples'] < df_result['p_window_end_samples']).sum()
     if overlaps > 0:
         print(f"\nWarning: {overlaps}/{len(df_result)} stations have P-S window overlap")
     else:
