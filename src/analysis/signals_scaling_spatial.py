@@ -246,12 +246,11 @@ def compute_spatial_ensemble(
         - 0.5: use first 50% of window (recommended for scaling analysis)
         - 0.3: use first 30% (conservative)
         Values < 1.0 avoid finite-size effects in scaling analysis
-        Use < 1.0 to avoid finite-size effects in scaling analysis
     q_values : np.ndarray, optional
         Moment orders to compute. If None, uses default range [0.5, ..., 5.0]
     sampling_rate : float, optional
         Sampling rate in Hz (default: 200.0)
-     exclude_components : list of str, optional
+    exclude_components : list of str, optional
         Component codes to exclude from ensemble
         
     Returns
@@ -259,7 +258,7 @@ def compute_spatial_ensemble(
     results : dict
         {
             'tau': np.ndarray (n_tau,) - time lags in seconds
-            'tau_indices': np.ndarray (n_tau,) - time lags in samples
+            'tau_samples': np.ndarray (n_tau,) - time lags in sample indices
             'q': np.ndarray (n_q,) - moment orders
             'moments_mean': np.ndarray (n_tau, n_q) - ensemble-averaged moments
             'moments_std': np.ndarray (n_tau, n_q) - std across ensemble
@@ -271,11 +270,23 @@ def compute_spatial_ensemble(
         
     Notes
     -----
+    CRITICAL IMPLEMENTATION DETAIL:
+    Tau values are generated directly in sample space to preserve logarithmic
+    distribution. The workflow is:
+    1. Define tau_min and tau_max in samples
+    2. Generate logarithmic tau array in samples using np.logspace
+    3. Apply np.unique to remove duplicate sample indices
+    4. Convert to seconds ONLY for output (single conversion, no rounding loss)
+    
+    This approach avoids the problem of:
+        seconds → samples → unique → seconds
+    which breaks logarithmic distribution due to rounding artifacts.
+    
     Workflow:
     1. Extract all signals for this window across stations
     2. Find tau_max from shortest window duration
-    3. Generate logarithmic tau vector from tau_min to tau_max
-    4. Compute moments for each signal individually
+    3. Generate logarithmic tau vector from tau_min to tau_max (in SAMPLES)
+    4. Compute moments for each signal individually using sample indices
     5. Average moments across all signals (spatial ensemble)
     
     The number of tau points is automatically adjusted based on the dynamic range:
@@ -286,35 +297,61 @@ def compute_spatial_ensemble(
         q_values = np.array([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5,
                             2.75, 3.0, 3.25, 3.5, 3.75, 4.0, 4.25, 4.5, 4.75, 5.0])
     
+    # Extract signals and get tau_max in seconds
     signals_list, times_list, tau_max_seconds, n_signals = prepare_window_data(
-        windowed_signals, window_name, signal_field=signal_field, exclude_components=exclude_components
+        windowed_signals, window_name, signal_field=signal_field, 
+        exclude_components=exclude_components
     )
 
+    # Apply tau_max_fraction if specified
     if tau_max_fraction is not None:
         if not (0 < tau_max_fraction <= 1):
             raise ValueError("tau_max_fraction must be in (0, 1]")
         tau_max_seconds *= tau_max_fraction
     
+    # Validate tau range
     if tau_max_seconds <= tau_min:
         raise ValueError(
             f"Window '{window_name}' too short: tau_max={tau_max_seconds:.3f}s <= tau_min={tau_min:.3f}s"
         )
     
+    # ===== CRITICAL FIX: Generate tau in SAMPLES, not seconds =====
+    # Convert tau_min and tau_max to samples
+    tau_min_samples = max(1, int(np.round(tau_min * sampling_rate)))
+    tau_max_samples = int(np.floor(tau_max_seconds * sampling_rate))
+    
+    # Validate sample range
+    if tau_max_samples <= tau_min_samples:
+        raise ValueError(
+            f"Insufficient sample range: tau_max_samples={tau_max_samples} <= "
+            f"tau_min_samples={tau_min_samples}"
+        )
+    
+    # Determine number of tau points (if not specified)
     if n_tau is None:
-        n_decades = np.log10(tau_max_seconds / tau_min)
+        n_decades = np.log10(tau_max_samples / tau_min_samples)
         n_tau = max(30, int(n_decades * 20))
     
-    tau_values_seconds = np.logspace(np.log10(tau_min), np.log10(tau_max_seconds), n_tau)
-    tau_indices = np.round(tau_values_seconds * sampling_rate).astype(int)
-    tau_indices = np.unique(tau_indices)
-    tau_values_seconds = tau_indices / sampling_rate
-    n_tau = len(tau_indices)
+    # Generate tau directly in sample space (logarithmic distribution preserved!)
+    tau_samples = np.unique(np.round(
+        np.logspace(np.log10(tau_min_samples), np.log10(tau_max_samples), n_tau)
+    ).astype(int))
     
+    # Convert to seconds ONLY for output (single conversion, no rounding loss)
+    tau_seconds = tau_samples / sampling_rate
+    
+    # Update n_tau after unique() operation
+    n_tau = len(tau_samples)
+    
+    # ===== Compute moments for each signal using sample indices =====
     moments_individual = []
     for signal in signals_list:
-        moments = compute_moments_single_signal(signal, tau_indices, q_values, t0_index=0)
+        moments = compute_moments_single_signal(
+            signal, tau_samples, q_values, t0_index=0
+        )
         moments_individual.append(moments)
     
+    # Stack and compute ensemble statistics
     moments_stack = np.stack(moments_individual, axis=0)
     
     with warnings.catch_warnings():
@@ -323,14 +360,14 @@ def compute_spatial_ensemble(
         moments_std = np.nanstd(moments_stack, axis=0)
     
     results = {
-        'tau': tau_values_seconds,
-        'tau_indices': tau_indices,
+        'tau': tau_seconds,              # For output/plotting (seconds)
+        'tau_samples': tau_samples,      # Primary representation (samples)
         'q': q_values,
         'moments_mean': moments_mean,
         'moments_std': moments_std,
         'moments_individual': moments_individual,
         'n_signals': n_signals,
-        'tau_max': tau_max_seconds,
+        'tau_max': tau_max_seconds,      # For reference (seconds)
         'window_name': window_name
     }
     
@@ -602,11 +639,12 @@ def save_results_parquet(
                  n_signals, tau_min, tau_max, n_tau
                  
     ensemble_spatial_moments_{window}.parquet (one per window):
-        Columns: tau, q, moment_mean, moment_std, n_signals
+        Columns: tau, tau_samples, q, moment_mean, moment_std, n_signals
         
     Notes
     -----
     Uses long format (one row per tau-q combination) for easy filtering and plotting.
+    Both tau (seconds) and tau_samples (sample indices) are saved for dual representation.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -620,30 +658,41 @@ def save_results_parquet(
         ensemble = window_results['ensemble']
         scaling = window_results['scaling']
         
-        tau = ensemble['tau']
+        tau = ensemble['tau']  # seconds
+        tau_samples = ensemble.get('tau_samples', None)  # samples (if available)
         q_values = ensemble['q']
         n_signals = ensemble['n_signals']
         tau_min = tau.min()
         tau_max = tau.max()
         n_tau = len(tau)
         
+        # ===== MOMENTS FILE (detailed data) =====
         moments_rows = []
         
         for i, tau_val in enumerate(tau):
+            tau_samp = tau_samples[i] if tau_samples is not None else None
+            
             for j, q_val in enumerate(q_values):
-                moments_rows.append({
+                row = {
                     'tau': tau_val,
                     'q': q_val,
                     'moment_mean': ensemble['moments_mean'][i, j],
                     'moment_std': ensemble['moments_std'][i, j],
                     'n_signals': n_signals
-                })
+                }
+                
+                # Add tau_samples if available
+                if tau_samp is not None:
+                    row['tau_samples'] = tau_samp
+                
+                moments_rows.append(row)
         
         df_moments = pd.DataFrame(moments_rows)
         moments_file = output_dir / f'ensemble_spatial_moments_{window_name}.parquet'
         df_moments.to_parquet(moments_file, index=False)
         print(f"Saved: {moments_file}")
         
+        # ===== SUMMARY FILE (scaling exponents) =====
         for j, q_val in enumerate(q_values):
             summary_rows.append({
                 'window': window_name,
@@ -696,7 +745,8 @@ def analyze_single_signal(
     -------
     results : dict
         {
-            'tau': array of time lags,
+            'tau': array of time lags (seconds),
+            'tau_samples': array of time lags (sample indices),
             'q': array of moment orders,
             'moments': moments M_q(tau), shape (n_tau, n_q),
             'zeta': scaling exponents,
@@ -705,36 +755,61 @@ def analyze_single_signal(
             'r_squared': R² values,
             'n_points': number of points in each fit
         }
+        
+    Notes
+    -----
+    Tau values are generated directly in sample space to preserve logarithmic
+    distribution, then converted to seconds for output. This avoids rounding
+    artifacts from seconds → samples → seconds conversion.
     """
     if q_values is None:
         q_values = np.array([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5,
                             2.75, 3.0, 3.25, 3.5, 3.75, 4.0, 4.25, 4.5, 4.75, 5.0])
     
-    # Calcola tau
+    # Calculate signal duration
     dt = 1.0 / sampling_rate
     duration = len(signal) * dt
     
+    # Determine tau_max
     if tau_max_fraction is None:
         tau_max_seconds = duration
     else:
         tau_max_seconds = tau_max_fraction * duration
     
     if tau_max_seconds <= tau_min:
-        raise ValueError(f"Signal too short: tau_max={tau_max_seconds:.3f}s <= tau_min={tau_min:.3f}s")
+        raise ValueError(
+            f"Signal too short: tau_max={tau_max_seconds:.3f}s <= tau_min={tau_min:.3f}s"
+        )
     
+    # ===== CRITICAL FIX: Generate tau in SAMPLES, not seconds =====
+    # Convert tau_min and tau_max to samples
+    tau_min_samples = max(1, int(np.round(tau_min * sampling_rate)))
+    tau_max_samples = int(np.floor(tau_max_seconds * sampling_rate))
+    
+    # Validate sample range
+    if tau_max_samples <= tau_min_samples:
+        raise ValueError(
+            f"Insufficient sample range: tau_max_samples={tau_max_samples} <= "
+            f"tau_min_samples={tau_min_samples}"
+        )
+    
+    # Determine number of tau points (if not specified)
     if n_tau is None:
-        n_decades = np.log10(tau_max_seconds / tau_min)
+        n_decades = np.log10(tau_max_samples / tau_min_samples)
         n_tau = max(30, int(n_decades * 20))
     
-    tau_values_seconds = np.logspace(np.log10(tau_min), np.log10(tau_max_seconds), n_tau)
-    tau_indices = np.round(tau_values_seconds * sampling_rate).astype(int)
-    tau_indices = np.unique(tau_indices)
-    tau_values_seconds = tau_indices / sampling_rate
+    # Generate tau directly in sample space (logarithmic distribution preserved!)
+    tau_samples = np.unique(np.round(
+        np.logspace(np.log10(tau_min_samples), np.log10(tau_max_samples), n_tau)
+    ).astype(int))
     
-    # Calcola momenti
-    moments = compute_moments_single_signal(signal, tau_indices, q_values, t0_index=0)
+    # Convert to seconds ONLY for output (single conversion, no rounding loss)
+    tau_seconds = tau_samples / sampling_rate
     
-    # Fit per ogni q
+    # ===== Compute moments using sample indices =====
+    moments = compute_moments_single_signal(signal, tau_samples, q_values, t0_index=0)
+    
+    # ===== Fit scaling exponents for each q =====
     zeta = np.zeros(len(q_values))
     zeta_err = np.zeros(len(q_values))
     intercepts = np.zeros(len(q_values))
@@ -754,7 +829,7 @@ def analyze_single_signal(
             continue
         
         slope, intercept, r_value, p_value, std_err = stats.linregress(
-            np.log10(tau_values_seconds[valid]),
+            np.log10(tau_seconds[valid]),
             np.log10(M_q[valid])
         )
         
@@ -765,7 +840,8 @@ def analyze_single_signal(
         n_points[i] = valid.sum()
     
     results = {
-        'tau': tau_values_seconds,
+        'tau': tau_seconds,        # For output/plotting (seconds)
+        'tau_samples': tau_samples, # Primary representation (samples)
         'q': q_values,
         'moments': moments,
         'zeta': zeta,
