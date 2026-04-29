@@ -11,7 +11,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def check_pga_in_s_wave(df_metadata, station, component, coda_method='rautian'):
+def check_pga_in_s_wave(df_metadata, station, component, coda_method='rautian', 
+                        sampling_rate=200):
     """
     Check if PGA occurs in S-wave window using only metadata.
     
@@ -19,12 +20,21 @@ def check_pga_in_s_wave(df_metadata, station, component, coda_method='rautian'):
     ----------
     df_metadata : pd.DataFrame
         Metadata with onset times and PGA info
+        Expected columns (dual representation with auto-detection):
+        - t_p_detected_seconds, t_p_detected_samples (or legacy t_p_detected)
+        - t_s_detected_seconds, t_s_detected_samples (or legacy t_s_detected)
+        - t_coda_<method>_seconds, t_coda_<method>_samples (or legacy t_coda_<method>)
+        - TIME_PGA_S, PGA_CM/S^2, STATION_CODE, COMPONENT
     station : str
         Station code
     component : str
         Component name
-    coda_method : str
+    coda_method : str, optional
         Which coda method to use: 'rautian', 'arias', 'envelope', 'median'
+        (default: 'rautian')
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200)
+        Only used if converting samples to seconds
     
     Returns
     -------
@@ -35,6 +45,11 @@ def check_pga_in_s_wave(df_metadata, station, component, coda_method='rautian'):
             'pga_value': float,
             'pga_time': float
         }
+    
+    Notes
+    -----
+    All times are compared in seconds for physical interpretation.
+    Auto-detects whether input columns use _seconds, _samples, or legacy naming.
     """
     mask = (df_metadata['STATION_CODE'] == station) & \
            (df_metadata['COMPONENT'] == component)
@@ -49,13 +64,54 @@ def check_pga_in_s_wave(df_metadata, station, component, coda_method='rautian'):
     
     row = df_metadata[mask].iloc[0]
     
+    # PGA time is always in seconds (from raw data)
     pga_time = row['TIME_PGA_S']
     pga_value = row['PGA_CM/S^2']
-    t_p = row['t_p_detected']
-    t_s = row['t_s_detected']
-    t_coda = row[f't_coda_{coda_method}']
     
-    # Determine window
+    # ===== AUTO-DETECT t_p (prefer seconds, fallback samples, then legacy) =====
+    if 't_p_detected_seconds' in df_metadata.columns:
+        t_p = row['t_p_detected_seconds']
+    elif 't_p_detected_samples' in df_metadata.columns:
+        t_p = row['t_p_detected_samples'] / sampling_rate
+    elif 't_p_detected' in df_metadata.columns:
+        t_p = row['t_p_detected']
+    else:
+        raise ValueError(
+            "No t_p_detected column found. Expected 't_p_detected_seconds', "
+            "'t_p_detected_samples', or 't_p_detected'"
+        )
+    
+    # ===== AUTO-DETECT t_s (prefer seconds, fallback samples, then legacy) =====
+    if 't_s_detected_seconds' in df_metadata.columns:
+        t_s = row['t_s_detected_seconds']
+    elif 't_s_detected_samples' in df_metadata.columns:
+        t_s = row['t_s_detected_samples'] / sampling_rate
+    elif 't_s_detected' in df_metadata.columns:
+        t_s = row['t_s_detected']
+    else:
+        raise ValueError(
+            "No t_s_detected column found. Expected 't_s_detected_seconds', "
+            "'t_s_detected_samples', or 't_s_detected'"
+        )
+    
+    # ===== AUTO-DETECT t_coda (prefer seconds, fallback samples, then legacy) =====
+    coda_col_seconds = f't_coda_{coda_method}_seconds'
+    coda_col_samples = f't_coda_{coda_method}_samples'
+    coda_col_legacy = f't_coda_{coda_method}'
+    
+    if coda_col_seconds in df_metadata.columns:
+        t_coda = row[coda_col_seconds]
+    elif coda_col_samples in df_metadata.columns:
+        t_coda = row[coda_col_samples] / sampling_rate
+    elif coda_col_legacy in df_metadata.columns:
+        t_coda = row[coda_col_legacy]
+    else:
+        raise ValueError(
+            f"No t_coda column found for method '{coda_method}'. "
+            f"Expected '{coda_col_seconds}', '{coda_col_samples}', or '{coda_col_legacy}'"
+        )
+    
+    # Determine window (all times now in seconds)
     if pga_time < t_p:
         pga_window = 'pre_event'
     elif t_p <= pga_time < t_s:
@@ -72,8 +128,7 @@ def check_pga_in_s_wave(df_metadata, station, component, coda_method='rautian'):
         'pga_time': pga_time
     }
 
-
-def check_monotonicity_station(df_meta_stations, station, phase='p'):
+def check_monotonicity_station(df_meta_stations, station, phase='p', sampling_rate=200):
     """
     Check if arrival time is monotonic with distance for this station.
     
@@ -92,12 +147,16 @@ def check_monotonicity_station(df_meta_stations, station, phase='p'):
         Must contain: 
         - 'STATION_CODE': Station identifier
         - 'hypocentral_distance_km': 3D distance from hypocenter to station
-        - 't_p_detected': Detected P-wave arrival time (s)
-        - 't_s_detected': Detected S-wave arrival time (s)
+        - Detected arrivals (dual representation with auto-detection):
+          * t_p_detected_seconds, t_p_detected_samples (or legacy t_p_detected)
+          * t_s_detected_seconds, t_s_detected_samples (or legacy t_s_detected)
     station : str
         Station code to validate
     phase : str, optional
         Phase to validate: 'p' or 's' (default: 'p')
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200)
+        Only used if converting samples to seconds
     
     Returns
     -------
@@ -106,9 +165,9 @@ def check_monotonicity_station(df_meta_stations, station, phase='p'):
         - 'passed': bool - True if monotonicity check passed
         - 'position': int - Position in distance-sorted list (0 = closest)
         - 'n_stations': int - Total number of stations
-        - 't_prev': float or None - Arrival time at previous (closer) station
-        - 't_this': float - Arrival time at this station
-        - 't_next': float or None - Arrival time at next (farther) station
+        - 't_prev': float or None - Arrival time at previous (closer) station (seconds)
+        - 't_this': float - Arrival time at this station (seconds)
+        - 't_next': float or None - Arrival time at next (farther) station (seconds)
         - 'violation_side': str or None - 'prev', 'next', or None
         - 'd_prev': float or None - Distance of previous station (km)
         - 'd_this': float - Distance of this station (km)
@@ -120,6 +179,9 @@ def check_monotonicity_station(df_meta_stations, station, phase='p'):
     - Seismic waves propagate outward from hypocenter
     - Farther stations receive arrivals later than closer ones
     - Hypocentral distance (not epicentral) determines arrival order
+    
+    All times are compared in seconds for physical interpretation.
+    Auto-detects whether input columns use _seconds, _samples, or legacy naming.
     
     Violations may indicate:
     - Picking errors (misidentified phases)
@@ -133,18 +195,39 @@ def check_monotonicity_station(df_meta_stations, station, phase='p'):
     ...     print(f"Monotonicity violation on {result['violation_side']} side")
     ...     print(f"This station: t={result['t_this']:.2f}s, d={result['d_this']:.2f}km")
     """
-    # Validate inputs
-    required_cols = ['STATION_CODE', 'hypocentral_distance_km', 
-                     f't_{phase}_detected']
+    # Validate phase input
+    if phase not in ['p', 's']:
+        raise ValueError(f"phase must be 'p' or 's', got '{phase}'")
+    
+    # ===== AUTO-DETECT COLUMN NAMES =====
+    # Determine which detected arrival column to use
+    col_seconds = f't_{phase}_detected_seconds'
+    col_samples = f't_{phase}_detected_samples'
+    col_legacy = f't_{phase}_detected'
+    
+    if col_seconds in df_meta_stations.columns:
+        time_col = col_seconds
+        needs_conversion = False
+    elif col_samples in df_meta_stations.columns:
+        time_col = col_samples
+        needs_conversion = True
+    elif col_legacy in df_meta_stations.columns:
+        time_col = col_legacy
+        needs_conversion = False  # Assume legacy is seconds
+    else:
+        raise ValueError(
+            f"No {phase}-wave detected arrival column found. "
+            f"Expected '{col_seconds}', '{col_samples}', or '{col_legacy}'"
+        )
+    
+    # Validate required columns
+    required_cols = ['STATION_CODE', 'hypocentral_distance_km', time_col]
     missing = [col for col in required_cols if col not in df_meta_stations.columns]
     if missing:
         raise ValueError(
             f"Missing required columns: {missing}. "
             f"Ensure add_theoretical_arrivals() and phase detection have been run."
         )
-    
-    if phase not in ['p', 's']:
-        raise ValueError(f"phase must be 'p' or 's', got '{phase}'")
     
     if station not in df_meta_stations['STATION_CODE'].values:
         raise ValueError(f"Station '{station}' not found in DataFrame")
@@ -156,20 +239,33 @@ def check_monotonicity_station(df_meta_stations, station, phase='p'):
     idx = df_sorted[df_sorted['STATION_CODE'] == station].index[0]
     n_stations = len(df_sorted)
     
+    # ===== GET ARRIVAL TIMES (convert to seconds if needed) =====
+    def get_time_seconds(row_idx):
+        """Extract time in seconds from row, converting if necessary."""
+        if row_idx is None:
+            return None
+        t = df_sorted.loc[row_idx, time_col]
+        if pd.isna(t):
+            return None
+        if needs_conversion:
+            return float(t) / sampling_rate
+        else:
+            return float(t)
+    
     # Get arrival time and distance for this station
-    t_this = df_sorted.loc[idx, f't_{phase}_detected']
+    t_this = get_time_seconds(idx)
     d_this = df_sorted.loc[idx, 'hypocentral_distance_km']
     
     # Get neighbors (previous = closer, next = farther)
     if idx > 0:
-        t_prev = df_sorted.loc[idx - 1, f't_{phase}_detected']
+        t_prev = get_time_seconds(idx - 1)
         d_prev = df_sorted.loc[idx - 1, 'hypocentral_distance_km']
     else:
         t_prev = None
         d_prev = None
     
     if idx < n_stations - 1:
-        t_next = df_sorted.loc[idx + 1, f't_{phase}_detected']
+        t_next = get_time_seconds(idx + 1)
         d_next = df_sorted.loc[idx + 1, 'hypocentral_distance_km']
     else:
         t_next = None
@@ -568,7 +664,7 @@ def print_detailed_failures(qc_results):
 # ========================== Monotonicity Violation Analysis ===================================
 # ===============================================================================================
 
-def analyze_monotonicity_violations(df_meta_stations, phase='p'):
+def analyze_monotonicity_violations(df_meta_stations, phase='p', sampling_rate=200):
     """
     Analyze all monotonicity violations for a given phase.
     
@@ -582,33 +678,45 @@ def analyze_monotonicity_violations(df_meta_stations, phase='p'):
     ----------
     df_meta_stations : pd.DataFrame
         Station-level metadata with columns:
-        'STATION_CODE', 'hypocentral_distance_km', 
-        't_p_detected', 't_s_detected', 't_p_theo', 't_s_theo',
-        'p_residual', 's_residual'
+        - 'STATION_CODE', 'hypocentral_distance_km'
+        - Detected arrivals (dual representation with auto-detection):
+          * t_p_detected_seconds, t_p_detected_samples (or legacy t_p_detected)
+          * t_s_detected_seconds, t_s_detected_samples (or legacy t_s_detected)
+        - Theoretical arrivals:
+          * t_p_theo_seconds, t_p_theo_samples (or legacy t_p_theo)
+          * t_s_theo_seconds, t_s_theo_samples (or legacy t_s_theo)
+        - Residuals:
+          * p_residual_seconds, s_residual_seconds (or legacy p_residual, s_residual)
     phase : str
         'p' or 's'
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200)
+        Only used if converting samples to seconds
     
     Returns
     -------
     pd.DataFrame
-        Detailed violation report with columns:
+        Detailed violation report with columns (all times in seconds):
         - station: station code
         - distance_km: hypocentral distance
-        - t_detected: detected arrival time
-        - t_theo: theoretical arrival time
-        - residual: t_detected - t_theo
+        - t_detected: detected arrival time (s)
+        - t_theo: theoretical arrival time (s)
+        - residual: t_detected - t_theo (s)
         - prev_station: previous station code
         - prev_distance: previous station hypocentral distance
-        - prev_t_detected: previous station time
-        - prev_residual: previous station residual
+        - prev_t_detected: previous station time (s)
+        - prev_residual: previous station residual (s)
         - next_station: next station code
         - next_distance: next station hypocentral distance
-        - next_t_detected: next station time
-        - next_residual: next station residual
+        - next_t_detected: next station time (s)
+        - next_residual: next station residual (s)
         - violation_type: 'prev', 'next', 'prev+next'
     
     Notes
     -----
+    All times are reported in seconds for physical interpretation.
+    Auto-detects whether input columns use _seconds, _samples, or legacy naming.
+    
     Stations are sorted by hypocentral distance (3D distance from hypocenter)
     to reflect the actual wave propagation path. Monotonicity violations may
     indicate picking errors, strong lateral velocity heterogeneities, or
@@ -627,10 +735,67 @@ def analyze_monotonicity_violations(df_meta_stations, phase='p'):
     >>> # Violations by type
     >>> print(violations_p['violation_type'].value_counts())
     """
-    # Validate inputs
-    required_cols = ['STATION_CODE', 'hypocentral_distance_km',
-                     f't_{phase}_detected', f't_{phase}_theo', 
-                     f'{phase}_residual']
+    # Validate phase
+    if phase not in ['p', 's']:
+        raise ValueError(f"phase must be 'p' or 's', got '{phase}'")
+    
+    # ===== AUTO-DETECT COLUMN NAMES =====
+    # Detected arrival time
+    det_col_seconds = f't_{phase}_detected_seconds'
+    det_col_samples = f't_{phase}_detected_samples'
+    det_col_legacy = f't_{phase}_detected'
+    
+    if det_col_seconds in df_meta_stations.columns:
+        det_col = det_col_seconds
+        det_needs_conversion = False
+    elif det_col_samples in df_meta_stations.columns:
+        det_col = det_col_samples
+        det_needs_conversion = True
+    elif det_col_legacy in df_meta_stations.columns:
+        det_col = det_col_legacy
+        det_needs_conversion = False
+    else:
+        raise ValueError(
+            f"No {phase}-wave detected arrival column found. "
+            f"Expected '{det_col_seconds}', '{det_col_samples}', or '{det_col_legacy}'"
+        )
+    
+    # Theoretical arrival time
+    theo_col_seconds = f't_{phase}_theo_seconds'
+    theo_col_samples = f't_{phase}_theo_samples'
+    theo_col_legacy = f't_{phase}_theo'
+    
+    if theo_col_seconds in df_meta_stations.columns:
+        theo_col = theo_col_seconds
+        theo_needs_conversion = False
+    elif theo_col_samples in df_meta_stations.columns:
+        theo_col = theo_col_samples
+        theo_needs_conversion = True
+    elif theo_col_legacy in df_meta_stations.columns:
+        theo_col = theo_col_legacy
+        theo_needs_conversion = False
+    else:
+        raise ValueError(
+            f"No {phase}-wave theoretical arrival column found. "
+            f"Expected '{theo_col_seconds}', '{theo_col_samples}', or '{theo_col_legacy}'"
+        )
+    
+    # Residual
+    res_col_seconds = f'{phase}_residual_seconds'
+    res_col_legacy = f'{phase}_residual'
+    
+    if res_col_seconds in df_meta_stations.columns:
+        res_col = res_col_seconds
+    elif res_col_legacy in df_meta_stations.columns:
+        res_col = res_col_legacy
+    else:
+        raise ValueError(
+            f"No {phase}-wave residual column found. "
+            f"Expected '{res_col_seconds}' or '{res_col_legacy}'"
+        )
+    
+    # Validate required columns
+    required_cols = ['STATION_CODE', 'hypocentral_distance_km', det_col, theo_col, res_col]
     missing = [col for col in required_cols if col not in df_meta_stations.columns]
     if missing:
         raise ValueError(
@@ -638,28 +803,36 @@ def analyze_monotonicity_violations(df_meta_stations, phase='p'):
             f"Ensure add_theoretical_arrivals() and phase detection have been run."
         )
     
-    if phase not in ['p', 's']:
-        raise ValueError(f"phase must be 'p' or 's', got '{phase}'")
-    
     # Sort by hypocentral distance (physical arrival order)
     df_sorted = df_meta_stations.sort_values('hypocentral_distance_km').reset_index(drop=True)
+    
+    # Helper function to get time in seconds
+    def get_time_seconds(value, needs_conversion):
+        """Convert time to seconds if necessary."""
+        if pd.isna(value):
+            return None
+        if needs_conversion:
+            return float(value) / sampling_rate
+        else:
+            return float(value)
     
     violations = []
     
     for idx in range(len(df_sorted)):
         station = df_sorted.loc[idx, 'STATION_CODE']
         distance = df_sorted.loc[idx, 'hypocentral_distance_km']
-        t_detected = df_sorted.loc[idx, f't_{phase}_detected']
-        t_theo = df_sorted.loc[idx, f't_{phase}_theo']
-        residual = df_sorted.loc[idx, f'{phase}_residual']
+        
+        t_detected = get_time_seconds(df_sorted.loc[idx, det_col], det_needs_conversion)
+        t_theo = get_time_seconds(df_sorted.loc[idx, theo_col], theo_needs_conversion)
+        residual = df_sorted.loc[idx, res_col]  # Residuals always in seconds
         
         # Previous station (closer to hypocenter)
         if idx > 0:
             prev_station = df_sorted.loc[idx - 1, 'STATION_CODE']
             prev_distance = df_sorted.loc[idx - 1, 'hypocentral_distance_km']
-            prev_t = df_sorted.loc[idx - 1, f't_{phase}_detected']
-            prev_t_theo = df_sorted.loc[idx - 1, f't_{phase}_theo']
-            prev_residual = df_sorted.loc[idx - 1, f'{phase}_residual']
+            prev_t = get_time_seconds(df_sorted.loc[idx - 1, det_col], det_needs_conversion)
+            prev_t_theo = get_time_seconds(df_sorted.loc[idx - 1, theo_col], theo_needs_conversion)
+            prev_residual = df_sorted.loc[idx - 1, res_col]
         else:
             prev_station = None
             prev_distance = None
@@ -671,9 +844,9 @@ def analyze_monotonicity_violations(df_meta_stations, phase='p'):
         if idx < len(df_sorted) - 1:
             next_station = df_sorted.loc[idx + 1, 'STATION_CODE']
             next_distance = df_sorted.loc[idx + 1, 'hypocentral_distance_km']
-            next_t = df_sorted.loc[idx + 1, f't_{phase}_detected']
-            next_t_theo = df_sorted.loc[idx + 1, f't_{phase}_theo']
-            next_residual = df_sorted.loc[idx + 1, f'{phase}_residual']
+            next_t = get_time_seconds(df_sorted.loc[idx + 1, det_col], det_needs_conversion)
+            next_t_theo = get_time_seconds(df_sorted.loc[idx + 1, theo_col], theo_needs_conversion)
+            next_residual = df_sorted.loc[idx + 1, res_col]
         else:
             next_station = None
             next_distance = None
@@ -717,12 +890,10 @@ def analyze_monotonicity_violations(df_meta_stations, phase='p'):
         print(f"  Total violations: {len(df_violations)}/{len(df_sorted)} stations")
         print(f"  Violation types:")
         print(df_violations['violation_type'].value_counts().to_string())
-        print(f"\nMost problematic stations (by |residual|):")
+        print(f"\n  Most problematic stations (by |residual|):")
         
-        # Create temporary column for sorting by absolute residual
-        df_violations_temp = df_violations.copy()
-        df_violations_temp['abs_residual'] = df_violations_temp['residual'].abs()
-        top3 = df_violations_temp.nlargest(3, 'abs_residual')[
+        # Sort by absolute residual and show top 3
+        top3 = df_violations.nlargest(3, df_violations['residual'].abs().values)[
             ['station', 'distance_km', 't_detected', 't_theo', 'residual']
         ]
         print(top3.to_string(index=False))
@@ -794,9 +965,8 @@ def print_violation_summary(df_violations, phase='p'):
     
     print("\n" + "="*80)
 
-
 def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violations_s=None,
-                               figsize=(16, 6), output_path=None):
+                               figsize=(16, 6), output_path=None, sampling_rate=200):
     """
     Plot distance vs arrival time showing monotonicity violations.
     
@@ -810,8 +980,13 @@ def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violat
     ----------
     df_meta_stations : pd.DataFrame
         Station-level metadata with columns:
-        'hypocentral_distance_km', 't_p_detected', 't_s_detected',
-        't_p_theo', 't_s_theo', 'STATION_CODE'
+        - 'hypocentral_distance_km', 'STATION_CODE'
+        - Detected arrivals (dual representation with auto-detection):
+          * t_p_detected_seconds, t_p_detected_samples (or legacy t_p_detected)
+          * t_s_detected_seconds, t_s_detected_samples (or legacy t_s_detected)
+        - Theoretical arrivals (optional):
+          * t_p_theo_seconds, t_p_theo_samples (or legacy t_p_theo)
+          * t_s_theo_seconds, t_s_theo_samples (or legacy t_s_theo)
     df_violations_p : pd.DataFrame, optional
         P-wave violations from analyze_monotonicity_violations()
     df_violations_s : pd.DataFrame, optional
@@ -820,6 +995,9 @@ def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violat
         Figure size (default: (16, 6))
     output_path : str or Path, optional
         If provided, save figure to this path
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200)
+        Only used if converting samples to seconds for plotting
     
     Returns
     -------
@@ -827,6 +1005,9 @@ def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violat
     
     Notes
     -----
+    All times are plotted in seconds for physical interpretation.
+    Auto-detects whether input columns use _seconds, _samples, or legacy naming.
+    
     Plots use hypocentral distance (3D distance from hypocenter to station)
     on the x-axis, reflecting the actual wave propagation path. This provides
     a more physically meaningful representation than epicentral distance,
@@ -867,8 +1048,24 @@ def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violat
         ('p', df_violations_p, axes[0]),
         ('s', df_violations_s, axes[1])
     ]):
-        # Check if required columns exist for this phase
-        if f't_{phase}_detected' not in df_sorted.columns:
+        # ===== AUTO-DETECT DETECTED ARRIVAL COLUMN =====
+        det_col_seconds = f't_{phase}_detected_seconds'
+        det_col_samples = f't_{phase}_detected_samples'
+        det_col_legacy = f't_{phase}_detected'
+        
+        detected_col = None
+        detected_needs_conversion = False
+        
+        if det_col_seconds in df_sorted.columns:
+            detected_col = det_col_seconds
+        elif det_col_samples in df_sorted.columns:
+            detected_col = det_col_samples
+            detected_needs_conversion = True
+        elif det_col_legacy in df_sorted.columns:
+            detected_col = det_col_legacy
+        
+        # Check if detected data exists
+        if detected_col is None:
             ax.text(0.5, 0.5, f'No {phase.upper()}-wave data available',
                    ha='center', va='center', transform=ax.transAxes,
                    fontsize=12, color='gray')
@@ -877,15 +1074,42 @@ def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violat
             ax.set_title(f'{phase.upper()}-wave Monotonicity', fontsize=13, fontweight='bold')
             continue
         
+        # Get detected times in seconds
+        if detected_needs_conversion:
+            detected_times = df_sorted[detected_col].values / sampling_rate
+        else:
+            detected_times = df_sorted[detected_col].values
+        
         # Plot detected arrivals
         ax.scatter(df_sorted['hypocentral_distance_km'],
-                  df_sorted[f't_{phase}_detected'],
+                  detected_times,
                   label='Detected', alpha=0.7, s=50, color='steelblue')
         
-        # Plot theoretical arrivals (if available)
-        if f't_{phase}_theo' in df_sorted.columns:
+        # ===== AUTO-DETECT THEORETICAL ARRIVAL COLUMN (OPTIONAL) =====
+        theo_col_seconds = f't_{phase}_theo_seconds'
+        theo_col_samples = f't_{phase}_theo_samples'
+        theo_col_legacy = f't_{phase}_theo'
+        
+        theo_col = None
+        theo_needs_conversion = False
+        
+        if theo_col_seconds in df_sorted.columns:
+            theo_col = theo_col_seconds
+        elif theo_col_samples in df_sorted.columns:
+            theo_col = theo_col_samples
+            theo_needs_conversion = True
+        elif theo_col_legacy in df_sorted.columns:
+            theo_col = theo_col_legacy
+        
+        # Plot theoretical arrivals if available
+        if theo_col is not None:
+            if theo_needs_conversion:
+                theo_times = df_sorted[theo_col].values / sampling_rate
+            else:
+                theo_times = df_sorted[theo_col].values
+            
             ax.plot(df_sorted['hypocentral_distance_km'],
-                   df_sorted[f't_{phase}_theo'],
+                   theo_times,
                    'r--', label='Theoretical', linewidth=2, alpha=0.7)
         
         # Highlight violations
@@ -893,8 +1117,14 @@ def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violat
             violation_stations = df_viol['station'].values
             df_viol_plot = df_sorted[df_sorted['STATION_CODE'].isin(violation_stations)]
             
+            # Get violation times in seconds
+            if detected_needs_conversion:
+                viol_times = df_viol_plot[detected_col].values / sampling_rate
+            else:
+                viol_times = df_viol_plot[detected_col].values
+            
             ax.scatter(df_viol_plot['hypocentral_distance_km'],
-                      df_viol_plot[f't_{phase}_detected'],
+                      viol_times,
                       color='red', s=150, marker='x', linewidth=3,
                       label=f'Violations ({len(df_viol)})', zorder=5)
         
@@ -928,8 +1158,9 @@ def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violat
     ----------
     df_meta_stations : pd.DataFrame
         Station-level metadata with columns:
-        'STATION_CODE', 'hypocentral_distance_km', 
-        'p_residual', 's_residual'
+        - 'STATION_CODE', 'hypocentral_distance_km'
+        - Residuals (dual representation with auto-detection):
+          * p_residual_seconds, s_residual_seconds (or legacy p_residual, s_residual)
     df_violations_p : pd.DataFrame
         P-wave violations from analyze_monotonicity_violations()
     df_violations_s : pd.DataFrame
@@ -945,6 +1176,9 @@ def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violat
     -----
     Residuals are defined as: residual = t_detected - t_theo
     Positive residuals indicate late arrivals relative to the 1D velocity model.
+    
+    All residuals are plotted in seconds for physical interpretation.
+    Auto-detects whether input columns use _seconds suffix or legacy naming.
     
     Hypocentral distance is used on the x-axis to reflect the actual wave
     propagation distance from source to station.
@@ -962,8 +1196,37 @@ def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violat
     """
     import matplotlib.pyplot as plt
     
-    # Validate inputs
-    required_cols = ['STATION_CODE', 'hypocentral_distance_km', 'p_residual', 's_residual']
+    # ===== AUTO-DETECT RESIDUAL COLUMNS =====
+    # P-wave residual
+    p_res_col_seconds = 'p_residual_seconds'
+    p_res_col_legacy = 'p_residual'
+    
+    if p_res_col_seconds in df_meta_stations.columns:
+        p_res_col = p_res_col_seconds
+    elif p_res_col_legacy in df_meta_stations.columns:
+        p_res_col = p_res_col_legacy
+    else:
+        raise ValueError(
+            f"No P-wave residual column found. "
+            f"Expected '{p_res_col_seconds}' or '{p_res_col_legacy}'"
+        )
+    
+    # S-wave residual
+    s_res_col_seconds = 's_residual_seconds'
+    s_res_col_legacy = 's_residual'
+    
+    if s_res_col_seconds in df_meta_stations.columns:
+        s_res_col = s_res_col_seconds
+    elif s_res_col_legacy in df_meta_stations.columns:
+        s_res_col = s_res_col_legacy
+    else:
+        raise ValueError(
+            f"No S-wave residual column found. "
+            f"Expected '{s_res_col_seconds}' or '{s_res_col_legacy}'"
+        )
+    
+    # Validate required columns
+    required_cols = ['STATION_CODE', 'hypocentral_distance_km', p_res_col, s_res_col]
     missing = [col for col in required_cols if col not in df_meta_stations.columns]
     if missing:
         raise ValueError(
@@ -973,7 +1236,13 @@ def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violat
     
     fig, axes = plt.subplots(2, 2, figsize=figsize)
     
+    # Map phase to residual column
+    residual_cols = {'p': p_res_col, 's': s_res_col}
+    
     for col_idx, (phase, df_viol) in enumerate([('p', df_violations_p), ('s', df_violations_s)]):
+        # Get the appropriate residual column for this phase
+        res_col = residual_cols[phase]
+        
         # Identify violation stations
         violation_stations = set(df_viol['station'].values) if len(df_viol) > 0 else set()
         
@@ -982,8 +1251,8 @@ def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violat
         df_meta_stations_copy['has_violation'] = df_meta_stations_copy['STATION_CODE'].isin(violation_stations)
         
         # Separate residuals by violation status
-        residuals_ok = df_meta_stations_copy[~df_meta_stations_copy['has_violation']][f'{phase}_residual']
-        residuals_viol = df_meta_stations_copy[df_meta_stations_copy['has_violation']][f'{phase}_residual']
+        residuals_ok = df_meta_stations_copy[~df_meta_stations_copy['has_violation']][res_col]
+        residuals_viol = df_meta_stations_copy[df_meta_stations_copy['has_violation']][res_col]
         
         # Top row: Histogram of residuals
         ax_hist = axes[0, col_idx]
@@ -1012,7 +1281,7 @@ def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violat
         mask_ok = ~df_meta_stations_copy['has_violation']
         ax_scatter.scatter(
             df_meta_stations_copy[mask_ok]['hypocentral_distance_km'],
-            df_meta_stations_copy[mask_ok][f'{phase}_residual'],
+            df_meta_stations_copy[mask_ok][res_col],
             alpha=0.6, s=50, label='No violation', color='steelblue'
         )
         
@@ -1021,7 +1290,7 @@ def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violat
             mask_viol = df_meta_stations_copy['has_violation']
             ax_scatter.scatter(
                 df_meta_stations_copy[mask_viol]['hypocentral_distance_km'],
-                df_meta_stations_copy[mask_viol][f'{phase}_residual'],
+                df_meta_stations_copy[mask_viol][res_col],
                 alpha=0.8, s=100, marker='x', linewidth=2, 
                 label='Violation', color='red', zorder=5
             )
@@ -1031,7 +1300,7 @@ def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violat
         
         ax_scatter.set_xlabel('Hypocentral Distance (km)', fontsize=11)
         ax_scatter.set_ylabel(f'{phase.upper()}-wave residual (s)', fontsize=11)
-        ax_scatter.set_title(f'{phase.upper()}-wave: Residuals vs Distance', fontsize=12, fontweight='bold')
+        ax_scatter.set_title(f'{phase.UP()}-wave: Residuals vs Distance', fontsize=12, fontweight='bold')
         ax_scatter.legend(fontsize=9)
         ax_scatter.grid(True, alpha=0.3)
     
