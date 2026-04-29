@@ -84,6 +84,7 @@ from .segmentation.theoretical_arrivals import (
     extract_crustal_velocities,
     add_crustal_velocities,
     add_theoretical_arrivals,
+    calculate_distance_thresholds,
     calculate_search_windows,
     calculate_adaptive_windows
 )

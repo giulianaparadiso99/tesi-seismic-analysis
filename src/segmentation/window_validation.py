@@ -77,53 +77,112 @@ def check_monotonicity_station(df_meta_stations, station, phase='p'):
     """
     Check if arrival time is monotonic with distance for this station.
     
+    Validates that detected arrival times follow the expected ordering based
+    on hypocentral distance: stations closer to the hypocenter should have
+    earlier arrival times.
+    
     Logic:
-    - Stations are sorted by epicentral distance
-    - For station i: check t_p[i-1] < t_p[i] < t_p[i+1]
+    - Stations are sorted by hypocentral distance (3D distance from hypocenter)
+    - For station i: verify t[i-1] < t[i] < t[i+1]
     
     Parameters
     ----------
     df_meta_stations : pd.DataFrame
         Station-level metadata (one row per station, not per component)
-        Must contain: 'STATION_CODE', 'EPICENTRAL_DISTANCE_KM', 
-                      't_p_detected', 't_s_detected'
+        Must contain: 
+        - 'STATION_CODE': Station identifier
+        - 'hypocentral_distance_km': 3D distance from hypocenter to station
+        - 't_p_detected': Detected P-wave arrival time (s)
+        - 't_s_detected': Detected S-wave arrival time (s)
     station : str
-        Station code
-    phase : str
-        'p' or 's'
+        Station code to validate
+    phase : str, optional
+        Phase to validate: 'p' or 's' (default: 'p')
     
     Returns
     -------
     dict
-        {
-            'passed': bool,
-            'position': int,  # position in sorted list (0=closest)
-            'n_stations': int,
-            't_prev': float or None,
-            't_this': float,
-            't_next': float or None,
-            'violation_side': str or None  # 'prev', 'next', or None
-        }
+        Validation results containing:
+        - 'passed': bool - True if monotonicity check passed
+        - 'position': int - Position in distance-sorted list (0 = closest)
+        - 'n_stations': int - Total number of stations
+        - 't_prev': float or None - Arrival time at previous (closer) station
+        - 't_this': float - Arrival time at this station
+        - 't_next': float or None - Arrival time at next (farther) station
+        - 'violation_side': str or None - 'prev', 'next', or None
+        - 'd_prev': float or None - Distance of previous station (km)
+        - 'd_this': float - Distance of this station (km)
+        - 'd_next': float or None - Distance of next station (km)
+    
+    Notes
+    -----
+    Monotonicity validation assumes:
+    - Seismic waves propagate outward from hypocenter
+    - Farther stations receive arrivals later than closer ones
+    - Hypocentral distance (not epicentral) determines arrival order
+    
+    Violations may indicate:
+    - Picking errors (misidentified phases)
+    - Strong lateral velocity heterogeneities
+    - Complex wave propagation paths (refraction, scattering)
+    
+    Examples
+    --------
+    >>> result = check_monotonicity_station(df_meta_stations, 'ABC', phase='p')
+    >>> if not result['passed']:
+    ...     print(f"Monotonicity violation on {result['violation_side']} side")
+    ...     print(f"This station: t={result['t_this']:.2f}s, d={result['d_this']:.2f}km")
     """
-    # Sort by distance (no groupby needed, already aggregated)
-    df_sorted = df_meta_stations.sort_values('EPICENTRAL_DISTANCE_KM').reset_index(drop=True)
+    # Validate inputs
+    required_cols = ['STATION_CODE', 'hypocentral_distance_km', 
+                     f't_{phase}_detected']
+    missing = [col for col in required_cols if col not in df_meta_stations.columns]
+    if missing:
+        raise ValueError(
+            f"Missing required columns: {missing}. "
+            f"Ensure add_theoretical_arrivals() and phase detection have been run."
+        )
+    
+    if phase not in ['p', 's']:
+        raise ValueError(f"phase must be 'p' or 's', got '{phase}'")
+    
+    if station not in df_meta_stations['STATION_CODE'].values:
+        raise ValueError(f"Station '{station}' not found in DataFrame")
+    
+    # Sort by hypocentral distance (physical arrival order)
+    df_sorted = df_meta_stations.sort_values('hypocentral_distance_km').reset_index(drop=True)
     
     # Find position of this station
     idx = df_sorted[df_sorted['STATION_CODE'] == station].index[0]
     n_stations = len(df_sorted)
     
+    # Get arrival time and distance for this station
     t_this = df_sorted.loc[idx, f't_{phase}_detected']
+    d_this = df_sorted.loc[idx, 'hypocentral_distance_km']
     
-    # Get neighbors
-    t_prev = df_sorted.loc[idx - 1, f't_{phase}_detected'] if idx > 0 else None
-    t_next = df_sorted.loc[idx + 1, f't_{phase}_detected'] if idx < n_stations - 1 else None
+    # Get neighbors (previous = closer, next = farther)
+    if idx > 0:
+        t_prev = df_sorted.loc[idx - 1, f't_{phase}_detected']
+        d_prev = df_sorted.loc[idx - 1, 'hypocentral_distance_km']
+    else:
+        t_prev = None
+        d_prev = None
     
-    # Check monotonicity
+    if idx < n_stations - 1:
+        t_next = df_sorted.loc[idx + 1, f't_{phase}_detected']
+        d_next = df_sorted.loc[idx + 1, 'hypocentral_distance_km']
+    else:
+        t_next = None
+        d_next = None
+    
+    # Check monotonicity: arrival times should increase with distance
+    # t_prev < t_this < t_next
     violation_prev = (t_prev is not None) and (t_prev >= t_this)
     violation_next = (t_next is not None) and (t_next <= t_this)
     
     passed = not (violation_prev or violation_next)
     
+    # Determine which side has violation
     violation_side = None
     if violation_prev:
         violation_side = 'prev'
@@ -137,6 +196,9 @@ def check_monotonicity_station(df_meta_stations, station, phase='p'):
         't_prev': t_prev,
         't_this': t_this,
         't_next': t_next,
+        'd_prev': d_prev,
+        'd_this': d_this,
+        'd_next': d_next,
         'violation_side': violation_side
     }
 
@@ -231,22 +293,27 @@ def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
     """
     Run all quality checks for all stations and components.
     
+    Performs comprehensive validation including PGA timing, monotonicity
+    with distance, and signal-to-noise ratio checks.
+    
     Parameters
     ----------
     windowed_signals : dict
         Segmented signals from segment_all_signals()
+        Structure: {station: {component: {'pre_arrival': array, 'p_wave': array, ...}}}
     df_full : pd.DataFrame
         Component-level metadata (used for PGA check)
         Must contain: 'STATION_CODE', 'COMPONENT', 'PGA_CM/S^2', 'TIME_PGA_S',
                       't_p_detected', 't_s_detected', 't_coda_{method}'
     df_meta_stations : pd.DataFrame
         Station-level metadata (used for monotonicity check)
-        Must contain: 'STATION_CODE', 'EPICENTRAL_DISTANCE_KM',
+        Must contain: 'STATION_CODE', 'hypocentral_distance_km',
                       't_p_detected', 't_s_detected'
-    snr_threshold : float
+    snr_threshold : float, optional
         SNR threshold for quality check (default: 3.0)
-    coda_method : str
+    coda_method : str, optional
         Coda detection method: 'rautian', 'arias', 'envelope', 'median'
+        (default: 'rautian')
     
     Returns
     -------
@@ -264,29 +331,65 @@ def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
                 }
             }
         }
+    
+    Notes
+    -----
+    Monotonicity checks validate arrival time ordering based on hypocentral
+    distance (3D distance from hypocenter), not epicentral distance. This
+    accounts for the actual wave propagation path from the source.
+    
+    The monotonicity check is station-level (same result for all components
+    of a station), while PGA and SNR checks are component-specific.
+    
+    Examples
+    --------
+    >>> qc_results = quality_control_all_stations(
+    ...     windowed_signals, 
+    ...     df_full, 
+    ...     df_meta_stations,
+    ...     snr_threshold=3.0
+    ... )
+    >>> # Count passing stations
+    >>> n_pass = sum(
+    ...     results[sta][comp]['all_passed']
+    ...     for sta in results for comp in results[sta]
+    ... )
+    >>> print(f"{n_pass} components passed all checks")
     """
+    # Validate inputs
+    if 'hypocentral_distance_km' not in df_meta_stations.columns:
+        raise ValueError(
+            "df_meta_stations must contain 'hypocentral_distance_km'. "
+            "Run add_theoretical_arrivals() first."
+        )
     
     results = {}
+    
+    # Cache monotonicity results to avoid redundant computation
+    # (same for all components of a station)
+    monotonicity_cache = {}
     
     for station in windowed_signals.keys():
         results[station] = {}
         
+        # Compute monotonicity once per station (not per component)
+        if station not in monotonicity_cache:
+            monotonicity_cache[station] = {
+                'p': check_monotonicity_station(df_meta_stations, station, phase='p'),
+                's': check_monotonicity_station(df_meta_stations, station, phase='s')
+            }
+        
         for component in windowed_signals[station].keys():
-            
-            # PGA check (uses df_full, component-specific)
+            # PGA check (component-specific, uses df_full)
             pga_check = check_pga_in_s_wave(
                 df_full, station, component, coda_method=coda_method
             )
             
-            # Monotonicity checks (uses df_meta_stations, station-level)
-            mono_p = check_monotonicity_station(
-                df_meta_stations, station, phase='p'
-            )
-            mono_s = check_monotonicity_station(
-                df_meta_stations, station, phase='s'
-            )
+            # Monotonicity checks (station-level, cached)
+            mono_p = monotonicity_cache[station]['p']
+            mono_s = monotonicity_cache[station]['s']
             
-            # SNR checks (uses windowed_signals)
+            # SNR checks (component-specific, uses windowed_signals)
             snr_p = check_snr(
                 windowed_signals, station, component, 
                 phase='p', threshold=snr_threshold
@@ -479,7 +582,7 @@ def analyze_monotonicity_violations(df_meta_stations, phase='p'):
     ----------
     df_meta_stations : pd.DataFrame
         Station-level metadata with columns:
-        'STATION_CODE', 'EPICENTRAL_DISTANCE_KM', 
+        'STATION_CODE', 'hypocentral_distance_km', 
         't_p_detected', 't_s_detected', 't_p_theo', 't_s_theo',
         'p_residual', 's_residual'
     phase : str
@@ -490,19 +593,26 @@ def analyze_monotonicity_violations(df_meta_stations, phase='p'):
     pd.DataFrame
         Detailed violation report with columns:
         - station: station code
-        - distance_km: epicentral distance
+        - distance_km: hypocentral distance
         - t_detected: detected arrival time
         - t_theo: theoretical arrival time
         - residual: t_detected - t_theo
         - prev_station: previous station code
-        - prev_distance: previous station distance
+        - prev_distance: previous station hypocentral distance
         - prev_t_detected: previous station time
         - prev_residual: previous station residual
         - next_station: next station code
-        - next_distance: next station distance
+        - next_distance: next station hypocentral distance
         - next_t_detected: next station time
         - next_residual: next station residual
         - violation_type: 'prev', 'next', 'prev+next'
+    
+    Notes
+    -----
+    Stations are sorted by hypocentral distance (3D distance from hypocenter)
+    to reflect the actual wave propagation path. Monotonicity violations may
+    indicate picking errors, strong lateral velocity heterogeneities, or
+    complex wave propagation effects (refraction, scattering).
     
     Examples
     --------
@@ -510,33 +620,68 @@ def analyze_monotonicity_violations(df_meta_stations, phase='p'):
     >>> print(f"Found {len(violations_p)} P-wave violations")
     >>> 
     >>> # Most problematic station
-    >>> worst = violations_p.iloc[violations_p['residual'].abs().argmax()]
-    >>> print(f"Worst: {worst['station']} with residual {worst['residual']:.3f}s")
+    >>> if len(violations_p) > 0:
+    ...     worst = violations_p.iloc[violations_p['residual'].abs().argmax()]
+    ...     print(f"Worst: {worst['station']} with residual {worst['residual']:.3f}s")
+    >>> 
+    >>> # Violations by type
+    >>> print(violations_p['violation_type'].value_counts())
     """
+    # Validate inputs
+    required_cols = ['STATION_CODE', 'hypocentral_distance_km',
+                     f't_{phase}_detected', f't_{phase}_theo', 
+                     f'{phase}_residual']
+    missing = [col for col in required_cols if col not in df_meta_stations.columns]
+    if missing:
+        raise ValueError(
+            f"Missing required columns: {missing}. "
+            f"Ensure add_theoretical_arrivals() and phase detection have been run."
+        )
     
-    df_sorted = df_meta_stations.sort_values('EPICENTRAL_DISTANCE_KM').reset_index(drop=True)
+    if phase not in ['p', 's']:
+        raise ValueError(f"phase must be 'p' or 's', got '{phase}'")
+    
+    # Sort by hypocentral distance (physical arrival order)
+    df_sorted = df_meta_stations.sort_values('hypocentral_distance_km').reset_index(drop=True)
     
     violations = []
     
     for idx in range(len(df_sorted)):
         station = df_sorted.loc[idx, 'STATION_CODE']
-        distance = df_sorted.loc[idx, 'EPICENTRAL_DISTANCE_KM']
+        distance = df_sorted.loc[idx, 'hypocentral_distance_km']
         t_detected = df_sorted.loc[idx, f't_{phase}_detected']
         t_theo = df_sorted.loc[idx, f't_{phase}_theo']
         residual = df_sorted.loc[idx, f'{phase}_residual']
         
-        prev_station = df_sorted.loc[idx - 1, 'STATION_CODE'] if idx > 0 else None
-        prev_distance = df_sorted.loc[idx - 1, 'EPICENTRAL_DISTANCE_KM'] if idx > 0 else None
-        prev_t = df_sorted.loc[idx - 1, f't_{phase}_detected'] if idx > 0 else None
-        prev_t_theo = df_sorted.loc[idx - 1, f't_{phase}_theo'] if idx > 0 else None
-        prev_residual = df_sorted.loc[idx - 1, f'{phase}_residual'] if idx > 0 else None
+        # Previous station (closer to hypocenter)
+        if idx > 0:
+            prev_station = df_sorted.loc[idx - 1, 'STATION_CODE']
+            prev_distance = df_sorted.loc[idx - 1, 'hypocentral_distance_km']
+            prev_t = df_sorted.loc[idx - 1, f't_{phase}_detected']
+            prev_t_theo = df_sorted.loc[idx - 1, f't_{phase}_theo']
+            prev_residual = df_sorted.loc[idx - 1, f'{phase}_residual']
+        else:
+            prev_station = None
+            prev_distance = None
+            prev_t = None
+            prev_t_theo = None
+            prev_residual = None
         
-        next_station = df_sorted.loc[idx + 1, 'STATION_CODE'] if idx < len(df_sorted) - 1 else None
-        next_distance = df_sorted.loc[idx + 1, 'EPICENTRAL_DISTANCE_KM'] if idx < len(df_sorted) - 1 else None
-        next_t = df_sorted.loc[idx + 1, f't_{phase}_detected'] if idx < len(df_sorted) - 1 else None
-        next_t_theo = df_sorted.loc[idx + 1, f't_{phase}_theo'] if idx < len(df_sorted) - 1 else None
-        next_residual = df_sorted.loc[idx + 1, f'{phase}_residual'] if idx < len(df_sorted) - 1 else None
+        # Next station (farther from hypocenter)
+        if idx < len(df_sorted) - 1:
+            next_station = df_sorted.loc[idx + 1, 'STATION_CODE']
+            next_distance = df_sorted.loc[idx + 1, 'hypocentral_distance_km']
+            next_t = df_sorted.loc[idx + 1, f't_{phase}_detected']
+            next_t_theo = df_sorted.loc[idx + 1, f't_{phase}_theo']
+            next_residual = df_sorted.loc[idx + 1, f'{phase}_residual']
+        else:
+            next_station = None
+            next_distance = None
+            next_t = None
+            next_t_theo = None
+            next_residual = None
         
+        # Check monotonicity: t_prev < t_this < t_next
         violation_prev = (prev_t is not None) and (prev_t >= t_detected)
         violation_next = (next_t is not None) and (next_t <= t_detected)
         
@@ -564,8 +709,27 @@ def analyze_monotonicity_violations(df_meta_stations, phase='p'):
                 'violation_type': '+'.join(violation_type)
             })
     
-    return pd.DataFrame(violations)
-
+    df_violations = pd.DataFrame(violations)
+    
+    # Print summary
+    if len(df_violations) > 0:
+        print(f"\nMonotonicity violations for {phase.upper()}-wave:")
+        print(f"  Total violations: {len(df_violations)}/{len(df_sorted)} stations")
+        print(f"  Violation types:")
+        print(df_violations['violation_type'].value_counts().to_string())
+        print(f"\nMost problematic stations (by |residual|):")
+        
+        # Create temporary column for sorting by absolute residual
+        df_violations_temp = df_violations.copy()
+        df_violations_temp['abs_residual'] = df_violations_temp['residual'].abs()
+        top3 = df_violations_temp.nlargest(3, 'abs_residual')[
+            ['station', 'distance_km', 't_detected', 't_theo', 'residual']
+        ]
+        print(top3.to_string(index=False))
+    else:
+        print(f"\nNo monotonicity violations found for {phase.upper()}-wave")
+    
+    return df_violations
 
 def print_violation_summary(df_violations, phase='p'):
     """
@@ -637,27 +801,36 @@ def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violat
     Plot distance vs arrival time showing monotonicity violations.
     
     Creates a 2-panel plot:
-    - Left: P-wave arrivals vs distance
-    - Right: S-wave arrivals vs distance
+    - Left: P-wave arrivals vs hypocentral distance
+    - Right: S-wave arrivals vs hypocentral distance
     
     Shows detected times, theoretical times, and highlights violations.
     
     Parameters
     ----------
     df_meta_stations : pd.DataFrame
-        Station-level metadata
+        Station-level metadata with columns:
+        'hypocentral_distance_km', 't_p_detected', 't_s_detected',
+        't_p_theo', 't_s_theo', 'STATION_CODE'
     df_violations_p : pd.DataFrame, optional
         P-wave violations from analyze_monotonicity_violations()
     df_violations_s : pd.DataFrame, optional
         S-wave violations from analyze_monotonicity_violations()
-    figsize : tuple
+    figsize : tuple, optional
         Figure size (default: (16, 6))
     output_path : str or Path, optional
         If provided, save figure to this path
-        
+    
     Returns
     -------
     fig : matplotlib.figure.Figure
+    
+    Notes
+    -----
+    Plots use hypocentral distance (3D distance from hypocenter to station)
+    on the x-axis, reflecting the actual wave propagation path. This provides
+    a more physically meaningful representation than epicentral distance,
+    especially for near-field stations.
     
     Examples
     --------
@@ -665,11 +838,28 @@ def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violat
     >>> violations_s = analyze_monotonicity_violations(df_meta_stations, 's')
     >>> fig = plot_monotonicity_analysis(df_meta_stations, violations_p, violations_s)
     >>> plt.show()
+    >>> 
+    >>> # Save to file
+    >>> fig = plot_monotonicity_analysis(
+    ...     df_meta_stations, 
+    ...     violations_p, 
+    ...     violations_s,
+    ...     output_path='figures/monotonicity_analysis.png'
+    ... )
     """
-    
     import matplotlib.pyplot as plt
     
-    df_sorted = df_meta_stations.sort_values('EPICENTRAL_DISTANCE_KM')
+    # Validate input
+    required_cols = ['hypocentral_distance_km', 'STATION_CODE']
+    missing = [col for col in required_cols if col not in df_meta_stations.columns]
+    if missing:
+        raise ValueError(
+            f"Missing required columns: {missing}. "
+            f"Run add_theoretical_arrivals() first."
+        )
+    
+    # Sort by hypocentral distance
+    df_sorted = df_meta_stations.sort_values('hypocentral_distance_km')
     
     fig, axes = plt.subplots(1, 2, figsize=figsize)
     
@@ -677,24 +867,38 @@ def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violat
         ('p', df_violations_p, axes[0]),
         ('s', df_violations_s, axes[1])
     ]):
-        ax.scatter(df_sorted['EPICENTRAL_DISTANCE_KM'],
-                   df_sorted[f't_{phase}_detected'],
-                   label='Detected', alpha=0.7, s=50, color='steelblue')
+        # Check if required columns exist for this phase
+        if f't_{phase}_detected' not in df_sorted.columns:
+            ax.text(0.5, 0.5, f'No {phase.upper()}-wave data available',
+                   ha='center', va='center', transform=ax.transAxes,
+                   fontsize=12, color='gray')
+            ax.set_xlabel('Hypocentral Distance (km)', fontsize=12)
+            ax.set_ylabel(f'{phase.upper()}-wave arrival time (s)', fontsize=12)
+            ax.set_title(f'{phase.upper()}-wave Monotonicity', fontsize=13, fontweight='bold')
+            continue
         
-        ax.plot(df_sorted['EPICENTRAL_DISTANCE_KM'],
-                df_sorted[f't_{phase}_theo'],
-                'r--', label='Theoretical', linewidth=2, alpha=0.7)
+        # Plot detected arrivals
+        ax.scatter(df_sorted['hypocentral_distance_km'],
+                  df_sorted[f't_{phase}_detected'],
+                  label='Detected', alpha=0.7, s=50, color='steelblue')
         
+        # Plot theoretical arrivals (if available)
+        if f't_{phase}_theo' in df_sorted.columns:
+            ax.plot(df_sorted['hypocentral_distance_km'],
+                   df_sorted[f't_{phase}_theo'],
+                   'r--', label='Theoretical', linewidth=2, alpha=0.7)
+        
+        # Highlight violations
         if df_viol is not None and len(df_viol) > 0:
             violation_stations = df_viol['station'].values
             df_viol_plot = df_sorted[df_sorted['STATION_CODE'].isin(violation_stations)]
             
-            ax.scatter(df_viol_plot['EPICENTRAL_DISTANCE_KM'],
-                       df_viol_plot[f't_{phase}_detected'],
-                       color='red', s=150, marker='x', linewidth=3,
-                       label=f'Violations ({len(df_viol)})', zorder=5)
+            ax.scatter(df_viol_plot['hypocentral_distance_km'],
+                      df_viol_plot[f't_{phase}_detected'],
+                      color='red', s=150, marker='x', linewidth=3,
+                      label=f'Violations ({len(df_viol)})', zorder=5)
         
-        ax.set_xlabel('Epicentral Distance (km)', fontsize=12)
+        ax.set_xlabel('Hypocentral Distance (km)', fontsize=12)
         ax.set_ylabel(f'{phase.upper()}-wave arrival time (s)', fontsize=12)
         ax.set_title(f'{phase.upper()}-wave Monotonicity', fontsize=13, fontweight='bold')
         ax.legend(fontsize=10)
@@ -711,54 +915,83 @@ def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violat
     
     return fig
 
-
 def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violations_s,
                                     figsize=(16, 10)):
     """
     Analyze relationship between residuals and violations.
     
-    Creates plots showing:
-    - Residual distributions for stations with/without violations
-    - Residuals vs distance
+    Creates a 2×2 panel plot showing:
+    - Top row: Residual distributions for stations with/without violations (P and S)
+    - Bottom row: Residuals vs hypocentral distance (P and S)
     
     Parameters
     ----------
     df_meta_stations : pd.DataFrame
-        Station-level metadata
+        Station-level metadata with columns:
+        'STATION_CODE', 'hypocentral_distance_km', 
+        'p_residual', 's_residual'
     df_violations_p : pd.DataFrame
-        P-wave violations
+        P-wave violations from analyze_monotonicity_violations()
     df_violations_s : pd.DataFrame
-        S-wave violations
-    figsize : tuple
-        Figure size
-        
+        S-wave violations from analyze_monotonicity_violations()
+    figsize : tuple, optional
+        Figure size (default: (16, 10))
+    
     Returns
     -------
     fig : matplotlib.figure.Figure
+    
+    Notes
+    -----
+    Residuals are defined as: residual = t_detected - t_theo
+    Positive residuals indicate late arrivals relative to the 1D velocity model.
+    
+    Hypocentral distance is used on the x-axis to reflect the actual wave
+    propagation distance from source to station.
     
     Examples
     --------
     >>> violations_p = analyze_monotonicity_violations(df_meta_stations, 'p')
     >>> violations_s = analyze_monotonicity_violations(df_meta_stations, 's')
-    >>> fig = analyze_residuals_vs_violations(df_meta_stations, violations_p, violations_s)
+    >>> fig = analyze_residuals_vs_violations(
+    ...     df_meta_stations, 
+    ...     violations_p, 
+    ...     violations_s
+    ... )
+    >>> plt.show()
     """
+    import matplotlib.pyplot as plt
+    
+    # Validate inputs
+    required_cols = ['STATION_CODE', 'hypocentral_distance_km', 'p_residual', 's_residual']
+    missing = [col for col in required_cols if col not in df_meta_stations.columns]
+    if missing:
+        raise ValueError(
+            f"Missing required columns: {missing}. "
+            f"Ensure add_theoretical_arrivals() and phase detection have been run."
+        )
     
     fig, axes = plt.subplots(2, 2, figsize=figsize)
     
     for col_idx, (phase, df_viol) in enumerate([('p', df_violations_p), ('s', df_violations_s)]):
-        
+        # Identify violation stations
         violation_stations = set(df_viol['station'].values) if len(df_viol) > 0 else set()
+        
+        # Create copy and flag violations
         df_meta_stations_copy = df_meta_stations.copy()
         df_meta_stations_copy['has_violation'] = df_meta_stations_copy['STATION_CODE'].isin(violation_stations)
         
+        # Separate residuals by violation status
         residuals_ok = df_meta_stations_copy[~df_meta_stations_copy['has_violation']][f'{phase}_residual']
         residuals_viol = df_meta_stations_copy[df_meta_stations_copy['has_violation']][f'{phase}_residual']
         
+        # Top row: Histogram of residuals
         ax_hist = axes[0, col_idx]
         ax_hist.hist(residuals_ok, bins=15, alpha=0.6, label='No violation',
                     edgecolor='black', color='steelblue')
-        ax_hist.hist(residuals_viol, bins=15, alpha=0.6, label='Violation',
-                    edgecolor='black', color='red')
+        if len(residuals_viol) > 0:
+            ax_hist.hist(residuals_viol, bins=15, alpha=0.6, label='Violation',
+                        edgecolor='black', color='red')
         ax_hist.axvline(0, color='black', linestyle='--', linewidth=2, alpha=0.5)
         ax_hist.set_xlabel(f'{phase.upper()}-wave residual (s)', fontsize=11)
         ax_hist.set_ylabel('Count', fontsize=11)
@@ -766,19 +999,42 @@ def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violat
         ax_hist.legend(fontsize=9)
         ax_hist.grid(True, alpha=0.3)
         
+        # Print statistics
+        print(f"\n{phase.upper()}-wave residual statistics:")
+        print(f"  No violations: mean={residuals_ok.mean():.3f}s, std={residuals_ok.std():.3f}s, n={len(residuals_ok)}")
+        if len(residuals_viol) > 0:
+            print(f"  Violations:    mean={residuals_viol.mean():.3f}s, std={residuals_viol.std():.3f}s, n={len(residuals_viol)}")
+        
+        # Bottom row: Residuals vs distance
         ax_scatter = axes[1, col_idx]
-        ax_scatter.scatter(df_meta_stations_copy[~df_meta_stations_copy['has_violation']]['EPICENTRAL_DISTANCE_KM'],
-                          df_meta_stations_copy[~df_meta_stations_copy['has_violation']][f'{phase}_residual'],
-                          alpha=0.6, s=50, label='No violation', color='steelblue')
-        ax_scatter.scatter(df_meta_stations_copy[df_meta_stations_copy['has_violation']]['EPICENTRAL_DISTANCE_KM'],
-                          df_meta_stations_copy[df_meta_stations_copy['has_violation']][f'{phase}_residual'],
-                          alpha=0.8, s=100, marker='x', linewidth=2, label='Violation', color='red')
+        
+        # Plot stations without violations
+        mask_ok = ~df_meta_stations_copy['has_violation']
+        ax_scatter.scatter(
+            df_meta_stations_copy[mask_ok]['hypocentral_distance_km'],
+            df_meta_stations_copy[mask_ok][f'{phase}_residual'],
+            alpha=0.6, s=50, label='No violation', color='steelblue'
+        )
+        
+        # Plot stations with violations
+        if violation_stations:
+            mask_viol = df_meta_stations_copy['has_violation']
+            ax_scatter.scatter(
+                df_meta_stations_copy[mask_viol]['hypocentral_distance_km'],
+                df_meta_stations_copy[mask_viol][f'{phase}_residual'],
+                alpha=0.8, s=100, marker='x', linewidth=2, 
+                label='Violation', color='red', zorder=5
+            )
+        
+        # Zero residual line
         ax_scatter.axhline(0, color='black', linestyle='--', linewidth=2, alpha=0.5)
-        ax_scatter.set_xlabel('Epicentral Distance (km)', fontsize=11)
+        
+        ax_scatter.set_xlabel('Hypocentral Distance (km)', fontsize=11)
         ax_scatter.set_ylabel(f'{phase.upper()}-wave residual (s)', fontsize=11)
         ax_scatter.set_title(f'{phase.upper()}-wave: Residuals vs Distance', fontsize=12, fontweight='bold')
         ax_scatter.legend(fontsize=9)
         ax_scatter.grid(True, alpha=0.3)
     
     plt.tight_layout()
+    
     return fig
