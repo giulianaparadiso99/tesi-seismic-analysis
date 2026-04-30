@@ -236,7 +236,7 @@ def metadata_table_to_latex(df_meta, output_path=None):
         'LATE/NORMAL_TRIGGERED': 'Trigger type (NT/LT)',
         'DATABASE_VERSION': 'Database version',
         'HEADER_FORMAT': 'Header format version',
-        'DATA_TYPE': 'Data type (acceleration)',
+        'DATA_TYPE': 'Data type',
         'DATA_LICENSE': 'Data license',
         'PROCESSING': 'Processing information',
         'DATA_TIMESTAMP_YYYYMMDD_HHMMSS': 'Data timestamp',
@@ -303,6 +303,107 @@ def metadata_table_to_latex(df_meta, output_path=None):
             f.write(latex_str)
         print(f"Saved to: {output_path}")
 
+    return latex_str
+
+
+def constant_fields_to_latex(df_meta, constant_cols, output_path=None):
+    """
+    Generate a LaTeX longtable showing constant metadata fields and their values.
+    
+    Parameters
+    ----------
+    df_meta : pd.DataFrame
+        Metadata DataFrame (one row per record).
+    constant_cols : list of str
+        List of column names that are constant across all records.
+    output_path : str or Path, optional
+        If provided, the LaTeX string is also saved to this path.
+    
+    Returns
+    -------
+    str
+        Complete LaTeX longtable environment as a string.
+    """
+    from pathlib import Path
+    
+    def _escape_latex(text):
+        """Escape special LaTeX characters in text."""
+        if not isinstance(text, str):
+            text = str(text)
+        replacements = {
+            '&': r'\&',
+            '%': r'\%',
+            '$': r'\$',
+            '#': r'\#',
+            '_': r'\_',
+            '{': r'\{',
+            '}': r'\}',
+            '~': r'\textasciitilde{}',
+            '^': r'\textasciicircum{}',
+        }
+        for char, replacement in replacements.items():
+            text = text.replace(char, replacement)
+        return text
+    
+    # Build rows
+    rows = []
+    for col in constant_cols:
+        if col == 'file':
+            continue
+        
+        field_name = col.replace('_', ' ')
+        
+        # Get the constant value
+        unique_values = df_meta[col].dropna().unique()
+        
+        if len(unique_values) == 0:
+            value_str = 'all NaN'
+        elif len(unique_values) == 1:
+            value = _escape_latex(unique_values[0])
+            if len(value) > 50:
+                value = value[:47] + '...'
+            value_str = value
+        else:
+            # Should not happen if constant_cols is correct, but handle it
+            value_str = 'ERROR: not constant'
+        
+        rows.append(f"{field_name} & {value_str} \\\\")
+    
+    body = "\n".join(rows)
+    
+    # Full LaTeX longtable
+    latex_str = (
+        r"\begin{longtable}{" + "\n"
+        r"  >{\raggedright\arraybackslash}p{5cm}"
+        r"  >{\raggedright\arraybackslash}p{8cm}" + "\n"
+        r"}" + "\n"
+        r"\caption{Constant metadata fields across all records in the dataset.}" + "\n"
+        r"\label{tab:constant_fields} \\" + "\n"
+        r"\toprule" + "\n"
+        r"\textbf{Field} & \textbf{Value} \\" + "\n"
+        r"\midrule" + "\n"
+        r"\endfirsthead" + "\n\n"
+        r"\multicolumn{2}{c}{\tablename~\thetable{} -- continued from previous page} \\" + "\n"
+        r"\toprule" + "\n"
+        r"\textbf{Field} & \textbf{Value} \\" + "\n"
+        r"\midrule" + "\n"
+        r"\endhead" + "\n\n"
+        r"\midrule" + "\n"
+        r"\multicolumn{2}{r}{\textit{Continued on next page}} \\" + "\n"
+        r"\endfoot" + "\n\n"
+        r"\bottomrule" + "\n"
+        r"\endlastfoot" + "\n\n"
+        + body + "\n"
+        + r"\end{longtable}"
+    )
+    
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(latex_str)
+        print(f"Saved to: {output_path}")
+    
     return latex_str
 
 

@@ -28,7 +28,7 @@ __author__ = "Giuliana Paradiso"
 
 from .io.io import (
     build_metadata,
-    build_accelerations,
+    build_signals,
     build_dataframes,
 )
 
@@ -46,16 +46,6 @@ from .preprocessing.cleaning_signals import (
 # ===============================================================================
 # Processing
 # ===============================================================================
-
-
-from .processing.signals_integration import (
-    integrate_to_velocity,
-    integrate_to_displacement,
-    validate_integration,
-    integrate_windowed_signals_to_velocity,
-    integrate_windowed_signals_to_displacement,
-    validate_windowed_integration
-)
 
 from .processing.signal_conversion import (
     add_time_columns,
@@ -201,6 +191,7 @@ from .utils.latex_export import (
     preprocess_checks_to_latex,
     heavy_tail_to_latex,
     metadata_table_to_latex,
+    constant_fields_to_latex,
     onset_detection_to_latex,
     coda_onset_comparison_to_latex
 )
