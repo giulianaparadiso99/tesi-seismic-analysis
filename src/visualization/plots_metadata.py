@@ -44,6 +44,9 @@ import contextily as ctx
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from adjustText import adjust_text
+import folium
+from folium import plugins
+import branca.colormap as cm
 from src.visualization.plot_settings import set_plot_style
 colors, colors1 = set_plot_style()
 
@@ -51,19 +54,21 @@ colors, colors1 = set_plot_style()
 # ============================= Metadata — column types pie chart ================================
 # ===============================================================================================
  
-def plot_column_types_pie(df, output_dir=None):
+def plot_column_types_pie(df, output_dir=None, filename='column_types_distribution.pdf'):
     """
     Pie chart of column types distribution after preprocessing.
- 
+    
     Parameters
     ----------
     df : pd.DataFrame
         Preprocessed metadata dataframe.
     output_dir : str or Path or None
         Directory to save the figure. If None, the figure is not saved.
+    filename : str
+        Name of the output file (default: 'column_types_distribution.pdf').
     """
     type_counts = df.dtypes.astype(str).value_counts()
- 
+    
     fig, ax = plt.subplots(figsize=(6, 6))
     wedges, texts, autotexts = ax.pie(
         type_counts,
@@ -73,19 +78,20 @@ def plot_column_types_pie(df, output_dir=None):
         wedgeprops={'linewidth': 1.5, 'edgecolor': 'white'},
         startangle=90
     )
+    
     for autotext in autotexts:
         autotext.set_color('white')
         autotext.set_fontweight('bold')
- 
+    
     ax.set_title('\nColumn types distribution')
     plt.tight_layout()
- 
+    
     if output_dir is not None:
         os.makedirs(output_dir, exist_ok=True)
-        path = os.path.join(output_dir, 'column_types_distribution.pdf')
+        path = os.path.join(output_dir, filename)
         plt.savefig(path, bbox_inches='tight')
         print(f"Saved: {path}")
- 
+    
     plt.show()
     plt.close()
  
@@ -94,40 +100,43 @@ def plot_column_types_pie(df, output_dir=None):
 # ========================= Metadata — numerical distributions ==================================
 # ===============================================================================================
  
-def plot_numerical_distributions(df, num_cols, output_dir=None):
+def plot_numerical_distributions(df, num_cols, output_dir=None, filename='numerical_distributions.pdf'):
     """
     Grid of histograms for the specified numerical columns.
- 
+    
     Parameters
     ----------
     df : pd.DataFrame
     num_cols : list of str
         Numerical column names to plot.
     output_dir : str or Path or None
+    filename : str
+        Name of the output file (default: 'numerical_distributions.pdf').
     """
     ncols = 3
     nrows = int(np.ceil(len(num_cols) / ncols))
+    
     fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows))
     axes = axes.flatten()
- 
+    
     for i, col in enumerate(num_cols):
         axes[i].hist(df[col].dropna(), bins=15, color=colors[0],
                      edgecolor='white', linewidth=0.5)
         axes[i].set_title(col.replace('_', ' ').title())
         axes[i].set_ylabel('Count')
- 
+    
     for j in range(len(num_cols), len(axes)):
         axes[j].set_visible(False)
- 
+    
     plt.suptitle('Numerical columns distributions', y=1.01)
     plt.tight_layout()
- 
+    
     if output_dir is not None:
         os.makedirs(output_dir, exist_ok=True)
-        path = os.path.join(output_dir, 'numerical_distributions.pdf')
+        path = os.path.join(output_dir, filename)
         plt.savefig(path, bbox_inches='tight')
         print(f"Saved: {path}")
- 
+    
     plt.show()
     plt.close()
  
@@ -136,7 +145,7 @@ def plot_numerical_distributions(df, num_cols, output_dir=None):
 # ========================= Metadata — categorical distributions ================================
 # ===============================================================================================
  
-def plot_categorical_distributions(df, cat_cols, output_dir=None):
+def plot_categorical_distributions(df, cat_cols, output_dir=None, prefix=''):
     """
     Bar charts for categorical columns. Columns with few short categories
     are plotted vertically (saved as *_few.pdf); columns with many or long
@@ -174,7 +183,8 @@ def plot_categorical_distributions(df, cat_cols, output_dir=None):
         plt.suptitle('Categorical columns distributions', y=1.01)
         plt.tight_layout()
         if output_dir is not None:
-            path = os.path.join(output_dir, 'categorical_distributions_few.pdf')
+            path = os.path.join(output_dir,
+                                f'categorical_distributions_few_{prefix}.pdf' if prefix else 'categorical_distributions_few.pdf')
             plt.savefig(path, bbox_inches='tight')
             print(f"Saved: {path}")
         plt.show()
@@ -196,8 +206,8 @@ def plot_categorical_distributions(df, cat_cols, output_dir=None):
         plt.suptitle('Categorical columns distributions', y=1.01)
         plt.tight_layout()
         if output_dir is not None:
-            path = os.path.join(output_dir, 'categorical_distributions_many.pdf')
-            plt.savefig(path, bbox_inches='tight')
+            path = os.path.join(output_dir,
+                                f'categorical_distributions_many_{prefix}.pdf' if prefix else 'categorical_distributions_many.pdf')
             print(f"Saved: {path}")
         plt.show()
         plt.close()
@@ -249,7 +259,6 @@ def plot_correlation_matrix(corr, title, output_path=None):
  
     plt.show()
     plt.close()
- 
  
 # ===============================================================================================
 # ====================== Metadata — significant correlation differences =========================
@@ -410,10 +419,6 @@ def plot_station_map(df, event_lat, event_lon, output_path=None):
     plt.show()
     plt.close()
 
-import folium
-from folium import plugins
-import branca.colormap as cm
-import os
 
 def plot_station_map_folium(df, event_lat, event_lon, output_path=None):
     """
