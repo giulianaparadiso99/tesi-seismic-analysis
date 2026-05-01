@@ -420,143 +420,179 @@ def plot_station_map(df, event_lat, event_lon, output_path=None):
     plt.close()
 
 
-def plot_station_map_folium(df, event_lat, event_lon, output_path=None):
+def _get_unit(peak_column):
+    """Get unit string from peak column name."""
+    if 'PGA' in peak_column:
+        return 'cm/s²'
+    elif 'PGV' in peak_column:
+        return 'cm/s'
+    elif 'PGD' in peak_column:
+        return 'cm'
+    else:
+        return ''
+
+
+def plot_station_map(df, event_lat, event_lon, output_path=None, peak_column='PGA_CM/S^2'):
     """
-    Interactive map of seismic stations colored by PGA, with epicenter and station labels.
-    Uses Folium for web-based visualization.
+    Map of seismic stations colored by peak ground motion, with epicenter and station labels.
+    Uses Cartopy for vector-based high-quality output.
     
     Parameters
     ----------
     df : pd.DataFrame
         Must contain STATION_LONGITUDE_DEGREE, STATION_LATITUDE_DEGREE,
-        PGA_CM/S^2, STATION_CODE.
+        peak_column, STATION_CODE.
     event_lat : float
     event_lon : float
     output_path : str or Path or None
-        If provided, saves HTML file.
-    
-    Returns
-    -------
-    folium.Map
-        Interactive map object
+    peak_column : str
+        Column name for peak ground motion (default: 'PGA_CM/S^2').
+        Use 'PGV_CM/S' for velocity, 'PGD_CM' for displacement.
     """
-    # Calculate center
-    center_lat = (df['STATION_LATITUDE_DEGREE'].min() + df['STATION_LATITUDE_DEGREE'].max()) / 2
-    center_lon = (df['STATION_LONGITUDE_DEGREE'].min() + df['STATION_LONGITUDE_DEGREE'].max()) / 2
+    fig = plt.figure(figsize=(12, 10))
+    ax = plt.axes(projection=ccrs.PlateCarree())
     
-    # Create map
-    m = folium.Map(
-        location=[center_lat, center_lon],
-        zoom_start=9,
-        tiles='OpenStreetMap',
-        control_scale=True
+    # Set extent based on data
+    lon_margin = 0.3
+    lat_margin = 0.3
+    lon_min = df['STATION_LONGITUDE_DEGREE'].min() - lon_margin
+    lon_max = df['STATION_LONGITUDE_DEGREE'].max() + lon_margin
+    lat_min = df['STATION_LATITUDE_DEGREE'].min() - lat_margin
+    lat_max = df['STATION_LATITUDE_DEGREE'].max() + lat_margin
+    ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
+    
+    # Add geographic features (high resolution)
+    ax.add_feature(cfeature.LAND.with_scale('10m'), facecolor='#f5f5f5', edgecolor='none', zorder=0)
+    ax.add_feature(cfeature.OCEAN.with_scale('10m'), facecolor='#e3f2fd', zorder=0)
+    ax.add_feature(cfeature.COASTLINE.with_scale('10m'), linewidth=0.8, edgecolor='#555555', zorder=1)
+    ax.add_feature(cfeature.BORDERS.with_scale('10m'), linewidth=1.2, edgecolor='#333333', linestyle='--', zorder=1)
+    ax.add_feature(cfeature.RIVERS.with_scale('10m'), linewidth=0.5, edgecolor='#64b5f6', zorder=1)
+    ax.add_feature(cfeature.LAKES.with_scale('10m'), facecolor='#e3f2fd', edgecolor='#64b5f6', linewidth=0.3, zorder=1)
+    
+    # Gridlines
+    gl = ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.4, linestyle='--', zorder=2)
+    gl.top_labels = False
+    gl.right_labels = False
+    gl.xlabel_style = {'size': 10}
+    gl.ylabel_style = {'size': 10}
+    
+    # Plot stations
+    scatter = ax.scatter(
+        df['STATION_LONGITUDE_DEGREE'],
+        df['STATION_LATITUDE_DEGREE'],
+        c=df[peak_column],
+        cmap='inferno',
+        s=100,
+        zorder=5,
+        label='Seismic stations',
+        edgecolors='black',
+        linewidths=1.5,
+        transform=ccrs.PlateCarree()
     )
     
-    # Add alternative tile layers
-    folium.TileLayer('CartoDB positron', name='CartoDB Positron').add_to(m)
-    folium.TileLayer('Stamen Terrain', name='Terrain').add_to(m)
+    # Station labels
+    texts = []
+    for _, row in df.drop_duplicates('STATION_CODE').iterrows():
+        x_off = row['STATION_LONGITUDE_DEGREE'] - 0.15 if row['STATION_CODE'] == 'SURF' else row['STATION_LONGITUDE_DEGREE']
+        texts.append(ax.text(
+            x_off, 
+            row['STATION_LATITUDE_DEGREE'],
+            row['STATION_CODE'],
+            fontsize=9, 
+            color='white', 
+            fontweight='bold',
+            path_effects=[plt.matplotlib.patheffects.withStroke(linewidth=2.5, foreground='black')],
+            zorder=6,
+            transform=ccrs.PlateCarree()
+        ))
     
-    # Create colormap for PGA
-    pga_min = df['PGA_CM/S^2'].min()
-    pga_max = df['PGA_CM/S^2'].max()
-    colormap = cm.LinearColormap(
-        colors=['#000004', '#420a68', '#932667', '#dd513a', '#fca50a', '#fcffa4'],
-        vmin=pga_min,
-        vmax=pga_max,
-        caption='PGA (cm/s²)'
+    adjust_text(texts, ax=ax, expand_points=(1.5, 1.5), expand_text=(1.5, 1.5))
+    
+    # Epicenter
+    ax.scatter(
+        event_lon, event_lat, 
+        marker='*', 
+        color='red', 
+        s=500, 
+        zorder=7,
+        label='Epicenter', 
+        edgecolors='black', 
+        linewidths=1.5,
+        transform=ccrs.PlateCarree()
     )
-    colormap.add_to(m)
     
-    # Add stations
-    for _, row in df.iterrows():
-        color = colormap(row['PGA_CM/S^2'])
-        
-        folium.CircleMarker(
-            location=[row['STATION_LATITUDE_DEGREE'], row['STATION_LONGITUDE_DEGREE']],
-            radius=8,
-            color='black',
-            weight=2,
-            fill=True,
-            fillColor=color,
-            fillOpacity=0.8,
-            popup=folium.Popup(
-                f"<b>{row['STATION_CODE']}</b><br>"
-                f"PGA: {row['PGA_CM/S^2']:.2f} cm/s²<br>"
-                f"Lat: {row['STATION_LATITUDE_DEGREE']:.4f}<br>"
-                f"Lon: {row['STATION_LONGITUDE_DEGREE']:.4f}",
-                max_width=200
-            ),
-            tooltip=f"{row['STATION_CODE']}: {row['PGA_CM/S^2']:.1f} cm/s²"
-        ).add_to(m)
-        
-        # Add station label (always visible)
-        folium.Marker(
-            location=[row['STATION_LATITUDE_DEGREE'], row['STATION_LONGITUDE_DEGREE']],
-            icon=folium.DivIcon(html=f"""
-                <div style="
-                    font-size: 10px; 
-                    font-weight: bold; 
-                    color: white; 
-                    text-shadow: -1px -1px 0 black, 1px -1px 0 black, -1px 1px 0 black, 1px 1px 0 black;
-                    white-space: nowrap;
-                    transform: translate(10px, -5px);
-                ">{row['STATION_CODE']}</div>
-            """)
-        ).add_to(m)
+    # Colorbar
+    cbar = plt.colorbar(scatter, ax=ax, orientation='vertical', pad=0.05, fraction=0.046, shrink=0.8)
     
-    # Add epicenter
-    folium.Marker(
-        location=[event_lat, event_lon],
-        icon=folium.Icon(color='red', icon='star', prefix='fa'),
-        popup=folium.Popup("<b>Epicenter</b>", max_width=150),
-        tooltip="Epicenter"
-    ).add_to(m)
+    # Determina l'etichetta in base alla colonna
+    if 'PGA' in peak_column:
+        unit_label = 'PGA (cm/s²)'
+    elif 'PGV' in peak_column:
+        unit_label = 'PGV (cm/s)'
+    elif 'PGD' in peak_column:
+        unit_label = 'PGD (cm)'
+    else:
+        unit_label = peak_column
     
-    # Add layer control
-    folium.LayerControl().add_to(m)
+    cbar.set_label(unit_label, fontsize=11)
     
-    # Add fullscreen button
-    plugins.Fullscreen(
-        position='topright',
-        title='Fullscreen',
-        title_cancel='Exit fullscreen',
-        force_separate_button=True
-    ).add_to(m)
+    ax.set_xlabel('Longitude', fontsize=11)
+    ax.set_ylabel('Latitude', fontsize=11)
+    ax.set_title('Seismic stations and epicenter', fontsize=13, fontweight='bold')
+    ax.legend(loc='upper right', fontsize=10, framealpha=0.9)
     
-    # Add measure control
-    plugins.MeasureControl(position='topleft', primary_length_unit='kilometers').add_to(m)
+    plt.tight_layout()
     
-    # Save if output path provided
     if output_path is not None:
         os.makedirs(os.path.dirname(str(output_path)), exist_ok=True)
-        m.save(str(output_path))
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
         print(f"Saved: {output_path}")
     
-    return m
- 
+    plt.show()
+    plt.close()
+
  
 # ===============================================================================================
 # ============================= Metadata — PGA and duration analysis =============================
 # ===============================================================================================
  
-def plot_pga_and_duration_by_component(df, components, comp_colors, output_dir=None):
+def plot_pga_and_duration_by_component(df, components, comp_colors, output_dir=None, prefix='', peak_column='PGA_CM/S^2'):
     """
-    Three plots: PGA by component (boxplot), PGA vs epicentral distance
+    Three plots: peak ground motion by component (boxplot), peak vs epicentral distance
     by component (scatter), and signal duration by component (boxplot).
- 
+    
     Parameters
     ----------
     df : pd.DataFrame
-        Must contain COMPONENT, PGA_CM/S^2, EPICENTRAL_DISTANCE_KM, DURATION_S.
+        Must contain COMPONENT, peak_column, EPICENTRAL_DISTANCE_KM, DURATION_S.
     components : list of str
         e.g. ['E', 'N', 'Z']
     comp_colors : list
         One color per component.
     output_dir : str or Path or None
+    prefix : str
+        Prefix for output filenames (e.g., 'acc', 'vel', 'dis').
+    peak_column : str
+        Column name for peak ground motion (default: 'PGA_CM/S^2').
+        Use 'PGV_CM/S' for velocity, 'PGD_CM' for displacement.
     """
+    # Determine unit labels based on peak column
+    if 'PGA' in peak_column:
+        peak_label = 'PGA (cm/s²)'
+        peak_short = 'PGA'
+    elif 'PGV' in peak_column:
+        peak_label = 'PGV (cm/s)'
+        peak_short = 'PGV'
+    elif 'PGD' in peak_column:
+        peak_label = 'PGD (cm)'
+        peak_short = 'PGD'
+    else:
+        peak_label = peak_column
+        peak_short = peak_column.split('_')[0]
+    
     if output_dir is not None:
         os.makedirs(output_dir, exist_ok=True)
- 
+    
     boxplot_kwargs = dict(
         patch_artist=True, widths=0.5,
         medianprops={'color': 'white', 'linewidth': 2},
@@ -565,45 +601,47 @@ def plot_pga_and_duration_by_component(df, components, comp_colors, output_dir=N
         flierprops={'marker': 'o', 'markersize': 5,
                     'markeredgecolor': 'gray', 'markerfacecolor': 'none'}
     )
- 
-    # 1. PGA by component
+    
+    # 1. Peak ground motion by component
     fig, ax = plt.subplots(figsize=(6, 5))
-    comp_data = [df[df['COMPONENT'] == c]['PGA_CM/S^2'].dropna().values
+    comp_data = [df[df['COMPONENT'] == c][peak_column].dropna().values
                  for c in components]
     bp = ax.boxplot(comp_data, tick_labels=components, **boxplot_kwargs)
     for i, patch in enumerate(bp['boxes']):
         patch.set_facecolor(comp_colors[i])
         patch.set_alpha(0.85)
     ax.set_xlabel('Component')
-    ax.set_ylabel('PGA (cm/s²)')
-    ax.set_title('PGA by component')
+    ax.set_ylabel(peak_label)
+    ax.set_title(f'{peak_short} by component')
     plt.tight_layout()
     if output_dir is not None:
-        path = os.path.join(output_dir, 'pga_by_component.pdf')
+        filename = f'pga_by_component_{prefix}.pdf' if prefix else 'pga_by_component.pdf'
+        path = os.path.join(output_dir, filename)
         plt.savefig(path, bbox_inches='tight')
         print(f"Saved: {path}")
     plt.show()
     plt.close()
- 
-    # 2. PGA vs epicentral distance by component
+    
+    # 2. Peak ground motion vs epicentral distance by component
     fig, ax = plt.subplots(figsize=(7, 5))
     for i, comp in enumerate(components):
         subset = df[df['COMPONENT'] == comp]
-        ax.scatter(subset['EPICENTRAL_DISTANCE_KM'], subset['PGA_CM/S^2'],
+        ax.scatter(subset['EPICENTRAL_DISTANCE_KM'], subset[peak_column],
                    color=comp_colors[i], edgecolors='white', linewidths=0.5,
                    s=70, label=comp, alpha=0.9, zorder=5)
     ax.set_xlabel('Epicentral distance (km)')
-    ax.set_ylabel('PGA (cm/s²)')
-    ax.set_title('PGA vs epicentral distance by component')
+    ax.set_ylabel(peak_label)
+    ax.set_title(f'{peak_short} vs epicentral distance by component')
     ax.legend(title='Component')
     plt.tight_layout()
     if output_dir is not None:
-        path = os.path.join(output_dir, 'pga_vs_distance_by_component.pdf')
+        filename = f'pga_vs_distance_by_component_{prefix}.pdf' if prefix else 'pga_vs_distance_by_component.pdf'
+        path = os.path.join(output_dir, filename)
         plt.savefig(path, bbox_inches='tight')
         print(f"Saved: {path}")
     plt.show()
     plt.close()
- 
+    
     # 3. Duration by component
     fig, ax = plt.subplots(figsize=(6, 5))
     dur_data = [df[df['COMPONENT'] == c]['DURATION_S'].dropna().values
@@ -617,37 +655,51 @@ def plot_pga_and_duration_by_component(df, components, comp_colors, output_dir=N
     ax.set_title('Signal duration by component')
     plt.tight_layout()
     if output_dir is not None:
-        path = os.path.join(output_dir, 'duration_by_component.pdf')
+        filename = f'duration_by_component_{prefix}.pdf' if prefix else 'duration_by_component.pdf'
+        path = os.path.join(output_dir, filename)
         plt.savefig(path, bbox_inches='tight')
         print(f"Saved: {path}")
     plt.show()
     plt.close()
  
- 
 # ===============================================================================================
 # ========================= Metadata — PGA correlation by distance group ========================
 # ===============================================================================================
  
-def plot_pga_correlation_by_group(df_pga_corr, groups, group_colors, output_dir=None):
+def plot_pga_correlation_by_group(df_pga_corr, groups, group_colors, output_dir=None, prefix='', peak_column='PGA_CM/S^2'):
     """
-    Grouped bar chart of PGA correlation with all numerical variables,
+    Grouped bar chart of peak ground motion correlation with all numerical variables,
     one bar group per distance group.
- 
+    
     Parameters
     ----------
     df_pga_corr : pd.DataFrame
         DataFrame with variables as index and distance groups as columns,
-        containing Pearson correlation coefficients with PGA.
+        containing Pearson correlation coefficients with peak ground motion.
         Typically built as:
             pd.DataFrame({g: corr_by_group[g] for g in groups})
     groups : list of str
     group_colors : list
     output_dir : str or Path or None
+    prefix : str
+        Prefix for output filename (e.g., 'acc', 'vel', 'dis').
+    peak_column : str
+        Column name for peak ground motion (default: 'PGA_CM/S^2').
     """
+    # Determine peak label
+    if 'PGA' in peak_column:
+        peak_short = 'PGA'
+    elif 'PGV' in peak_column:
+        peak_short = 'PGV'
+    elif 'PGD' in peak_column:
+        peak_short = 'PGD'
+    else:
+        peak_short = peak_column.split('_')[0]
+    
     fig, ax = plt.subplots(figsize=(12, 5))
     x = range(len(df_pga_corr))
     width = 0.25
- 
+    
     for i, group in enumerate(groups):
         ax.bar(
             [xi + i * width for xi in x],
@@ -658,21 +710,22 @@ def plot_pga_correlation_by_group(df_pga_corr, groups, group_colors, output_dir=
             edgecolor='white',
             linewidth=0.5
         )
- 
+    
     ax.set_xticks([xi + width for xi in x])
     ax.set_xticklabels(df_pga_corr.index, rotation=45, ha='right')
     ax.set_xlabel('Numerical variables')
     ax.set_ylabel('Correlation coefficient')
-    ax.set_title('PGA correlation with numerical variables by distance group')
+    ax.set_title(f'{peak_short} correlation with numerical variables by distance group')
     ax.axhline(0, color='black', linewidth=0.8)
     ax.legend(title='Distance group')
     plt.tight_layout()
- 
+    
     if output_dir is not None:
         os.makedirs(output_dir, exist_ok=True)
-        path = os.path.join(output_dir, 'pga_correlation_by_distance.pdf')
+        filename = f'pga_correlation_by_distance_{prefix}.pdf' if prefix else 'pga_correlation_by_distance.pdf'
+        path = os.path.join(output_dir, filename)
         plt.savefig(path, bbox_inches='tight')
         print(f"Saved: {path}")
- 
+    
     plt.show()
     plt.close()

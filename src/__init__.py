@@ -142,7 +142,6 @@ from .visualization.plots_metadata import (
     plot_correlation_matrix,
     plot_significant_corr_diff,
     plot_station_map,
-    plot_station_map_folium,
     plot_pga_and_duration_by_component,
     plot_pga_correlation_by_group
 )
