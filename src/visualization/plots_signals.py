@@ -10,16 +10,18 @@ colors, colors1 = set_plot_style()
 # ========================= Signals — signal length distribution ================================
 # ===============================================================================================
  
-def plot_signal_length_distribution(signal_lengths, output_dir=None):
+def plot_signal_length_distribution(signal_lengths, output_dir=None, prefix=''):
     """
     Histogram of signal lengths (number of samples) across all files.
- 
+    
     Parameters
     ----------
     signal_lengths : pd.Series
         Series with one entry per file, values = number of samples.
-        Typically: df_acc.groupby('file')['sample'].max() + 1
+        Typically: df_signals.groupby('file')['sample'].max() + 1
     output_dir : str or Path or None
+    prefix : str
+        Prefix for output filename (e.g., 'acc', 'vel', 'dis').
     """
     fig, ax = plt.subplots(figsize=(7, 5))
     ax.hist(signal_lengths, bins=15, color=colors[0], edgecolor='white', linewidth=0.5)
@@ -27,13 +29,14 @@ def plot_signal_length_distribution(signal_lengths, output_dir=None):
     ax.set_xlabel('Number of samples')
     ax.set_ylabel('Count')
     plt.tight_layout()
- 
+    
     if output_dir is not None:
         os.makedirs(output_dir, exist_ok=True)
-        path = os.path.join(output_dir, 'signal_length_distribution.pdf')
+        filename = f'signal_length_distribution_{prefix}.pdf' if prefix else 'signal_length_distribution.pdf'
+        path = os.path.join(output_dir, filename)
         plt.savefig(path, bbox_inches='tight')
         print(f"Saved: {path}")
- 
+    
     plt.show()
     plt.close()
  
@@ -42,10 +45,11 @@ def plot_signal_length_distribution(signal_lengths, output_dir=None):
 # ============================= Signals — example signals =======================================
 # ===============================================================================================
  
-def plot_three_components(df, output_dir='../figures/exploratory', 
-                         max_stations=None, normalized=True):
+def plot_station_waveforms(df, signal_column='acceleration', signal_unit='cm/s²',
+                          output_dir='../figures/exploratory', 
+                          max_stations=None, normalized=True, prefix=''):
     """
-    Plot three-component accelerograms for each station.
+    Plot multi-component waveforms for each station.
     
     Creates one figure per station with the 3 available components stacked vertically.
     Handles different channel naming conventions:
@@ -57,14 +61,20 @@ def plot_three_components(df, output_dir='../figures/exploratory',
     Parameters
     ----------
     df : pd.DataFrame
-        DataFrame with acceleration data
-        Must have columns: 'file', 'acceleration' or 'acceleration_normalized'
+        DataFrame with signal data
+        Must have columns: 'file', signal_column or f'{signal_column}_normalized'
+    signal_column : str
+        Name of the signal column (e.g., 'acceleration', 'velocity', 'displacement')
+    signal_unit : str
+        Unit label (e.g., 'cm/s²', 'cm/s', 'cm')
     output_dir : str
-        Directory to save figures (default: '../figures/exploratory')
+        Directory to save figures
     max_stations : int, optional
         Maximum number of stations to plot (for testing)
     normalized : bool
-        If True, use 'acceleration_normalized', else 'acceleration'
+        If True, use '{signal_column}_normalized', else signal_column
+    prefix : str
+        Prefix for output filenames (e.g., 'acc', 'vel', 'dis')
     
     Returns
     -------
@@ -73,15 +83,13 @@ def plot_three_components(df, output_dir='../figures/exploratory',
     
     Examples
     --------
-    >>> # Plot all stations (raw acceleration)
-    >>> saved_figs = plot_three_components(df, normalized=False)
+    >>> # Plot all stations (raw signal)
+    >>> saved_figs = plot_station_waveforms(df, signal_column='velocity', 
+    ...                                      signal_unit='cm/s', normalized=False)
     >>> 
     >>> # Plot first 5 stations (normalized)
-    >>> saved_figs = plot_three_components(df, max_stations=5)
+    >>> saved_figs = plot_station_waveforms(df, max_stations=5)
     """
-    import os
-    import matplotlib.pyplot as plt
-    import numpy as np
     
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
@@ -95,13 +103,15 @@ def plot_three_components(df, output_dir='../figures/exploratory',
     if max_stations is not None:
         stations = stations[:max_stations]
     
-    # Choose acceleration column
-    acc_col = 'acceleration_normalized' if normalized else 'acceleration'
+    # Choose signal column
+    signal_col = f'{signal_column}_normalized' if normalized else signal_column
     
-    if acc_col not in df.columns:
-        raise ValueError(f"Column '{acc_col}' not found in DataFrame")
+    if signal_col not in df.columns:
+        raise ValueError(f"Column '{signal_col}' not found in DataFrame")
     
     saved_figures = []
+    
+    signal_name = signal_column.capitalize()
     
     print(f"Plotting {len(stations)} stations...")
     
@@ -118,23 +128,19 @@ def plot_three_components(df, output_dir='../figures/exploratory',
             continue
         
         # Define sorting order based on channel type
-        # Priority: vertical (Z) last, then try to order horizontals
         def get_stream_order(stream):
             """
             Assign order priority for plotting.
             Vertical component (Z) should be last.
             Horizontal components ordered alphabetically or by convention.
             """
-            # Vertical component always last
             if stream.endswith('Z'):
                 return 2
-            # Try to order horizontals: E before N, or 1 before 2
             elif stream.endswith('E') or stream.endswith('1'):
                 return 0
             elif stream.endswith('N') or stream.endswith('2'):
                 return 1
             else:
-                # Fallback: alphabetical
                 return ord(stream[-1])
         
         df_station['stream_order'] = df_station['stream'].apply(get_stream_order)
@@ -160,15 +166,14 @@ def plot_three_components(df, output_dir='../figures/exploratory',
                 continue
             
             # Get signal
-            signal = df_component[acc_col].values
+            signal = df_component[signal_col].values
             
             ax = axes[i]
             
-            # Plot acceleration
+            # Plot signal
             ax.plot(time, signal, 'k-', linewidth=0.5)
             
             # Labels and formatting
-            # Add component orientation info in ylabel
             if stream.endswith('E') or stream.endswith('1'):
                 orientation = 'E-W / 1'
             elif stream.endswith('N') or stream.endswith('2'):
@@ -184,19 +189,18 @@ def plot_three_components(df, output_dir='../figures/exploratory',
             ylabel += '\n'
             
             if normalized:
-                ylabel += 'Normalized\nacceleration'
+                ylabel += f'Normalized\n{signal_column}'
             else:
-                ylabel += 'Acceleration\n(cm/s²)'
+                ylabel += f'{signal_name}\n({signal_unit})'
             
             ax.set_ylabel(ylabel, fontsize=11)
             ax.grid(True, alpha=0.3, linewidth=0.5)
             
             # Title only on first subplot
             if i == 0:
-                title = f'Station {station} - Three-Component Accelerogram'
+                title = f'Station {station} - Three-Component Waveforms'
                 if normalized:
                     title += ' (Normalized)'
-                # Add info about channel naming
                 channel_info = ', '.join(ordered_streams)
                 title += f'\n[{channel_info}]'
                 ax.set_title(title, fontsize=14, fontweight='bold')
@@ -207,7 +211,9 @@ def plot_three_components(df, output_dir='../figures/exploratory',
         plt.tight_layout()
         
         # Save figure
-        fig_name = f'{station}_three_components'
+        fig_name = f'{station}_waveforms'
+        if prefix:
+            fig_name = f'{prefix}_{fig_name}'
         if normalized:
             fig_name += '_normalized'
         fig_path = os.path.join(output_dir, f'{fig_name}.png')
@@ -217,7 +223,6 @@ def plot_three_components(df, output_dir='../figures/exploratory',
         
         saved_figures.append(fig_path)
         
-        # Print with channel info
         print(f"Saved: {fig_name}.png [{', '.join(ordered_streams)}]")
     
     print(f"\nTotal figures saved: {len(saved_figures)}")
@@ -229,65 +234,83 @@ def plot_three_components(df, output_dir='../figures/exploratory',
 # ==================== Signals — raw acceleration distributions =================================
 # ===============================================================================================
  
-def plot_acceleration_distributions(df_acc, df_meta_clean,
-                                     streams=('HNE', 'HNN', 'HNZ'), output_dir=None):
+def plot_signals_distributions(df_signals, df_meta_clean,
+                               signal_column='acceleration',
+                               signal_unit='cm/s²',
+                               streams=('HNE', 'HNN', 'HNZ'),
+                               output_dir=None,
+                               prefix=''):
     """
-    Two plots: global acceleration distribution (log y-scale) and
+    Two plots: global signal distribution (log y-scale) and
     per-component overlay (log y-scale).
- 
+    
     Parameters
     ----------
-    df_acc : pd.DataFrame
-        Must contain columns [file, acceleration].
+    df_signals : pd.DataFrame
+        Must contain columns [file, signal_column].
     df_meta_clean : pd.DataFrame
         Must contain columns [file, STREAM].
+    signal_column : str
+        Name of the signal column (e.g., 'acceleration', 'velocity', 'displacement').
+    signal_unit : str
+        Unit label for x-axis (e.g., 'cm/s²', 'cm/s', 'cm').
     streams : tuple of str
     output_dir : str or Path or None
+    prefix : str
+        Prefix for output filenames (e.g., 'acc', 'vel', 'dis').
     """
     if output_dir is not None:
         os.makedirs(output_dir, exist_ok=True)
- 
+    
+    signal_name = signal_column.capitalize()
+    
     # Global distribution
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.hist(df_acc['acceleration'], bins=100, color=colors[1], edgecolor='none')
+    ax.hist(df_signals[signal_column], bins=100, color=colors[1], edgecolor='none')
     ax.set_yscale('log')
-    ax.set_title('Acceleration distribution (log scale)')
-    ax.set_xlabel('Acceleration (cm/s²)')
+    ax.set_title(f'{signal_name} distribution (log scale)')
+    ax.set_xlabel(f'{signal_name} ({signal_unit})')
     ax.set_ylabel('Count (log scale)')
     plt.tight_layout()
+    
     if output_dir is not None:
-        path = os.path.join(output_dir, 'acceleration_distribution.pdf')
+        filename = f'signal_distribution_{prefix}.pdf' if prefix else 'signal_distribution.pdf'
+        path = os.path.join(output_dir, filename)
         plt.savefig(path, bbox_inches='tight')
         print(f"Saved: {path}")
+    
     plt.show()
     plt.close()
- 
+    
     # Per-component overlay
     fig, ax = plt.subplots(figsize=(8, 5))
     for i, stream in enumerate(streams):
         files = df_meta_clean[df_meta_clean['STREAM'] == stream]['file'].values
-        acc_values = df_acc[df_acc['file'].isin(files)]['acceleration'].values
-        ax.hist(acc_values, bins=100, color=colors[i], alpha=0.6,
+        signal_values = df_signals[df_signals['file'].isin(files)][signal_column].values
+        ax.hist(signal_values, bins=100, color=colors[i], alpha=0.6,
                 label=stream, edgecolor='none')
+    
     ax.set_yscale('log')
-    ax.set_title('Acceleration distribution by component (log scale)')
-    ax.set_xlabel('Acceleration (cm/s²)')
+    ax.set_title(f'{signal_name} distribution by component (log scale)')
+    ax.set_xlabel(f'{signal_name} ({signal_unit})')
     ax.set_ylabel('Count (log scale)')
     ax.legend(title='Component')
     plt.tight_layout()
+    
     if output_dir is not None:
-        path = os.path.join(output_dir, 'acceleration_by_component.pdf')
+        filename = f'signal_by_component_{prefix}.pdf' if prefix else 'signal_by_component.pdf'
+        path = os.path.join(output_dir, filename)
         plt.savefig(path, bbox_inches='tight')
         print(f"Saved: {path}")
+    
     plt.show()
     plt.close()
- 
  
 # ===============================================================================================
 # ================= Signals — post-preprocessing check - PDF analysis pipeline ==================
 # ===============================================================================================
  
-def plot_postcheck_pdf(df_acc_raw, df_acc_clean, output_dir=None):
+def plot_postcheck_pdf(df_raw, df_clean, signal_column='acceleration', output_dir=None, prefix=''):
     """
     2x2 summary figure for the single signal preprocessing pipeline:
     residual means, std distribution, baseline correction example,
@@ -295,21 +318,38 @@ def plot_postcheck_pdf(df_acc_raw, df_acc_clean, output_dir=None):
  
     Parameters
     ----------
-    df_acc_raw : pd.DataFrame
-        Raw accelerations before preprocessing. Must contain [file, acceleration].
-    df_acc_clean : pd.DataFrame
-        Preprocessed accelerations. Must contain
-        [file, acceleration, acceleration_normalized].
+    df_raw : pd.DataFrame
+        Raw signals before preprocessing. Must contain [file, signal_column].
+    df_clean : pd.DataFrame
+        Preprocessed signals. Must contain [file, signal_column, {signal_column}_normalized].
+    signal_column : str
+        Name of the signal column (e.g., 'acceleration', 'velocity', 'displacement')
     output_dir : str or Path or None
+    prefix : str
+        Prefix for output filename (e.g., 'acc', 'vel', 'dis').
     """
-    baseline_check = df_acc_clean.groupby('file')['acceleration'].mean()
-    norm_check     = df_acc_clean.groupby('file')['acceleration_normalized'].std()
+    normalized_col = f'{signal_column}_normalized'
+    
+    baseline_check = df_clean.groupby('file')[signal_column].mean()
+    norm_check = df_clean.groupby('file')[normalized_col].std()
  
-    example_file  = df_acc_clean['file'].unique()[0]
-    example_raw   = df_acc_raw[df_acc_raw['file'] == example_file]['acceleration'].values
-    example_bc    = df_acc_clean[df_acc_clean['file'] == example_file]['acceleration'].values
-    example_norm  = df_acc_clean[df_acc_clean['file'] == example_file]['acceleration_normalized'].values
+    example_file = df_clean['file'].unique()[0]
+    example_raw = df_raw[df_raw['file'] == example_file][signal_column].values
+    example_bc = df_clean[df_clean['file'] == example_file][signal_column].values
+    example_norm = df_clean[df_clean['file'] == example_file][normalized_col].values
     station_label = example_file.split('.')[1] + ' ' + example_file.split('.')[3]
+    
+    # Determine unit label
+    if signal_column == 'acceleration':
+        unit_label = 'cm/s²'
+    elif signal_column == 'velocity':
+        unit_label = 'cm/s'
+    elif signal_column == 'displacement':
+        unit_label = 'cm'
+    else:
+        unit_label = ''
+    
+    signal_name = signal_column.capitalize()
  
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
     t = np.arange(len(example_raw))
@@ -318,7 +358,7 @@ def plot_postcheck_pdf(df_acc_raw, df_acc_clean, output_dir=None):
     axes[0, 0].hist(baseline_check.values, bins=30, color=colors[0], edgecolor='none')
     axes[0, 0].axvline(0, color='black', linewidth=1, linestyle='--', label='Expected: 0')
     axes[0, 0].set_title('Residual mean per signal\n(after baseline correction)')
-    axes[0, 0].set_xlabel('Mean (cm/s²)')
+    axes[0, 0].set_xlabel(f'Mean ({unit_label})')
     axes[0, 0].set_ylabel('Count')
     axes[0, 0].legend()
  
@@ -333,23 +373,23 @@ def plot_postcheck_pdf(df_acc_raw, df_acc_clean, output_dir=None):
     # Baseline correction example
     axes[1, 0].plot(t, example_raw, color=colors[2], linewidth=0.5,
                     alpha=0.7, label='Raw')
-    axes[1, 0].plot(t, example_bc,  color=colors[0], linewidth=0.5,
+    axes[1, 0].plot(t, example_bc, color=colors[0], linewidth=0.5,
                     alpha=0.9, label='Baseline-corrected')
     axes[1, 0].axhline(0, color='black', linewidth=0.5, linestyle='--')
     axes[1, 0].set_title(f'Baseline correction — {station_label}')
     axes[1, 0].set_xlabel('Sample')
-    axes[1, 0].set_ylabel('Acceleration (cm/s²)')
+    axes[1, 0].set_ylabel(f'{signal_name} ({unit_label})')
     axes[1, 0].legend(fontsize=9)
  
     # Normalized signal example
     axes[1, 1].plot(t, example_norm, color=colors[1], linewidth=0.5,
                     alpha=0.8, label='Normalized signal')
-    axes[1, 1].axhline( 0, color='black',   linewidth=1,   linestyle='--', label='Mean = 0')
-    axes[1, 1].axhline( 1, color=colors[3], linewidth=0.8, linestyle=':',  label='±1 std')
+    axes[1, 1].axhline(0, color='black', linewidth=1, linestyle='--', label='Mean = 0')
+    axes[1, 1].axhline(1, color=colors[3], linewidth=0.8, linestyle=':', label='±1 std')
     axes[1, 1].axhline(-1, color=colors[3], linewidth=0.8, linestyle=':')
     axes[1, 1].set_title(f'Normalized signal — {station_label}')
     axes[1, 1].set_xlabel('Sample')
-    axes[1, 1].set_ylabel('Normalized acceleration')
+    axes[1, 1].set_ylabel(f'Normalized {signal_column}')
     axes[1, 1].legend(fontsize=9)
  
     plt.suptitle('Post-preprocessing check — single signal pipeline', fontsize=14)
@@ -357,7 +397,8 @@ def plot_postcheck_pdf(df_acc_raw, df_acc_clean, output_dir=None):
  
     if output_dir is not None:
         os.makedirs(output_dir, exist_ok=True)
-        path = os.path.join(output_dir, 'postcheck_single.pdf')
+        filename = f'postcheck_single_{prefix}.pdf' if prefix else 'postcheck_single.pdf'
+        path = os.path.join(output_dir, filename)
         plt.savefig(path, bbox_inches='tight')
         print(f"Saved: {path}")
  
@@ -369,27 +410,37 @@ def plot_postcheck_pdf(df_acc_raw, df_acc_clean, output_dir=None):
 # ================ Signals — post-preprocessing check (moment scaling pipeline) =================
 # ===============================================================================================
  
-def plot_postcheck_moment_scaling(df_acc_raw, df_acc_long, threshold=48000, output_dir=None):
+def plot_postcheck_moment_scaling(df_raw, df_long, signal_column='acceleration',
+                                  signal_unit='cm/s²', threshold=48000,
+                                  output_dir=None, prefix=''):
     """
     Post-preprocessing check plots for the long signals pipeline.
     
     Parameters
     ----------
-    df_acc_raw : pd.DataFrame
-        Raw acceleration data (before filtering)
-    df_acc_long : pd.DataFrame
+    df_raw : pd.DataFrame
+        Raw signal data (before filtering)
+    df_long : pd.DataFrame
         Preprocessed long signals (after filtering, baseline correction, NO normalization)
+    signal_column : str
+        Name of the signal column (e.g., 'acceleration', 'velocity', 'displacement')
+    signal_unit : str
+        Unit label (e.g., 'cm/s²', 'cm/s', 'cm')
     threshold : int
         Minimum samples threshold used for filtering
     output_dir : str or Path
         Directory to save the figure
+    prefix : str
+        Prefix for output filename (e.g., 'acc', 'vel', 'dis')
     """
-    from pathlib import Path  # Se non già importato all'inizio del file
-    import numpy as np  # Se non già importato
+    from pathlib import Path
+    import numpy as np
     
-    signal_lengths_raw = df_acc_raw.groupby('file')['sample'].max() + 1
-    signal_lengths_long = df_acc_long.groupby('file')['sample'].max() + 1
-    baseline_check_agg = df_acc_long.groupby('file')['acceleration'].mean()
+    signal_lengths_raw = df_raw.groupby('file')['sample'].max() + 1
+    signal_lengths_long = df_long.groupby('file')['sample'].max() + 1
+    baseline_check_agg = df_long.groupby('file')[signal_column].mean()
+    
+    signal_name = signal_column.capitalize()
     
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     
@@ -408,16 +459,16 @@ def plot_postcheck_moment_scaling(df_acc_raw, df_acc_long, threshold=48000, outp
     # Plot 2: Residual mean per signal (baseline correction check)
     axes[1].hist(baseline_check_agg, bins=10, color=colors[2], edgecolor='none')
     axes[1].axvline(0, color='gray', linestyle='--', linewidth=0.8, label='Expected: 0')
-    axes[1].set_xlabel('Mean (cm/s²)')
+    axes[1].set_xlabel(f'Mean ({signal_unit})')
     axes[1].set_ylabel('Count')
     axes[1].set_title('Residual mean per signal\n(after baseline correction)\nExpected: 0')
     axes[1].legend()
     axes[1].ticklabel_format(style='scientific', axis='x', scilimits=(0, 0))
     
     # Plot 3: Physical units preserved (show std distribution)
-    std_check = df_acc_long.groupby('file')['acceleration'].std()
+    std_check = df_long.groupby('file')[signal_column].std()
     axes[2].hist(std_check, bins=15, color=colors[3], edgecolor='none')
-    axes[2].set_xlabel('Std (cm/s²)')
+    axes[2].set_xlabel(f'Std ({signal_unit})')
     axes[2].set_ylabel('Count')
     axes[2].set_title('Standard deviation per signal\n(physical units preserved)\nNOT normalized')
     
@@ -427,7 +478,9 @@ def plot_postcheck_moment_scaling(df_acc_raw, df_acc_long, threshold=48000, outp
     if output_dir:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        plt.savefig(output_dir / '02_postcheck_moment_scaling.pdf', bbox_inches='tight')
+        filename = f'postcheck_moment_scaling_{prefix}.pdf' if prefix else 'postcheck_moment_scaling.pdf'
+        plt.savefig(output_dir / filename, bbox_inches='tight')
+        print(f"Saved: {filename}")
     
     plt.show()
 

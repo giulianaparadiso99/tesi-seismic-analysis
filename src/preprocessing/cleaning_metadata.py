@@ -65,7 +65,9 @@ def _convert_types(df):
         'SENSOR_DEPTH_M',
         'EPICENTRAL_DISTANCE_KM', 'EARTHQUAKE_BACKAZIMUTH_DEGREE',
         'SAMPLING_INTERVAL_S', 'NDATA', 'DURATION_S',
-        'PGA_CM/S^2', 'TIME_PGA_S',
+        'PGA_CM/S^2', 'TIME_PGA_S',  # Acceleration
+        'PGV_CM/S', 'TIME_PGV_S',     # Velocity
+        'PGD_CM', 'TIME_PGD_S',       # Displacement
         'FILTER_ORDER', 'LOW_CUT_FREQUENCY_HZ', 'HIGH_CUT_FREQUENCY_HZ',
     ]
     for col in numeric_cols:
