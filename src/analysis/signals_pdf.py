@@ -1,9 +1,9 @@
 """
 signals_pdf.py
 --------------
-Probability density function (PDF) analysis for seismic acceleration signals.
+Probability density function (PDF) analysis for seismic signals.
 This module provides functions to assess the statistical distribution of
-seismic increments, test for Gaussianity, and characterize heavy-tailed
+signal increments, test for Gaussianity, and characterize heavy-tailed
 behavior through various distribution fits and statistical tests.
 
 The module is organized into two main analysis pipelines:
@@ -28,26 +28,32 @@ generate summary visualizations aggregating results across all signals. Figures
 are saved as PDF files in the specified output directory, with automatic
 directory creation if needed.
 
-The analysis supports both normalized (standardized) and raw acceleration data,
+The analysis supports both normalized (standardized) and raw signal data,
 with configurable binning, log-scale plotting, and statistical significance
-thresholds.
+thresholds. Works with acceleration, velocity, or displacement signals.
 
 Usage:
-    from src.signals_pdf import gaussian_fit_analysis, heavy_tail_analysis
+    from src.signals_pdf import gaussian_fit_analysis, heavy_tail_assessment
     
     # Example: Gaussian fit analysis
     df_results = gaussian_fit_analysis(
-        df_acc_clean,
+        df_signals_clean,
+        signal_column='acceleration',
+        signal_unit='cm/s²',
         bins=100,
         normalized=True,
-        output_dir='../figures/03_single_signal/03a_pdf_analysis/gaussian_fit'
+        output_dir='../figures/03_single_signal/03a_pdf_analysis/gaussian_fit',
+        prefix='acc'
     )
     
-    # Example: Heavy tail analysis
-    df_tail = heavy_tail_analysis(
-        df_acc_clean,
+    # Example: Heavy tail assessment
+    df_tail = heavy_tail_assessment(
+        df_signals_clean,
+        signal_column='velocity',
+        signal_unit='cm/s',
         normalized=True,
-        output_dir='../figures/03_single_signal/03a_pdf_analysis/heavy_tail'
+        output_dir='../figures/03_single_signal/03a_pdf_analysis/heavy_tail',
+        prefix='vel'
     )
 """
 
@@ -63,22 +69,55 @@ colors = set_plot_style()
 # ==================================== Gaussian fit analysis ====================================
 # ===============================================================================================
 
-def gaussian_fit_analysis(df_acc_clean, bins=100, log_scale=False, normalized=True,
-                          output_dir='../figures/03_single_signal/03a_pdf_analysis/gaussian_fit'):
+def gaussian_fit_analysis(df_clean, signal_column='acceleration', signal_unit='cm/s²',
+                          bins=100, log_scale=False, normalized=True,
+                          output_dir='../figures/03_single_signal/03a_pdf_analysis/gaussian_fit',
+                          prefix=''):
+    """
+    Gaussian fit analysis for signal distributions.
+    
+    Parameters
+    ----------
+    df_clean : pd.DataFrame
+        Preprocessed signal data
+    signal_column : str
+        Name of the signal column
+    signal_unit : str
+        Unit label
+    bins : int
+        Number of histogram bins
+    log_scale : bool
+        Use log scale on y-axis
+    normalized : bool
+        Use normalized column
+    output_dir : str or Path
+        Output directory
+    prefix : str
+        Filename prefix
+    """
     
     os.makedirs(output_dir, exist_ok=True)
-    col = 'acceleration_normalized' if normalized else 'acceleration'
-    xlabel = 'Normalized acceleration' if normalized else 'Acceleration (cm/s²)'
+    col = f'{signal_column}_normalized' if normalized else signal_column
+    
+    if normalized:
+        xlabel = f'Normalized {signal_column}'
+    else:
+        signal_name = signal_column.capitalize()
+        xlabel = f'{signal_name} ({signal_unit})'
     
     saved = []
     failed = []
     results = []
 
-    for file in df_acc_clean['file'].unique():
-        signal = df_acc_clean[df_acc_clean['file'] == file][col].values
+    for file in df_clean['file'].unique():
+        signal = df_clean[df_clean['file'] == file][col].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
-        filepath = f'{output_dir}/gaussian_fit_{station}_{stream}.pdf'
+        
+        filename = f'gaussian_fit_{station}_{stream}'
+        if prefix:
+            filename = f'{prefix}_{filename}'
+        filepath = f'{output_dir}/{filename}.pdf'
 
         # Fit Gaussian
         mu, std = stats.norm.fit(signal)
@@ -86,10 +125,10 @@ def gaussian_fit_analysis(df_acc_clean, bins=100, log_scale=False, normalized=Tr
         # Anderson-Darling test
         ad_result = stats.anderson(signal, dist='norm')
         ad_stat = ad_result.statistic
-        ad_critical = ad_result.critical_values[2]  # 5% significance level
+        ad_critical = ad_result.critical_values[2]
         ad_significant = ad_stat > ad_critical
 
-        # Kurtosis and skewness (Fisher's definition: kurtosis=0 for Gaussian)
+        # Kurtosis and skewness
         kurt = stats.kurtosis(signal, fisher=True)
         skew = stats.skew(signal)
 
@@ -183,46 +222,41 @@ def gaussian_fit_analysis(df_acc_clean, bins=100, log_scale=False, normalized=Tr
                    color=[colors[3] if ng else colors[0] 
                           for ng in df_sorted_ad['non_gaussian']],
                    edgecolor='none')
-    axes[1, 0].axhline(df_results['ad_critical_5pct'].iloc[0], color='black',
-                        linewidth=0.8, linestyle='--', label='Critical value (5%)')
+    axes[1, 0].axhline(df_sorted_ad['ad_critical_5pct'].iloc[0],
+                       color='gray', linewidth=0.8, linestyle='--', label='Critical value (5%)')
     axes[1, 0].set_xticks(range(len(df_sorted_ad)))
     axes[1, 0].set_xticklabels([f"{r['station']}\n{r['stream']}" 
                                   for _, r in df_sorted_ad.iterrows()],
                                  rotation=90, fontsize=7)
-    axes[1, 0].set_title('Anderson-Darling statistic by signal')
+    axes[1, 0].set_title('Anderson-Darling statistic\n(higher = more non-Gaussian)')
     axes[1, 0].set_ylabel('AD statistic')
     axes[1, 0].legend()
 
-    # 4. Kurtosis vs skewness
-    stream_colors = {'E': colors[0], 'N': colors[1], 'Z': colors[2]}
-    for _, row in df_results.iterrows():
-        component = row['stream'][-1]
-        axes[1, 1].scatter(row['skewness'], row['kurtosis'],
-                           color=stream_colors.get(component, colors[0]),
-                           edgecolors='white', linewidths=0.5, s=60, zorder=5)
-    axes[1, 1].axhline(0, color='black', linewidth=0.8, linestyle='--')
-    axes[1, 1].axvline(0, color='black', linewidth=0.8, linestyle='--')
-    axes[1, 1].set_xlabel('Skewness')
-    axes[1, 1].set_ylabel('Kurtosis (Fisher)')
-    axes[1, 1].set_title('Kurtosis vs skewness by component')
-    for component, c in stream_colors.items():
-        axes[1, 1].scatter([], [], color=c, label=component)
-    axes[1, 1].legend(title='Component')
+    # 4. Non-Gaussian count
+    ng_count = df_results['non_gaussian'].sum()
+    axes[1, 1].bar(['Gaussian', 'Non-Gaussian'],
+                   [len(df_results) - ng_count, ng_count],
+                   color=[colors[0], colors[3]], edgecolor='none')
+    axes[1, 1].set_title(f'Distribution classification\n(Anderson-Darling test, α=0.05)')
+    axes[1, 1].set_ylabel('Count')
+    for i, v in enumerate([len(df_results) - ng_count, ng_count]):
+        axes[1, 1].text(i, v + 0.5, str(v), ha='center', fontweight='bold')
 
-    plt.suptitle('Gaussian fit summary', fontsize=14)
+    plt.suptitle('Gaussian fit analysis summary', fontsize=13)
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/gaussian_fit_summary.pdf', bbox_inches='tight')
+    
+    summary_filename = f'gaussian_fit_summary_{prefix}.pdf' if prefix else 'gaussian_fit_summary.pdf'
+    plt.savefig(f'{output_dir}/{summary_filename}', bbox_inches='tight')
     plt.close()
 
-    # Print check
-    print(f"Saved: {len(saved)}/{df_acc_clean['file'].nunique()} individual plots")
+    # Check
+    print(f"Saved: {len(saved)}/{df_clean['file'].nunique()} individual plots")
     if failed:
         print("Failed:")
         for f, e in failed:
             print(f"  - {f}: {e}")
     else:
         print("All individual plots saved successfully!")
-    print(f"Non-Gaussian signals (AD test, p<5%): {df_results['non_gaussian'].sum()}/{len(df_results)}")
 
     return df_results
 
@@ -230,41 +264,80 @@ def gaussian_fit_analysis(df_acc_clean, bins=100, log_scale=False, normalized=Tr
 # ==================================== Heavy-tail assessment ====================================
 # ===============================================================================================
 
-def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/03_single_signal/03a_pdf_analysis/heavy_tail',
-                          resume=False, partial_path='../data/processed/03a_pdf_analysis/heavy_tail_results_partial.parquet'):
+def heavy_tail_assessment(df_clean, signal_column='acceleration', signal_unit='cm/s²',
+                         normalized=True, 
+                         output_dir='../figures/03_single_signal/03a_pdf_analysis/heavy_tail',
+                         prefix='', resume=False):
+    """
+    Heavy-tail assessment for signal distributions.
+    
+    Parameters
+    ----------
+    df_clean : pd.DataFrame
+        Preprocessed signal data
+    signal_column : str
+        Name of the signal column
+    signal_unit : str
+        Unit label
+    normalized : bool
+        Use normalized column
+    output_dir : str or Path
+        Output directory
+    prefix : str
+        Filename prefix
+    resume : bool
+        If True, resume from partial results if available
+    """
+    
     os.makedirs(output_dir, exist_ok=True)
-    col = 'acceleration_normalized' if normalized else 'acceleration'
-    xlabel = 'Normalized acceleration' if normalized else 'Acceleration (cm/s²)'
+    col = f'{signal_column}_normalized' if normalized else signal_column
+    
+    if normalized:
+        xlabel = f'Normalized {signal_column}'
+    else:
+        signal_name = signal_column.capitalize()
+        xlabel = f'{signal_name} ({signal_unit})'
     
     saved = []
     failed = []
     results = []
-
+    
     # Resume from partial results if requested
+    processed_files = set()
     if resume:
         try:
-            df_partial = pd.read_parquet(partial_path)
-            processed_files = set(df_partial['file'].values)
-            results = df_partial.to_dict('records')
-            print(f"Resuming from {len(processed_files)} already processed signals")
-        except Exception:
-            print("No partial results found, starting from scratch")
-            processed_files = set()
-            results = []
-    else:
-        processed_files = set()
-        results = []
-
-    for file in df_acc_clean['file'].unique():
+            from pathlib import Path as PathlibPath
+            # Try to find partial results file
+            partial_paths = [
+                f'../data/processed/03a_pdf_analysis/{prefix}_heavy_tail_results_partial.parquet',
+                '../data/processed/03a_pdf_analysis/heavy_tail_results_partial.parquet',
+            ]
+            df_partial = None
+            for ppath in partial_paths:
+                try:
+                    df_partial = pd.read_parquet(ppath)
+                    print(f"Resuming from {len(df_partial)} previously processed signals")
+                    results = df_partial.to_dict('records')
+                    processed_files = set(df_partial['file'].values)
+                    break
+                except:
+                    continue
+        except Exception as e:
+            print(f"Could not load partial results: {e}")
+    
+    for file in df_clean['file'].unique():
         if file in processed_files:
             continue
-
-        signal = df_acc_clean[df_acc_clean['file'] == file][col].values
+            
+        signal = df_clean[df_clean['file'] == file][col].values
         station = file.split('.')[1]
         stream = file.split('.')[3]
-        filepath = f'{output_dir}/heavy_tail_{station}_{stream}.pdf'
+        
+        filename = f'heavy_tail_{station}_{stream}'
+        if prefix:
+            filename = f'{prefix}_{filename}'
+        filepath = f'{output_dir}/{filename}.pdf'
 
-        # --- Fit distributions ---
         # Gaussian
         mu_g, std_g = stats.norm.fit(signal)
         loglik_g = np.sum(stats.norm.logpdf(signal, mu_g, std_g))
@@ -303,11 +376,10 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
                     'Student-t': aic_t, 'Levy-stable': aic_s}
         best_fit = min(aic_dict, key=aic_dict.get)
 
-        # --- Power law exponent from CCDF ---
+        # Power law exponent from CCDF
         abs_signal = np.abs(signal)
-        threshold = np.percentile(abs_signal, 90)  # fit on top 10% of values
+        threshold = np.percentile(abs_signal, 90)
         tail = abs_signal[abs_signal > threshold]
-        # Hill estimator
         tail_sorted = np.sort(tail)[::-1]
         hill_exp = 1 / np.mean(np.log(tail_sorted / tail_sorted[-1]))
 
@@ -329,14 +401,16 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
             'levy_beta': round(beta_s, 4),
             'power_law_exp': round(hill_exp, 4),
         })
+        
         # Incremental save after each signal
         df_partial = pd.DataFrame(results)
         try:
-            df_partial.to_parquet('../data/processed/heavy_tail_results_partial.parquet', index=False)
+            partial_filename = f'{prefix}_heavy_tail_results_partial.parquet' if prefix else 'heavy_tail_results_partial.parquet'
+            df_partial.to_parquet(f'../data/processed/03a_pdf_analysis/{partial_filename}', index=False)
         except Exception as e:
             print(f"Warning: could not save partial results: {e}")
     
-        # --- Plot ---
+        # Plot
         try:
             fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
@@ -375,7 +449,6 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
             ccdf = np.arange(1, len(abs_signal_sorted) + 1) / len(abs_signal_sorted)
             axes[2].loglog(abs_signal_sorted, ccdf, color=colors[0],
                         linewidth=0.8, label='Empirical CCDF')
-            # Power law fit line on tail
             x_tail = np.linspace(threshold, abs_signal_sorted.max(), 100)
             c = ccdf[np.searchsorted(-abs_signal_sorted, -threshold)]
             axes[2].loglog(x_tail, c * (x_tail / threshold) ** (-hill_exp),
@@ -445,11 +518,13 @@ def heavy_tail_assessment(df_acc_clean, normalized=True, output_dir='../figures/
 
     plt.suptitle('Heavy-tail assessment summary', fontsize=13)
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/heavy_tail_summary.pdf', bbox_inches='tight')
+    
+    summary_filename = f'heavy_tail_summary_{prefix}.pdf' if prefix else 'heavy_tail_summary.pdf'
+    plt.savefig(f'{output_dir}/{summary_filename}', bbox_inches='tight')
     plt.close()
 
     # Check
-    print(f"Saved: {len(saved)}/{df_acc_clean['file'].nunique()} individual plots")
+    print(f"Saved: {len(saved)}/{df_clean['file'].nunique()} individual plots")
     if failed:
         print("Failed:")
         for f, e in failed:
