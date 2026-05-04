@@ -343,6 +343,10 @@ def plot_station_map(df, event_lat, event_lon, output_path=None, peak_column='PG
         Column name for peak ground motion (default: 'PGA_CM/S^2').
         Use 'PGV_CM/S' for velocity, 'PGD_CM' for displacement.
     """
+    # Check if peak column exists
+    if peak_column not in df.columns:
+        raise ValueError(f"Column '{peak_column}' not found in DataFrame. Available columns: {df.columns.tolist()}")
+    
     fig = plt.figure(figsize=(12, 10))
     ax = plt.axes(projection=ccrs.PlateCarree())
     
@@ -418,7 +422,7 @@ def plot_station_map(df, event_lat, event_lon, output_path=None, peak_column='PG
     # Colorbar
     cbar = plt.colorbar(scatter, ax=ax, orientation='vertical', pad=0.05, fraction=0.046, shrink=0.8)
     
-    # Determina l'etichetta in base alla colonna
+    # Determine label based on column
     if 'PGA' in peak_column:
         unit_label = 'PGA (cm/s²)'
     elif 'PGV' in peak_column:
