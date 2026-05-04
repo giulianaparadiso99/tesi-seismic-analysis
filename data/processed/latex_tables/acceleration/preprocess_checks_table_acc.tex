@@ -1,0 +1,18 @@
+\begin{table}[H]
+\centering
+\begin{tabular}{lllll}
+\toprule
+\textbf{Check} & \textbf{Single} & \textbf{Aggregated} & \textbf{Expected} & \textbf{Pass} \\
+\midrule
+Files retained & 66 / 66 & 66 / 66 (0 excluded) & — & — \\
+Max residual mean (cm/s²) & 1.91e-17 & 1.91e-17 & < 1e-10 & \checkmark \\
+Mean std (normalized) & 1.00000000 & N/A (not normalized) & $\approx 1$ & \checkmark \\
+NaN in acceleration & 0 & 0 & 0 & \checkmark \\
+NaN in acceleration\_normalized & 0 & N/A (column not present) & 0 & \checkmark \\
+Inf in acceleration & 0 & 0 & 0 & \checkmark \\
+Inf in acceleration\_normalized & 0 & N/A (column not present) & 0 & \checkmark \\
+\bottomrule
+\end{tabular}
+\caption{Post-preprocessing quality checks for the single signal and aggregated pipelines.}
+\label{tab:postcheck}
+\end{table}

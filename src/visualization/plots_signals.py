@@ -62,7 +62,7 @@ def plot_station_waveforms(df, signal_column='acceleration', signal_unit='cm/s²
     ----------
     df : pd.DataFrame
         DataFrame with signal data
-        Must have columns: 'file', signal_column or f'{signal_column}_normalized'
+        Must have columns: 'file', 'sample', signal_column or f'{signal_column}_normalized'
     signal_column : str
         Name of the signal column (e.g., 'acceleration', 'velocity', 'displacement')
     signal_unit : str
@@ -80,21 +80,13 @@ def plot_station_waveforms(df, signal_column='acceleration', signal_unit='cm/s²
     -------
     list of str
         List of saved figure paths
-    
-    Examples
-    --------
-    >>> # Plot all stations (raw signal)
-    >>> saved_figs = plot_station_waveforms(df, signal_column='velocity', 
-    ...                                      signal_unit='cm/s', normalized=False)
-    >>> 
-    >>> # Plot first 5 stations (normalized)
-    >>> saved_figs = plot_station_waveforms(df, max_stations=5)
     """
     
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     
     # Extract station names and streams from file names
+    df = df.copy()
     df['station'] = df['file'].apply(lambda x: x.split('.')[1])
     df['stream'] = df['file'].apply(lambda x: x.split('.')[3])
     
@@ -144,7 +136,7 @@ def plot_station_waveforms(df, signal_column='acceleration', signal_unit='cm/s²
                 return ord(stream[-1])
         
         df_station['stream_order'] = df_station['stream'].apply(get_stream_order)
-        df_station = df_station.sort_values('stream_order')
+        df_station = df_station.sort_values(['stream_order', 'sample'])
         
         # Get ordered streams
         ordered_streams = df_station['stream'].unique()
@@ -152,21 +144,23 @@ def plot_station_waveforms(df, signal_column='acceleration', signal_unit='cm/s²
         # Create figure with 3 subplots
         fig, axes = plt.subplots(3, 1, figsize=(14, 8), sharex=True)
         
-        # Get sampling rate and create time array
-        first_file = df_station['file'].iloc[0]
-        n_samples = len(df_station[df_station['file'] == first_file])
-        sampling_rate = 200  # Hz (from metadata)
-        time = np.arange(n_samples) / sampling_rate
+        # Get sampling interval from metadata (assuming it's constant across components)
+        # If 'sampling_interval' column exists, use it; otherwise assume 0.005 s (200 Hz)
+        if 'SAMPLING_INTERVAL_S' in df_station.columns:
+            sampling_interval = df_station['SAMPLING_INTERVAL_S'].iloc[0]
+        else:
+            sampling_interval = 0.005  # 200 Hz default
         
         # Plot each component
         for i, stream in enumerate(ordered_streams):
-            df_component = df_station[df_station['stream'] == stream]
+            df_component = df_station[df_station['stream'] == stream].sort_values('sample')
             
             if len(df_component) == 0:
                 continue
             
-            # Get signal
+            # Get signal and create time array
             signal = df_component[signal_col].values
+            time = df_component['sample'].values * sampling_interval
             
             ax = axes[i]
             
