@@ -789,7 +789,7 @@ def analyze_monotonicity_violations(df_meta_stations, phase='p', sampling_rate=2
         - station: station code
         - distance_km: hypocentral distance
         - t_detected: detected arrival time (s)
-        - t_theo: theoretical arrival time (s)
+        - t_theo_seconds: theoretical arrival time (s)
         - residual: t_detected - t_theo (s)
         - prev_station: previous station code
         - prev_distance: previous station hypocentral distance
@@ -982,9 +982,9 @@ def analyze_monotonicity_violations(df_meta_stations, phase='p', sampling_rate=2
         print(f"\n  Most problematic stations (by |residual|):")
         
         # Sort by absolute residual and show top 3
-        top3 = df_violations.nlargest(3, df_violations['residual'].abs().values)[
+        top3 = df_violations.nlargest(3, 'residual', key=lambda x: x.abs())[
             ['station', 'distance_km', 't_detected', 't_theo', 'residual']
-        ]
+    ]
         print(top3.to_string(index=False))
     else:
         print(f"\nNo monotonicity violations found for {phase.upper()}-wave")
