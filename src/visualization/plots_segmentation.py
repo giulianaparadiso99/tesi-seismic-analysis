@@ -47,15 +47,15 @@ def display_theoretical_arrivals_table(df_stations, n_rows=10):
         'EPICENTRAL_DISTANCE_KM',
         'vp_crust', 
         'vs_crust',
-        't_p_theo', 
-        't_s_theo'
+        't_p_theo_seconds', 
+        't_s_theo_seconds'
     ]].copy()
     
     # Round for readability
     table['vp_crust'] = table['vp_crust'].round(2)
     table['vs_crust'] = table['vs_crust'].round(2)
-    table['t_p_theo'] = table['t_p_theo'].round(2)
-    table['t_s_theo'] = table['t_s_theo'].round(2)
+    table['t_p_theo_seconds'] = table['t_p_theo_seconds'].round(2)
+    table['t_s_theo_seconds'] = table['t_s_theo_seconds'].round(2)
     
     # Sort by distance
     table = table.sort_values('EPICENTRAL_DISTANCE_KM')
@@ -65,8 +65,8 @@ def display_theoretical_arrivals_table(df_stations, n_rows=10):
     print("=" * 70)
     print(f"\nNumber of stations: {len(table)}")
     print(f"\nDistance range: {table['EPICENTRAL_DISTANCE_KM'].min():.1f} - {table['EPICENTRAL_DISTANCE_KM'].max():.1f} km")
-    print(f"P-wave arrival range: {table['t_p_theo'].min():.1f} - {table['t_p_theo'].max():.1f} s")
-    print(f"S-wave arrival range: {table['t_s_theo'].min():.1f} - {table['t_s_theo'].max():.1f} s")
+    print(f"P-wave arrival range: {table['t_p_theo_seconds'].min():.1f} - {table['t_p_theo_seconds'].max():.1f} s")
+    print(f"S-wave arrival range: {table['t_s_theo_seconds'].min():.1f} - {table['t_s_theo_seconds'].max():.1f} s")
     print(f"\nMedian crustal velocities:")
     print(f"  v_P = {table['vp_crust'].median():.2f} km/s")
     print(f"  v_S = {table['vs_crust'].median():.2f} km/s")
@@ -94,7 +94,6 @@ def plot_apparent_vs_crustal_velocities(df_meta_stations, figsize=(16, 6)):
     -------
     fig : matplotlib.figure.Figure
     """
-    import matplotlib.pyplot as plt
     
     # Calculate apparent velocities
     df = df_meta_stations.copy()
@@ -161,7 +160,6 @@ def plot_crustal_velocities_vs_distance(df_meta_stations, figsize=(16, 6), outpu
     -------
     fig : matplotlib.figure.Figure
     """
-    import matplotlib.pyplot as plt
     
     df_sorted = df_meta_stations.sort_values('EPICENTRAL_DISTANCE_KM')
     
@@ -238,8 +236,8 @@ def plot_theoretical_arrivals(df_stations, figsize=(12, 6), save_path=None):
     df_stations : pd.DataFrame
         Station metadata with columns:
         - EPICENTRAL_DISTANCE_KM
-        - t_p_theo
-        - t_s_theo
+        - t_p_theo_seconds
+        - t_s_theo_seconds
         - vp_crust
         - vs_crust
     figsize : tuple, optional
@@ -260,8 +258,8 @@ def plot_theoretical_arrivals(df_stations, figsize=(12, 6), save_path=None):
     
     # Extract data
     distance = df_stations['EPICENTRAL_DISTANCE_KM']
-    t_p = df_stations['t_p_theo']
-    t_s = df_stations['t_s_theo']
+    t_p = df_stations['t_p_theo_seconds']
+    t_s = df_stations['t_s_theo_seconds']
     
     # Plot P-wave
     ax.scatter(distance, t_p, 
@@ -348,7 +346,7 @@ def plot_onset_detection_results(signals_dict, df_results,
     df_results : pd.DataFrame
         Results from detect_onsets_ar_windowed() with columns:
         - STATION_CODE
-        - t_p_theo, t_s_theo
+        - t_p_theo_seconds, t_s_theo_seconds
         - t_p_detected, t_s_detected
         - p_residual, s_residual
         - p_detection_success, s_detection_success
@@ -464,13 +462,13 @@ def plot_onset_detection_results(signals_dict, df_results,
                                   label='S window' if ax == axes[0] else '', zorder=0)
             
             # Plot theoretical arrivals (dashed)
-            if not pd.isna(station_result['t_p_theo']):
-                ax.axvline(station_result['t_p_theo'], color='blue', 
+            if not pd.isna(station_result['t_p_theo_seconds']):
+                ax.axvline(station_result['t_p_theo_seconds'], color='blue', 
                           linestyle='--', linewidth=1.5, alpha=0.6, 
                           label='P theo' if ax == axes[0] else '', zorder=2)
             
-            if not pd.isna(station_result['t_s_theo']):
-                ax.axvline(station_result['t_s_theo'], color='red', 
+            if not pd.isna(station_result['t_s_theo_seconds']):
+                ax.axvline(station_result['t_s_theo_seconds'], color='red', 
                           linestyle='--', linewidth=1.5, alpha=0.6,
                           label='S theo' if ax == axes[0] else '', zorder=2)
             

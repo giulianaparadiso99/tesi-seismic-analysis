@@ -367,8 +367,8 @@ def add_theoretical_arrivals(df_stations,
     print(f"Epicentral distance range: {epicentral_dist.min():.2f} - {epicentral_dist.max():.2f} km")
     print(f"Hypocentral distance range: {hypocentral_dist.min():.2f} - {hypocentral_dist.max():.2f} km")
     print(f"Origin time range: {origin_time.min():.2f} - {origin_time.max():.2f} s")
-    print(f"t_P range: {df_result['t_p_theo'].min():.2f} - {df_result['t_p_theo'].max():.2f} s")
-    print(f"t_S range: {df_result['t_s_theo'].min():.2f} - {df_result['t_s_theo'].max():.2f} s")
+    print(f"t_P range: {df_result['t_p_theo_seconds'].min():.2f} - {df_result['t_p_theo_seconds'].max():.2f} s")
+    print(f"t_S range: {df_result['t_s_theo_seconds'].min():.2f} - {df_result['t_s_theo_seconds'].max():.2f} s")
     
     # Quantify the difference caused by depth correction
     distance_diff = hypocentral_dist - epicentral_dist
