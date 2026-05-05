@@ -93,7 +93,7 @@ from .segmentation.window_segmentation import (
 )
 
 from .segmentation.window_validation import (
-    check_pga_in_s_wave,
+    check_peak_in_s_wave,
     check_monotonicity_station,
     check_snr,
     quality_control_all_stations,

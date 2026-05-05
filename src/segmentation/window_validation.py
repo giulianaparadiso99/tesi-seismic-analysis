@@ -2,8 +2,8 @@
 Quality control functions for seismic signal windowing.
 
 This module provides validation functions to check:
-- PGA location (should occur in S-wave window)
-- Arrival time monotonicity with epicentral distance
+- Peak value location (should occur in S-wave window)
+- Arrival time monotonicity with hypocentral distance
 - Signal-to-noise ratio (SNR) for onset picks
 """
 
@@ -11,24 +11,31 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def check_pga_in_s_wave(df_metadata, station, component, coda_method='rautian', 
+def check_peak_in_s_wave(df_metadata, station, component, 
+                        peak_column, time_peak_column,
+                        coda_method='rautian', 
                         sampling_rate=200):
     """
-    Check if PGA occurs in S-wave window using only metadata.
+    Check if peak value occurs in S-wave window using only metadata.
     
     Parameters
     ----------
     df_metadata : pd.DataFrame
-        Metadata with onset times and PGA info
+        Metadata with onset times and peak info
         Expected columns (dual representation with auto-detection):
         - t_p_detected_seconds, t_p_detected_samples (or legacy t_p_detected)
         - t_s_detected_seconds, t_s_detected_samples (or legacy t_s_detected)
         - t_coda_<method>_seconds, t_coda_<method>_samples (or legacy t_coda_<method>)
-        - TIME_PGA_S, PGA_CM/S^2, STATION_CODE, COMPONENT
+        - STATION_CODE, COMPONENT
+        - peak_column, time_peak_column (specified by caller)
     station : str
         Station code
     component : str
         Component name
+    peak_column : str
+        Column name for peak value (e.g., 'PGA_CM/S^2', 'PGV_CM/S', 'PGD_CM')
+    time_peak_column : str
+        Column name for time of peak (e.g., 'TIME_PGA_S', 'TIME_PGV_S', 'TIME_PGD_S')
     coda_method : str, optional
         Which coda method to use: 'rautian', 'arias', 'envelope', 'median'
         (default: 'rautian')
@@ -41,9 +48,9 @@ def check_pga_in_s_wave(df_metadata, station, component, coda_method='rautian',
     dict
         {
             'passed': bool,
-            'pga_window': str,
-            'pga_value': float,
-            'pga_time': float
+            'peak_window': str,
+            'peak_value': float,
+            'peak_time': float
         }
     
     Notes
@@ -57,16 +64,16 @@ def check_pga_in_s_wave(df_metadata, station, component, coda_method='rautian',
     if not mask.any():
         return {
             'passed': False,
-            'pga_window': 'UNKNOWN',
-            'pga_value': np.nan,
-            'pga_time': np.nan
+            'peak_window': 'UNKNOWN',
+            'peak_value': np.nan,
+            'peak_time': np.nan
         }
     
     row = df_metadata[mask].iloc[0]
     
-    # PGA time is always in seconds (from raw data)
-    pga_time = row['TIME_PGA_S']
-    pga_value = row['PGA_CM/S^2']
+    # Peak time and value (time is always in seconds from raw data)
+    peak_time = row[time_peak_column]
+    peak_value = row[peak_column]
     
     # ===== AUTO-DETECT t_p (prefer seconds, fallback samples, then legacy) =====
     if 't_p_detected_seconds' in df_metadata.columns:
@@ -112,20 +119,20 @@ def check_pga_in_s_wave(df_metadata, station, component, coda_method='rautian',
         )
     
     # Determine window (all times now in seconds)
-    if pga_time < t_p:
-        pga_window = 'pre_event'
-    elif t_p <= pga_time < t_s:
-        pga_window = 'p_wave'
-    elif t_s <= pga_time < t_coda:
-        pga_window = 's_wave'
-    else:  # pga_time >= t_coda
-        pga_window = 'coda'
+    if peak_time < t_p:
+        peak_window = 'pre_event'
+    elif t_p <= peak_time < t_s:
+        peak_window = 'p_wave'
+    elif t_s <= peak_time < t_coda:
+        peak_window = 's_wave'
+    else:  # peak_time >= t_coda
+        peak_window = 'coda'
     
     return {
-        'passed': pga_window == 's_wave',
-        'pga_window': pga_window,
-        'pga_value': pga_value,
-        'pga_time': pga_time
+        'passed': peak_window == 's_wave',
+        'peak_window': peak_window,
+        'peak_value': peak_value,
+        'peak_time': peak_time
     }
 
 def check_monotonicity_station(df_meta_stations, station, phase='p', sampling_rate=200):
@@ -384,12 +391,14 @@ def check_snr(windowed_signals, station, component,
         'threshold': threshold
     }
 
+
 def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
+                                 peak_column, time_peak_column,
                                  snr_threshold=3.0, coda_method='rautian'):
     """
     Run all quality checks for all stations and components.
     
-    Performs comprehensive validation including PGA timing, monotonicity
+    Performs comprehensive validation including peak timing, monotonicity
     with distance, and signal-to-noise ratio checks.
     
     Parameters
@@ -398,13 +407,18 @@ def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
         Segmented signals from segment_all_signals()
         Structure: {station: {component: {'pre_arrival': array, 'p_wave': array, ...}}}
     df_full : pd.DataFrame
-        Component-level metadata (used for PGA check)
-        Must contain: 'STATION_CODE', 'COMPONENT', 'PGA_CM/S^2', 'TIME_PGA_S',
+        Component-level metadata (used for peak check)
+        Must contain: 'STATION_CODE', 'COMPONENT',
+                      peak_column, time_peak_column,
                       't_p_detected', 't_s_detected', 't_coda_{method}'
     df_meta_stations : pd.DataFrame
         Station-level metadata (used for monotonicity check)
         Must contain: 'STATION_CODE', 'hypocentral_distance_km',
                       't_p_detected', 't_s_detected'
+    peak_column : str
+        Column name for peak value (e.g., 'PGA_CM/S^2', 'PGV_CM/S', 'PGD_CM')
+    time_peak_column : str
+        Column name for time of peak (e.g., 'TIME_PGA_S', 'TIME_PGV_S', 'TIME_PGD_S')
     snr_threshold : float, optional
         SNR threshold for quality check (default: 3.0)
     coda_method : str, optional
@@ -418,7 +432,7 @@ def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
         {
             station: {
                 component: {
-                    'pga_check': dict,
+                    'peak_check': dict,
                     'monotonicity_p': dict,
                     'monotonicity_s': dict,
                     'snr_p': dict,
@@ -435,7 +449,7 @@ def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
     accounts for the actual wave propagation path from the source.
     
     The monotonicity check is station-level (same result for all components
-    of a station), while PGA and SNR checks are component-specific.
+    of a station), while peak and SNR checks are component-specific.
     
     Examples
     --------
@@ -443,6 +457,8 @@ def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
     ...     windowed_signals, 
     ...     df_full, 
     ...     df_meta_stations,
+    ...     peak_column='PGA_CM/S^2',
+    ...     time_peak_column='TIME_PGA_S',
     ...     snr_threshold=3.0
     ... )
     >>> # Count passing stations
@@ -458,6 +474,12 @@ def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
             "df_meta_stations must contain 'hypocentral_distance_km'. "
             "Run add_theoretical_arrivals() first."
         )
+    
+    if peak_column not in df_full.columns:
+        raise ValueError(f"Column '{peak_column}' not found in df_full")
+    
+    if time_peak_column not in df_full.columns:
+        raise ValueError(f"Column '{time_peak_column}' not found in df_full")
     
     results = {}
     
@@ -476,9 +498,12 @@ def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
             }
         
         for component in windowed_signals[station].keys():
-            # PGA check (component-specific, uses df_full)
-            pga_check = check_pga_in_s_wave(
-                df_full, station, component, coda_method=coda_method
+            # Peak check (component-specific, uses df_full)
+            peak_check = check_peak_in_s_wave(
+                df_full, station, component, 
+                peak_column=peak_column,
+                time_peak_column=time_peak_column,
+                coda_method=coda_method
             )
             
             # Monotonicity checks (station-level, cached)
@@ -497,7 +522,7 @@ def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
             
             # Aggregate results
             all_passed = (
-                pga_check['passed'] and
+                peak_check['passed'] and
                 mono_p['passed'] and
                 mono_s['passed'] and
                 snr_p['passed'] and
@@ -505,7 +530,7 @@ def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
             )
             
             results[station][component] = {
-                'pga_check': pga_check,
+                'peak_check': peak_check,
                 'monotonicity_p': mono_p,
                 'monotonicity_s': mono_s,
                 'snr_p': snr_p,
@@ -519,95 +544,159 @@ def print_quality_control_summary(qc_results):
     """
     Print quality control results in hierarchical table format.
     
-    Format:
-    Station A
-      ├─ HGZ: [✓ PGA] [✓ MonoP] [✓ MonoS] [✓ SNRP] [✓ SNRS]
-      ├─ HGN: [✗ PGA] [✓ MonoP] [✓ MonoS] [✓ SNRP] [✓ SNRS]
-      └─ HGE: [✓ PGA] [✓ MonoP] [✓ MonoS] [✗ SNRP] [✓ SNRS]
+    Shows check results for each station/component:
+    - Peak: whether peak value occurs in S-wave window
+    - MonoP/MonoS: whether P/S arrival times are monotonic with distance
+    - SNRP/SNRS: whether P/S windows meet SNR threshold
+    
+    Parameters
+    ----------
+    qc_results : dict
+        Output from quality_control_all_stations()
+    
+    Examples
+    --------
+    >>> qc_results = quality_control_all_stations(...)
+    >>> print_quality_control_summary(qc_results)
+    Quality Control Summary
+    ========================================
+    ACER
+      ├─ HGZ: [✓ Peak] [✓ MonoP] [✓ MonoS] [✓ SNRP] [✓ SNRS]
+      ├─ HGN: [✗ Peak] [✓ MonoP] [✓ MonoS] [✓ SNRP] [✓ SNRS]
+      └─ HGE: [✓ Peak] [✓ MonoP] [✓ MonoS] [✗ SNRP] [✓ SNRS]
     """
+    print("\nQuality Control Summary")
+    print("=" * 70)
     
-    def status_symbol(passed):
-        return '✓' if passed else '✗'
-    
-    print("\n" + "="*80)
-    print("QUALITY CONTROL SUMMARY")
-    print("="*80)
-    
-    # Statistics
     total_components = 0
-    all_passed_count = 0
     check_failures = {
-        'pga': 0,
-        'mono_p': 0,
-        'mono_s': 0,
+        'peak': 0,
+        'monotonicity_p': 0,
+        'monotonicity_s': 0,
         'snr_p': 0,
         'snr_s': 0
     }
     
-    # Print per station
     for station in sorted(qc_results.keys()):
         print(f"\n{station}")
         
-        components = qc_results[station]
-        component_names = sorted(components.keys())
+        components = sorted(qc_results[station].keys())
         
-        for i, component in enumerate(component_names):
+        for i, component in enumerate(components):
             total_components += 1
+            checks = qc_results[station][component]
             
-            checks = components[component]
+            # Format check results
+            peak_status = "✓" if checks['peak_check']['passed'] else "✗"
+            mono_p_status = "✓" if checks['monotonicity_p']['passed'] else "✗"
+            mono_s_status = "✓" if checks['monotonicity_s']['passed'] else "✗"
+            snr_p_status = "✓" if checks['snr_p']['passed'] else "✗"
+            snr_s_status = "✓" if checks['snr_s']['passed'] else "✗"
             
-            # Choose prefix (tree structure)
-            if i == len(component_names) - 1:
+            # Count failures
+            if not checks['peak_check']['passed']:
+                check_failures['peak'] += 1
+            if not checks['monotonicity_p']['passed']:
+                check_failures['monotonicity_p'] += 1
+            if not checks['monotonicity_s']['passed']:
+                check_failures['monotonicity_s'] += 1
+            if not checks['snr_p']['passed']:
+                check_failures['snr_p'] += 1
+            if not checks['snr_s']['passed']:
+                check_failures['snr_s'] += 1
+            
+            # Tree structure
+            if i == len(components) - 1:
                 prefix = "  └─"
             else:
                 prefix = "  ├─"
             
-            # Build status string
-            pga_status = status_symbol(checks['pga_check']['passed'])
-            mono_p_status = status_symbol(checks['monotonicity_p']['passed'])
-            mono_s_status = status_symbol(checks['monotonicity_s']['passed'])
-            snr_p_status = status_symbol(checks['snr_p']['passed'])
-            snr_s_status = status_symbol(checks['snr_s']['passed'])
-            
-            status_line = (
+            print(
                 f"{prefix} {component}: "
-                f"[{pga_status} PGA] "
+                f"[{peak_status} Peak] "
                 f"[{mono_p_status} MonoP] "
                 f"[{mono_s_status} MonoS] "
                 f"[{snr_p_status} SNRP] "
                 f"[{snr_s_status} SNRS]"
             )
-            
-            print(status_line)
-            
-            # Count statistics
-            if checks['all_passed']:
-                all_passed_count += 1
-            
-            if not checks['pga_check']['passed']:
-                check_failures['pga'] += 1
-            if not checks['monotonicity_p']['passed']:
-                check_failures['mono_p'] += 1
-            if not checks['monotonicity_s']['passed']:
-                check_failures['mono_s'] += 1
-            if not checks['snr_p']['passed']:
-                check_failures['snr_p'] += 1
-            if not checks['snr_s']['passed']:
-                check_failures['snr_s'] += 1
     
-    # Print summary statistics
-    print("\n" + "="*80)
-    print("STATISTICS")
-    print("="*80)
-    print(f"Total components:     {total_components}")
-    print(f"All checks passed:    {all_passed_count} ({100*all_passed_count/total_components:.1f}%)")
-    print(f"\nFailures by check:")
-    print(f"  PGA in S-wave:      {check_failures['pga']} ({100*check_failures['pga']/total_components:.1f}%)")
-    print(f"  Monotonicity P:     {check_failures['mono_p']} ({100*check_failures['mono_p']/total_components:.1f}%)")
-    print(f"  Monotonicity S:     {check_failures['mono_s']} ({100*check_failures['mono_s']/total_components:.1f}%)")
-    print(f"  SNR P ≥ 3:          {check_failures['snr_p']} ({100*check_failures['snr_p']/total_components:.1f}%)")
-    print(f"  SNR S ≥ 3:          {check_failures['snr_s']} ({100*check_failures['snr_s']/total_components:.1f}%)")
-    print("="*80 + "\n")
+    # Summary statistics
+    print("\n" + "=" * 70)
+    print(f"Total components: {total_components}")
+    print(f"\nCheck failures:")
+    print(f"  Peak in S-wave:     {check_failures['peak']} ({100*check_failures['peak']/total_components:.1f}%)")
+    print(f"  Monotonicity P:     {check_failures['monotonicity_p']} ({100*check_failures['monotonicity_p']/total_components:.1f}%)")
+    print(f"  Monotonicity S:     {check_failures['monotonicity_s']} ({100*check_failures['monotonicity_s']/total_components:.1f}%)")
+    print(f"  SNR P-wave:         {check_failures['snr_p']} ({100*check_failures['snr_p']/total_components:.1f}%)")
+    print(f"  SNR S-wave:         {check_failures['snr_s']} ({100*check_failures['snr_s']/total_components:.1f}%)")
+    print("=" * 70)
+
+
+def print_failed_checks(qc_results, signal_unit='cm/s²'):
+    """
+    Print detailed information for components that failed quality checks.
+    
+    Parameters
+    ----------
+    qc_results : dict
+        Output from quality_control_all_stations()
+    signal_unit : str, optional
+        Unit for peak value display (default: 'cm/s²')
+    
+    Examples
+    --------
+    >>> print_failed_checks(qc_results, signal_unit='cm/s')
+    """
+    print("\nFailed Quality Checks - Details")
+    print("=" * 70)
+    
+    has_failures = False
+    
+    for station in sorted(qc_results.keys()):
+        for component in sorted(qc_results[station].keys()):
+            checks = qc_results[station][component]
+            
+            if checks['all_passed']:
+                continue  # Skip if all passed
+            
+            has_failures = True
+            print(f"\n{station}-{component}:")
+            
+            # Peak failure
+            if not checks['peak_check']['passed']:
+                peak = checks['peak_check']
+                print(f"  ✗ Peak: Found in '{peak['peak_window']}' window (value={peak['peak_value']:.4f} {signal_unit})")
+            
+            # Monotonicity P failure
+            if not checks['monotonicity_p']['passed']:
+                mono = checks['monotonicity_p']
+                if mono['violation_side'] == 'prev':
+                    print(f"  ✗ MonoP: t_P({mono['t_this']:.2f}s) ≤ t_P_prev({mono['t_prev']:.2f}s)")
+                elif mono['violation_side'] == 'next':
+                    print(f"  ✗ MonoP: t_P({mono['t_this']:.2f}s) ≥ t_P_next({mono['t_next']:.2f}s)")
+            
+            # Monotonicity S failure
+            if not checks['monotonicity_s']['passed']:
+                mono = checks['monotonicity_s']
+                if mono['violation_side'] == 'prev':
+                    print(f"  ✗ MonoS: t_S({mono['t_this']:.2f}s) ≤ t_S_prev({mono['t_prev']:.2f}s)")
+                elif mono['violation_side'] == 'next':
+                    print(f"  ✗ MonoS: t_S({mono['t_this']:.2f}s) ≥ t_S_next({mono['t_next']:.2f}s)")
+            
+            # SNR P failure
+            if not checks['snr_p']['passed']:
+                snr = checks['snr_p']
+                print(f"  ✗ SNRP: SNR={snr['snr']:.2f} < threshold={snr['threshold']:.1f}")
+            
+            # SNR S failure
+            if not checks['snr_s']['passed']:
+                snr = checks['snr_s']
+                print(f"  ✗ SNRS: SNR={snr['snr']:.2f} < threshold={snr['threshold']:.1f}")
+    
+    if not has_failures:
+        print("No failures - all components passed quality checks!")
+    
+    print("=" * 70)
 
 def print_detailed_failures(qc_results):
     """

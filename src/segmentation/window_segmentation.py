@@ -39,7 +39,7 @@ def segment_signal_into_windows(
     Parameters
     ----------
     signal : np.ndarray
-        Acceleration time series
+        Signal time series (acceleration, velocity, or displacement)
     t_p, t_s, t_coda : int or float
         Onset times in units specified by 'unit' parameter
         - If unit='samples': sample indices (int)
