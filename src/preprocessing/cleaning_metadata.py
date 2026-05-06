@@ -87,7 +87,7 @@ def _convert_types(df):
     return df
 
 def _normalize_strings(df):
-    """Strip and uppercase string columns for consistency."""
+    """Strip string columns for consistency."""
     str_cols = df.select_dtypes(include='object').columns
     for col in str_cols:
         df[col] = df[col].str.strip()
