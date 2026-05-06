@@ -4,8 +4,8 @@ io.py
 Input/output utilities for loading the raw seismic dataset from the
 .ASC archive. The dataset is distributed as a single zip file containing
 66 .ASC files, one per station-component pair. Each file consists of a
-64-row header (FEATURE: VALUE format) followed by numerical acceleration
-data (one value per row, in cm/s²).
+64-row header (FEATURE: VALUE format) followed by numerical signal
+data (one value per row).
 
 This module provides three public functions:
 
@@ -14,13 +14,16 @@ This module provides three public functions:
         long-format DataFrame (df_meta) with one row per file and one
         column per metadata field.
 
-    build_accelerations(zip_path)
+    build_signals(zip_path)
         Parses the numerical data rows of all .ASC files and returns a
         long-format DataFrame (df_acc) with columns:
-            'file'         — source filename
-            'sample'       — integer sample index (0-based)
-            'acceleration' — raw acceleration value (cm/s²)
-
+            'file'                — source filename
+            'sample'              — integer sample index (0-based)
+            '<signal_type>'       — signals values (column name depends
+                                    on 'DATA_TYPE' field in headers)
+        If signal_type is not provided, the column name is extracted from
+        each file's DATA_TYPE field (e.g., 'ACCELERATION', 'VELOCITY').
+    
     build_dataframes(zip_path)
         Convenience wrapper that calls both functions above and returns
         (df_meta, df_acc) as a tuple. Kept for backwards compatibility.
