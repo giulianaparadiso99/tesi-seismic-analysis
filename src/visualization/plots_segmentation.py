@@ -97,8 +97,8 @@ def plot_apparent_vs_crustal_velocities(df_meta_stations, figsize=(16, 6)):
     
     # Calculate apparent velocities
     df = df_meta_stations.copy()
-    df['v_p_apparent'] = df['EPICENTRAL_DISTANCE_KM'] / (df['t_p_detected'] - df['origin_time'])
-    df['v_s_apparent'] = df['EPICENTRAL_DISTANCE_KM'] / (df['t_s_detected'] - df['origin_time'])
+    df['v_p_apparent'] = df['EPICENTRAL_DISTANCE_KM'] / (df['t_p_detected_seconds'] - df['origin_time'])
+    df['v_s_apparent'] = df['EPICENTRAL_DISTANCE_KM'] / (df['t_s_detected_seconds'] - df['origin_time'])
     
     # Remove outliers (negative or unrealistic velocities)
     df = df[(df['v_p_apparent'] > 0) & (df['v_p_apparent'] < 15)]
@@ -347,7 +347,7 @@ def plot_onset_detection_results(signals_dict, df_results,
         Results from detect_onsets_ar_windowed() with columns:
         - STATION_CODE
         - t_p_theo_seconds, t_s_theo_seconds
-        - t_p_detected, t_s_detected
+        - t_p_detected_seconds, t_s_detected_seconds
         - p_residual, s_residual
         - p_detection_success, s_detection_success
         - p_window_start, p_window_end, s_window_start, s_window_end
@@ -476,13 +476,13 @@ def plot_onset_detection_results(signals_dict, df_results,
             p_success = station_result.get('p_detection_success', False)
             s_success = station_result.get('s_detection_success', False)
             
-            if p_success and not pd.isna(station_result['t_p_detected']):
-                ax.axvline(station_result['t_p_detected'], color='blue', 
+            if p_success and not pd.isna(station_result['t_p_detected_seconds']):
+                ax.axvline(station_result['t_p_detected_seconds'], color='blue', 
                           linestyle='-', linewidth=2.5,
                           label='P detected' if ax == axes[0] else '', zorder=3)
             
-            if s_success and not pd.isna(station_result['t_s_detected']):
-                ax.axvline(station_result['t_s_detected'], color='red', 
+            if s_success and not pd.isna(station_result['t_s_detected_seconds']):
+                ax.axvline(station_result['t_s_detected_seconds'], color='red', 
                           linestyle='-', linewidth=2.5,
                           label='S detected' if ax == axes[0] else '', zorder=3)
         
@@ -630,8 +630,8 @@ def plot_coda_onset_results(signals_dict, df_onsets_full,
             ax.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
             
             # Plot S-wave onset
-            if not np.isnan(comp_result['t_s_detected']):
-                ax.axvline(comp_result['t_s_detected'], color='red',
+            if not np.isnan(comp_result['t_s_detected_seconds']):
+                ax.axvline(comp_result['t_s_detected_seconds'], color='red',
                           linestyle='-', linewidth=2.5,
                           label='S onset' if ax == axes[0] else '', zorder=2)
             
