@@ -143,6 +143,5 @@ def build_dataframes(zip_path):
     """
     Reads a zip archive containing .ASC files and returns
     two dataframes: df_meta and df_acc.
-    Kept for backwards compatibility.
     """
     return build_metadata(zip_path), build_signals(zip_path)

@@ -445,8 +445,8 @@ def plot_onset_detection_results(signals_dict, df_results,
             if show_windows:
                 # P window
                 if 'p_window_start' in station_result.index:
-                    p_win_start = station_result['p_window_start']
-                    p_win_end = station_result['p_window_end']
+                    p_win_start = station_result['p_window_start_seconds']
+                    p_win_end = station_result['p_window_end_seconds']
                     
                     if not pd.isna(p_win_start) and not pd.isna(p_win_end):
                         ax.axvspan(p_win_start, p_win_end, alpha=0.15, color='blue', 
@@ -454,8 +454,8 @@ def plot_onset_detection_results(signals_dict, df_results,
                 
                 # S window
                 if 's_window_start' in station_result.index:
-                    s_win_start = station_result['s_window_start']
-                    s_win_end = station_result['s_window_end']
+                    s_win_start = station_result['s_window_start_seconds']
+                    s_win_end = station_result['s_window_end_seconds']
                     
                     if not pd.isna(s_win_start) and not pd.isna(s_win_end):
                         ax.axvspan(s_win_start, s_win_end, alpha=0.15, color='red', 
