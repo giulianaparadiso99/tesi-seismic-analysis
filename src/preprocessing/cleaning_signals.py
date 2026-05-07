@@ -15,14 +15,14 @@ Main function:
 Usage examples:
     from src.cleaning_signals import preprocess_signals
     
-    # For PDF analysis (all 66 files, normalized)
+    # For PDF analysis (all files, normalized)
     df_pdf = preprocess_signals(df_signals_raw,
                                  signal_column='acceleration',
                                  filter_length=False,
                                  baseline_correction=True,
                                  normalize=True)
     
-    # For moment scaling (48 long files, NOT normalized - preserves physical units)
+    # For moment scaling (long files, NOT normalized - preserves physical units)
     df_scaling = preprocess_signals(df_signals_raw,
                                      signal_column='velocity',
                                      filter_length=True,
@@ -91,10 +91,6 @@ def _normalize(df: pd.DataFrame, signal_column: str = 'acceleration') -> pd.Data
 def _filter_long(df: pd.DataFrame, min_samples: int = 48000) -> pd.DataFrame:
     """
     Retains only files with at least min_samples samples.
-    Unlike the old _truncate helper, this function does NOT truncate signals
-    to a common length — it simply drops files that are too short.
-    This excludes the 6 near-field stations (SURF, BRZ, BHB, CRI, SLZ, SAV)
-    whose recordings are shorter due to their proximity to the epicenter.
     """
     signal_lengths = df.groupby('file')['sample'].max() + 1
     long_files = signal_lengths[signal_lengths >= min_samples].index
@@ -128,12 +124,10 @@ def preprocess_signals(df: pd.DataFrame,
         If True, retain only files with >= min_samples samples.
         - True:  For moment scaling analysis (needs long time scales τ)
         - False: For PDF analysis (use all stations)
-        Excludes 6 near-field stations: SURF, BRZ, BHB, CRI, SLZ, SAV
     
     baseline_correction : bool, default=True
         If True, subtract per-signal mean to ensure zero baseline.
         RECOMMENDED: Always True, even if already applied in raw data.
-        Essential for integration (velocity/displacement computation).
     
     normalize : bool, default=False
         If True, divide per-signal by its standard deviation.
@@ -141,13 +135,13 @@ def preprocess_signals(df: pd.DataFrame,
         
         **CRITICAL CHOICE:**
         - True:  For PDF analysis, heavy-tail assessment only
-        - False: For moment scaling, velocity/displacement, physical units
+        - False: For moment scaling, preserves physical units
         
         When False, normalized column is NOT created.
     
     min_samples : int, default=48000
         Minimum samples required when filter_length=True.
-        Default (48000) excludes 6 near-field stations.
+        Default (48000).
     
     Returns
     -------
@@ -160,7 +154,7 @@ def preprocess_signals(df: pd.DataFrame,
     
     Examples
     --------
-    # PDF analysis on all 66 signals with normalization
+    # PDF analysis on all signals with normalization
     >>> df_pdf = preprocess_signals(df_raw,
     ...                             signal_column='acceleration',
     ...                             filter_length=False,
@@ -168,7 +162,7 @@ def preprocess_signals(df: pd.DataFrame,
     ...                             normalize=True)
     >>> # Use: df_pdf['acceleration_normalized']
     
-    # Moment scaling on 48 long signals WITHOUT normalization
+    # Moment scaling on long signals WITHOUT normalization
     >>> df_scaling = preprocess_signals(df_raw,
     ...                                 signal_column='velocity',
     ...                                 filter_length=True,
@@ -217,7 +211,7 @@ def validate_preprocessing(df: pd.DataFrame,
     signal_column : str
         Name of the signal column that was processed
     expected_files : int
-        Expected number of files (66 for PDF, 48 for moment scaling)
+        Expected number of files 
     check_normalized : bool
         If True, checks '{signal_column}_normalized' column exists and std=1
     pipeline_name : str
