@@ -698,10 +698,8 @@ def print_failed_checks(qc_results, signal_unit='cm/s²'):
     
     print("=" * 70)
 
-def print_detailed_failures(qc_results):
-    """
-    Print detailed information for failed checks.
-    """
+def print_detailed_failures(qc_results, signal_unit='cm/s²'):  # ← AGGIUNGI parametro
+    """Print detailed information for failed checks."""
     
     print("\n" + "="*80)
     print("DETAILED FAILURE REPORT")
@@ -712,14 +710,15 @@ def print_detailed_failures(qc_results):
             checks = qc_results[station][component]
             
             if checks['all_passed']:
-                continue  # Skip if all passed
+                continue
             
             print(f"\n{station}-{component}:")
             
-            # PGA failure
-            if not checks['pga_check']['passed']:
-                pga = checks['pga_check']
-                print(f"  ✗ PGA: Found in '{pga['pga_window']}' window (value={pga['pga_value']:.4f} cm/s²)")
+            # Peak failure (non "PGA")
+            if not checks['peak_check']['passed']:  # ← FIX: 'peak_check' non 'pga_check'
+                peak = checks['peak_check']
+                print(f"  ✗ Peak: Found in '{peak['peak_window']}' window "
+                      f"(value={peak['peak_value']:.4f} {signal_unit})")  # ← FIX: usa parametro
             
             # Monotonicity P failure
             if not checks['monotonicity_p']['passed']:
@@ -1117,7 +1116,6 @@ def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violat
     ...     output_path='figures/monotonicity_analysis.png'
     ... )
     """
-    import matplotlib.pyplot as plt
     
     # Validate input
     required_cols = ['hypocentral_distance_km', 'STATION_CODE']
@@ -1283,7 +1281,6 @@ def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violat
     ... )
     >>> plt.show()
     """
-    import matplotlib.pyplot as plt
     
     # ===== AUTO-DETECT RESIDUAL COLUMNS =====
     # P-wave residual
