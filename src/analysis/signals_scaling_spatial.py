@@ -133,7 +133,7 @@ def prepare_window_data(
             window_data = windowed_signals[station][component][window_name]
             signal = window_data[signal_field]
             time = window_data['time']
-            duration = window_data['duration']
+            duration = window_data['duration_samples']
             
             if len(signal) < 2:
                 continue
@@ -155,6 +155,11 @@ def prepare_window_data(
     tau_max_seconds = min_signal_length * dt
     n_signals = len(signals_list)
     
+    # Debug validation
+    for i, (signal, duration) in enumerate(zip(signals_list, durations)):
+        if len(signal) != duration:
+            print(f"Warning: Signal {i} length mismatch: len={len(signal)}, duration_samples={duration}")
+
     return signals_list, times_list, tau_max_seconds, n_signals
 
 
@@ -332,12 +337,12 @@ def compute_spatial_ensemble(
         n_decades = np.log10(tau_max_samples / tau_min_samples)
         n_tau = max(30, int(n_decades * 20))
     
-    # Generate tau directly in sample space (logarithmic distribution preserved!)
+    # Generate tau directly in sample space
     tau_samples = np.unique(np.round(
         np.logspace(np.log10(tau_min_samples), np.log10(tau_max_samples), n_tau)
     ).astype(int))
     
-    # Convert to seconds ONLY for output (single conversion, no rounding loss)
+    # Convert to seconds ONLY for output
     tau_seconds = tau_samples / sampling_rate
     
     # Update n_tau after unique() operation
@@ -781,7 +786,6 @@ def analyze_single_signal(
             f"Signal too short: tau_max={tau_max_seconds:.3f}s <= tau_min={tau_min:.3f}s"
         )
     
-    # ===== CRITICAL FIX: Generate tau in SAMPLES, not seconds =====
     # Convert tau_min and tau_max to samples
     tau_min_samples = max(1, int(np.round(tau_min * sampling_rate)))
     tau_max_samples = int(np.floor(tau_max_seconds * sampling_rate))
@@ -798,12 +802,12 @@ def analyze_single_signal(
         n_decades = np.log10(tau_max_samples / tau_min_samples)
         n_tau = max(30, int(n_decades * 20))
     
-    # Generate tau directly in sample space (logarithmic distribution preserved!)
+    # Generate tau directly in sample space
     tau_samples = np.unique(np.round(
         np.logspace(np.log10(tau_min_samples), np.log10(tau_max_samples), n_tau)
     ).astype(int))
     
-    # Convert to seconds ONLY for output (single conversion, no rounding loss)
+    # Convert to seconds ONLY for output
     tau_seconds = tau_samples / sampling_rate
     
     # ===== Compute moments using sample indices =====
