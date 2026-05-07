@@ -10,6 +10,7 @@ Usage in notebook:
     latex_rows = heavy_tail_to_latex(df_heavy_tail_results)
 """
 
+from pathlib import Path
 
 # ===============================================================================================
 # ======================================= Helpers ===============================================
@@ -226,8 +227,12 @@ def metadata_table_to_latex(df_meta, output_path=None):
         'INSTRUMENTAL_DAMPING': 'Critical damping ratio',
         'FULL_SCALE_G': 'Full-scale range (g)',
         'N_BIT_DIGITAL_CONVERTER': 'ADC resolution (bit)',
-        'PGA_CM/S^2': 'Peak Ground Acceleration',
+        'PGA_CM/S^2': r'Peak Ground Acceleration (cm/s$^2$)',
         'TIME_PGA_S': 'Time of PGA from start (s)',
+        'PGV_CM/S': 'Peak Ground Velocity (cm/s)',
+        'TIME_PGV_S': 'Time of PGV from start (s)',
+        'PGD_CM': 'Peak Ground Displacement (cm)',
+        'TIME_PGD_S': 'Time of PGD from start (s)',
         'BASELINE_CORRECTION': 'Baseline correction type',
         'FILTER_TYPE': 'Filter type (Butterworth)',
         'FILTER_ORDER': 'Filter order',
@@ -324,7 +329,6 @@ def constant_fields_to_latex(df_meta, constant_cols, output_path=None):
     str
         Complete LaTeX longtable environment as a string.
     """
-    from pathlib import Path
     
     def _escape_latex(text):
         """Escape special LaTeX characters in text."""
@@ -521,7 +525,6 @@ def onset_detection_to_latex(df_onsets_full, coda_method='rautian',
     ...     output_path='tables/onset_detection_arias.tex'
     ... )
     """
-    from pathlib import Path
     
     # Validate coda_method
     valid_methods = ['rautian', 'arias', 'envelope']
@@ -729,7 +732,6 @@ def coda_onset_comparison_to_latex(df_onsets_full, output_path=None):
     ...     output_path='tables/coda_comparison.tex'
     ... )
     """
-    from pathlib import Path
     
     # Determine component column name
     comp_col = 'COMPONENT' if 'COMPONENT' in df_onsets_full.columns else 'STREAM'
