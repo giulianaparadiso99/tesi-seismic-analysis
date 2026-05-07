@@ -40,13 +40,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import contextily as ctx
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from adjustText import adjust_text
-import folium
-from folium import plugins
-import branca.colormap as cm
 from src.visualization.plot_settings import set_plot_style
 colors, colors1 = set_plot_style()
 
