@@ -304,7 +304,7 @@ def plot_signals_distributions(df_signals, df_meta_clean,
 # ================= Signals — post-preprocessing check - PDF analysis pipeline ==================
 # ===============================================================================================
  
-def plot_postcheck_pdf(df_raw, df_clean, signal_column='acceleration', output_dir=None, prefix=''):
+def plot_postcheck_pdf(df_raw, df_clean, signal_column='acceleration', signal_unit='cm/s²', output_dir=None, prefix=''):
     """
     2x2 summary figure for the single signal preprocessing pipeline:
     residual means, std distribution, baseline correction example,
@@ -318,6 +318,8 @@ def plot_postcheck_pdf(df_raw, df_clean, signal_column='acceleration', output_di
         Preprocessed signals. Must contain [file, signal_column, {signal_column}_normalized].
     signal_column : str
         Name of the signal column (e.g., 'acceleration', 'velocity', 'displacement')
+    signal_unit : str
+        Unit of the signal column (e.g., 'cm/s²', 'cm/s', 'cm')
     output_dir : str or Path or None
     prefix : str
         Prefix for output filename (e.g., 'acc', 'vel', 'dis').
@@ -333,15 +335,7 @@ def plot_postcheck_pdf(df_raw, df_clean, signal_column='acceleration', output_di
     example_norm = df_clean[df_clean['file'] == example_file][normalized_col].values
     station_label = example_file.split('.')[1] + ' ' + example_file.split('.')[3]
     
-    # Determine unit label
-    if signal_column == 'acceleration':
-        unit_label = 'cm/s²'
-    elif signal_column == 'velocity':
-        unit_label = 'cm/s'
-    elif signal_column == 'displacement':
-        unit_label = 'cm'
-    else:
-        unit_label = ''
+    unit_label = signal_unit
     
     signal_name = signal_column.capitalize()
  
