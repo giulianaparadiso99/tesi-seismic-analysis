@@ -322,7 +322,8 @@ def plot_theoretical_arrivals(df_stations, figsize=(12, 6), save_path=None):
     
     return fig, ax
 
-def plot_onset_detection_results(signals_dict, df_results, 
+def plot_onset_detection_results(signals_dict, df_results,
+                                 signal_unit='cm/s²',
                                  stations=None, 
                                  figsize_per_station=(10, 8),
                                  save_dir=None,
@@ -351,6 +352,9 @@ def plot_onset_detection_results(signals_dict, df_results,
         - p_residual, s_residual
         - p_detection_success, s_detection_success
         - p_window_start, p_window_end, s_window_start, s_window_end
+    signal_unit : str, optional
+        Unit label for y-axis (default: 'cm/s²')
+        Use 'cm/s' for velocity, 'cm' for displacement
     stations : list of str, optional
         Which stations to plot (default: all stations in df_results)
     figsize_per_station : tuple, optional
@@ -438,7 +442,7 @@ def plot_onset_detection_results(signals_dict, df_results,
             
             # Plot acceleration
             ax.plot(time, signal, 'k-', linewidth=0.5, alpha=0.7, zorder=1)
-            ax.set_ylabel(f'{label}\n(cm/s²)', fontsize=10)
+            ax.set_ylabel(f'{label}\n({signal_unit})', fontsize=10)
             ax.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
             
             # Plot search windows if available and requested
@@ -522,6 +526,7 @@ def plot_onset_detection_results(signals_dict, df_results,
     return figures
 
 def plot_coda_onset_results(signals_dict, df_onsets_full,
+                            signal_unit='cm/s²',
                             stations=None,
                             figsize_per_station=(10, 8),
                             save_dir=None):
@@ -546,6 +551,9 @@ def plot_coda_onset_results(signals_dict, df_onsets_full,
         - t_s_detected
         - t_coda_rautian, t_coda_arias, t_coda_envelope
         - s_duration_rautian, s_duration_arias, s_duration_envelope
+    signal_unit : str, optional
+        Unit label for y-axis (default: 'cm/s²')
+        Use 'cm/s' for velocity, 'cm' for displacement
     stations : list of str, optional
         Which stations to plot (default: all stations in df_onsets_full)
     figsize_per_station : tuple, optional
@@ -626,7 +634,7 @@ def plot_coda_onset_results(signals_dict, df_onsets_full,
             
             # Plot acceleration
             ax.plot(time, signal, 'k-', linewidth=0.5, alpha=0.7, zorder=1)
-            ax.set_ylabel(f'{label}\n(cm/s²)', fontsize=10)
+            ax.set_ylabel(f'{label}\n({signal_unit})', fontsize=10)
             ax.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
             
             # Plot S-wave onset
@@ -1244,6 +1252,7 @@ def plot_station_windows(
     signals_dict: Dict[str, Dict[str, np.ndarray]],
     windowed_signals: Dict[str, Dict[str, Dict[str, Dict]]],
     df_onsets: Optional[pd.DataFrame] = None,
+    signal_unit: str = 'cm/s²',
     coda_method: str = 'rautian',
     figsize: tuple = (14, 10),
     save_path: Optional[str] = None,
@@ -1267,6 +1276,7 @@ def plot_station_windows(
         Windowed signals from segment_all_signals()
     df_onsets : pd.DataFrame, optional
         DataFrame with onset times for displaying in legend
+    signal_unit : str, optional
     coda_method : str, optional
         Which coda method was used ('rautian', 'arias', 'envelope')
         Only used if df_onsets is provided (default: 'rautian')
@@ -1357,15 +1367,15 @@ def plot_station_windows(
         windows = windowed_signals[station][component]
         
         # Extract onset times
-        t_p = windows['p_wave']['t_start']
-        t_s = windows['s_wave']['t_start']
-        t_coda = windows['coda']['t_start']
+        t_p = windows['p_wave']['start_seconds']
+        t_s = windows['s_wave']['start_seconds']
+        t_coda = windows['coda']['start_seconds']
         
         # Plot window backgrounds
         if show_window_backgrounds:
             for window_name in ['pre_event', 'p_wave', 's_wave', 'coda']:
                 w = windows[window_name]
-                ax.axvspan(w['t_start'], w['t_end'], 
+                ax.axvspan(w['start_seconds'], w['end_seconds'], 
                           color=window_colors[window_name],
                           alpha=0.3, zorder=0)
         
@@ -1382,7 +1392,7 @@ def plot_station_windows(
                       linestyle='-', zorder=3, label=f'Coda ({coda_method})')
         
         # Labels and formatting
-        ax.set_ylabel(f'{comp_label}\n{component}\n(cm/s²)', fontsize=10)
+        ax.set_ylabel(f'{comp_label}\n{component}\n({signal_unit})', fontsize=10)
         ax.grid(True, alpha=0.3, zorder=1)
         
         # Legend only on first subplot
@@ -1419,7 +1429,7 @@ def plot_station_windows(
     
     # Title with component info
     comp_str = ', '.join([comp_map[k] for k, _ in plot_order])
-    dur_s = windows['s_wave']['duration']
+    dur_s = windows['s_wave']['duration_seconds']
     
     title = f"Station {station} ({comp_str}){title_suffix}\n"
     title += f"S-wave duration: {dur_s:.2f}s"
@@ -1538,6 +1548,7 @@ def plot_window_comparison(
     signals_dict: Dict,
     windowed_dict_list: List[Dict],
     method_labels: List[str],
+    signal_unit: str = 'cm/s²',
     figsize: tuple = (14, 6),
     save_path: Optional[str] = None
 ) -> plt.Figure:
@@ -1560,6 +1571,7 @@ def plot_window_comparison(
         (e.g., [windowed_rautian, windowed_arias, windowed_envelope])
     method_labels : list of str
         Labels for each method (e.g., ['Rautian', 'Arias', 'Envelope'])
+    signal_unit : str, optional
     figsize : tuple, optional
         Figure size (default: (14, 6))
     save_path : str, optional
@@ -1608,31 +1620,31 @@ def plot_window_comparison(
         
         # P onset (should be same for all)
         if idx == 0:
-            t_p = windows['p_wave']['t_start']
+            t_p = windows['p_wave']['t_start_seconds']
             ax.axvline(t_p, color='red', linewidth=2, linestyle='-',
                       label='P onset', zorder=10)
         
         # S onset (should be same for all)
         if idx == 0:
-            t_s = windows['s_wave']['t_start']
+            t_s = windows['s_wave']['t_start_seconds']
             ax.axvline(t_s, color='blue', linewidth=2, linestyle='-',
                       label='S onset', zorder=10)
         
         # Coda onset (different for each method)
-        t_coda = windows['coda']['t_start']
+        t_coda = windows['coda']['t_start_seconds']
         ax.axvline(t_coda, color=color, linewidth=2.5, linestyle='--',
                   label=f'Coda ({label}): {t_coda:.1f}s', zorder=9)
         
         # Pre-event start (if different)
         if idx > 0:
-            t_pre = windows['pre_event']['t_start']
-            prev_t_pre = windowed_dict_list[0][station][component]['pre_event']['t_start']
+            t_pre = windows['pre_event']['t_start_seconds']
+            prev_t_pre = windowed_dict_list[0][station][component]['pre_event']['t_start_seconds']
             if abs(t_pre - prev_t_pre) > 0.1:
                 ax.axvline(t_pre, color=color, linewidth=1.5, linestyle=':',
                           alpha=0.6, label=f'Pre-event start ({label})')
     
     ax.set_xlabel('Time (s)', fontsize=12)
-    ax.set_ylabel(f'{component} Acceleration (cm/s²)', fontsize=12)
+    ax.set_ylabel(f'{component} Signal ({signal_unit})', fontsize=12)
     ax.set_title(f'Station {station} - {component}: Method Comparison', 
                 fontsize=14, fontweight='bold')
     ax.legend(loc='upper right', fontsize=10)
