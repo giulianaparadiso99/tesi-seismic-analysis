@@ -21,7 +21,7 @@ def add_time_columns(df_signals, df_metadata,
     Parameters
     ----------
     df_signals : pd.DataFrame
-        Preprocessed signals with columns ['file', 'sample', 'acceleration']
+        Preprocessed signals with columns ['file', 'sample', '<signal_column>']
     df_metadata : pd.DataFrame
         Station metadata with time information per file
     time_col : str, optional
@@ -135,7 +135,7 @@ def get_component_from_filename(filename):
     parts = filename.split('.')
     return parts[3] if len(parts) > 3 else filename
 
-def convert_signals_to_dict(df_signals):
+def convert_signals_to_dict(df_signals, signal_column='acceleration'):
     """
     Convert long-format signals DataFrame to nested dictionary.
     
@@ -145,7 +145,9 @@ def convert_signals_to_dict(df_signals):
     Parameters
     ----------
     df_signals : pd.DataFrame
-        Long format with columns: file, sample, time, acceleration
+        Long format with columns: file, sample, time, <signal_column>
+    signal_column : str, default='acceleration'
+        Name of signal column to extract ('acceleration', 'velocity', 'displacement')
         
     Returns
     -------
@@ -153,7 +155,7 @@ def convert_signals_to_dict(df_signals):
         Nested dictionary structure:
         {
             'SURF': {
-                'HNE': np.array([...]),  # acceleration
+                'HNE': np.array([...]),  # signal values
                 'HNN': np.array([...]),
                 'HNZ': np.array([...]),
                 'time': np.array([...])
@@ -164,8 +166,8 @@ def convert_signals_to_dict(df_signals):
         
     Examples
     --------
-    >>> df_signals = pd.read_parquet('acc_preprocessed_scaling.parquet')
-    >>> signals_dict = convert_signals_to_dict(df_signals)
+    >>> df_signals = pd.read_parquet('vel_preprocessed_scaling.parquet')
+    >>> signals_dict = convert_signals_to_dict(df_signals, signal_column='velocity')
     >>> print(signals_dict.keys())
     dict_keys(['SURF', 'BRZ', 'OGAG', ...])
     >>> print(signals_dict['SURF'].keys())
@@ -173,10 +175,19 @@ def convert_signals_to_dict(df_signals):
     >>> print(signals_dict['SURF']['HNE'].shape)
     (48000,)
     """
+    
+    # Validate signal_column exists
+    if signal_column not in df_signals.columns:
+        raise ValueError(
+            f"Column '{signal_column}' not found in df_signals. "
+            f"Available columns: {list(df_signals.columns)}"
+        )
+    
     signals_dict = {}
     
     file_list = df_signals['file'].unique()
     print(f"Converting {len(file_list)} files to nested dictionary...")
+    print(f"Signal column: '{signal_column}'")
     
     for file_name in file_list:
         station = get_station_from_filename(file_name)
@@ -189,8 +200,8 @@ def convert_signals_to_dict(df_signals):
         if station not in signals_dict:
             signals_dict[station] = {}
         
-        # Store acceleration
-        signals_dict[station][component] = df_file['acceleration'].values
+        # Store signal (parametrized column name)
+        signals_dict[station][component] = df_file[signal_column].values
         
         # Store time array (same for all components, store only once)
         if 'time' not in signals_dict[station]:
@@ -214,7 +225,7 @@ def convert_signals_to_dict(df_signals):
     
     return signals_dict
 
-def get_signal_for_station(df_signals, station_code, component='HNE'):
+def get_signal_for_station(df_signals, station_code, component='HNE', signal_column='acceleration'):
     """
     Extract signal arrays for specific station and component.
     
@@ -225,39 +236,45 @@ def get_signal_for_station(df_signals, station_code, component='HNE'):
     df_signals : pd.DataFrame
         Long format signals DataFrame
     station_code : str
-        Station code (e.g., 'SURF')
-    component : str, optional
-        Component code (default: 'HNE')
+        Station code (e.g., 'SURF', 'ACER')
+    component : str, default='HNE'
+        Component code ('HNE', 'HNN', 'HNZ', etc.)
+    signal_column : str, default='acceleration'
+        Name of signal column ('acceleration', 'velocity', 'displacement')
         
     Returns
     -------
     time : np.ndarray
-        Time array (s)
-    acceleration : np.ndarray
-        Acceleration array (cm/s²)
-        
-    Raises
-    ------
-    ValueError
-        If no signal found for specified station/component
+        Time array
+    signal : np.ndarray
+        Signal values
         
     Examples
     --------
-    >>> time, acc = get_signal_for_station(df_signals, 'SURF', 'HNE')
-    >>> print(time.shape, acc.shape)
-    (48000,) (48000,)
+    >>> time, vel = get_signal_for_station(df_vel, 'SURF', 'HNE', signal_column='velocity')
+    >>> print(vel.shape)
+    (48000,)
     """
-    # Filter by station and component
-    mask = df_signals['file'].str.contains(f'{station_code}.*{component}')
-    df_station = df_signals[mask].sort_values('sample')
     
-    if len(df_station) == 0:
+    if signal_column not in df_signals.columns:
         raise ValueError(
-            f"No signal found for station '{station_code}', "
-            f"component '{component}'"
+            f"Column '{signal_column}' not found. "
+            f"Available: {list(df_signals.columns)}"
         )
     
-    return df_station['time'].values, df_station['acceleration'].values
+    # Filter by station and component
+    mask_station = df_signals['file'].apply(lambda f: get_station_from_filename(f) == station_code)
+    mask_component = df_signals['file'].apply(lambda f: get_component_from_filename(f) == component)
+    
+    df_filtered = df_signals[mask_station & mask_component].sort_values('sample')
+    
+    if len(df_filtered) == 0:
+        raise ValueError(f"No data found for station={station_code}, component={component}")
+    
+    time = df_filtered['time'].values
+    signal = df_filtered[signal_column].values
+    
+    return time, signal
 
 
 def validate_signals_dict(signals_dict):
@@ -328,23 +345,23 @@ def validate_signals_dict(signals_dict):
         
         # Check each component present
         for component in actual_components:
-            acc = data[component]
+            signal = data[component]
             
             # Length check
-            if len(acc) != time_len:
+            if len(signal) != time_len:
                 issues.append(
                     f"{station}.{component}: length mismatch "
-                    f"(time={time_len}, acc={len(acc)})"
+                    f"(time={time_len}, signal={len(signal)})"
                 )
             
             # NaN check
-            if np.isnan(acc).any():
-                n_nan = np.isnan(acc).sum()
+            if np.isnan(signal).any():
+                n_nan = np.isnan(signal).sum()
                 issues.append(f"{station}.{component}: {n_nan} NaN values")
             
             # Inf check
-            if np.isinf(acc).any():
-                n_inf = np.isinf(acc).sum()
+            if np.isinf(signal).any():
+                n_inf = np.isinf(signal).sum()
                 issues.append(f"{station}.{component}: {n_inf} Inf values")
     
     report = {
@@ -401,7 +418,7 @@ def expand_to_component_level(df_meta_stations, df_meta_clean):
     Returns
     -------
     pd.DataFrame
-        Component-level DataFrame (66 rows) with columns:
+        Component-level DataFrame with columns:
         - All columns from df_meta_clean
         - All station-level columns from df_meta_stations (replicated)
         - t_coda_rautian, t_coda_arias, t_coda_envelope (initialized as NaN)
