@@ -508,17 +508,18 @@ def get_window_statistics(
             records.append({
                 'station': station,
                 'component': component,
-                'duration': window['duration'],
-                'duration_seconds': window.get('duration_seconds', window['duration']),
-                'duration_samples': window.get('duration_samples', None),
+                'start_samples': window['start_samples'],
+                'end_samples': window['end_samples'],
+                'start_seconds': window['start_seconds'],
+                'end_seconds': window['end_seconds'],
+                'duration_samples': window['duration_samples'],
+                'duration_seconds': window['duration_seconds'],
                 'n_samples': len(signal),
-                't_start': window['t_start'],
-                't_end': window['t_end'],
                 'mean': np.mean(signal),
                 'std': np.std(signal),
                 'max': np.max(signal),
                 'min': np.min(signal),
-                'pga': np.max(np.abs(signal))
+                'peak': np.max(np.abs(signal))
             })
     
     return pd.DataFrame(records)
