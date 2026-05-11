@@ -33,7 +33,6 @@ def create_obspy_stream_from_dataframe(df_station, station_code, sampling_rate):
     component_names : tuple or None
         (Z_name, N_name, E_name) or None if incomplete
     """
-    from obspy import Stream, Trace
     
     # Get available components
     files = df_station['file'].unique()
