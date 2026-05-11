@@ -48,6 +48,7 @@ def plot_scaling_curves(
         q_subset = np.array([0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0])
     else:
         q_subset = np.asarray(q_subset)
+    n_q = len(q_subset) 
     
     for idx, window_name in enumerate(windows):
         ax = axes[idx]
@@ -72,8 +73,6 @@ def plot_scaling_curves(
         moments_plot = moments_mean[:, q_mask]
         zeta_plot = zeta[q_mask]
         intercepts_plot = intercepts[q_mask]
-        
-        n_q = len(q_plot)
         
         plot_colors = colors * (n_q // len(colors) + 1)
         plot_colors = plot_colors[:n_q]
