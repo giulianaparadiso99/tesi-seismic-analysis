@@ -644,18 +644,18 @@ def plot_coda_onset_results(signals_dict, df_onsets_full,
                           label='S onset' if ax == axes[0] else '', zorder=2)
             
             # Plot coda onsets (3 methods)
-            if not np.isnan(comp_result['t_coda_rautian']):
-                ax.axvline(comp_result['t_coda_rautian'], color='green',
+            if not np.isnan(comp_result['t_coda_rautian_seconds']):
+                ax.axvline(comp_result['t_coda_rautian_seconds'], color='green',
                           linestyle='-', linewidth=2,
                           label='Coda (Rautian)' if ax == axes[0] else '', zorder=3)
             
-            if not np.isnan(comp_result['t_coda_arias']):
-                ax.axvline(comp_result['t_coda_arias'], color='orange',
+            if not np.isnan(comp_result['t_coda_arias_seconds']):
+                ax.axvline(comp_result['t_coda_arias_seconds'], color='orange',
                           linestyle='-', linewidth=2,
                           label='Coda (Arias)' if ax == axes[0] else '', zorder=3)
             
-            if not np.isnan(comp_result['t_coda_envelope']):
-                ax.axvline(comp_result['t_coda_envelope'], color='purple',
+            if not np.isnan(comp_result['t_coda_envelope_seconds']):
+                ax.axvline(comp_result['t_coda_envelope_seconds'], color='purple',
                           linestyle='-', linewidth=2,
                           label='Coda (Envelope)' if ax == axes[0] else '', zorder=3)
         
@@ -673,12 +673,12 @@ def plot_coda_onset_results(signals_dict, df_onsets_full,
                 (df_onsets_full['COMPONENT'] == comp)
             ].iloc[0]
             
-            if not np.isnan(comp_result['s_duration_rautian']):
-                durations_rautian.append(comp_result['s_duration_rautian'])
-            if not np.isnan(comp_result['s_duration_arias']):
-                durations_arias.append(comp_result['s_duration_arias'])
-            if not np.isnan(comp_result['s_duration_envelope']):
-                durations_envelope.append(comp_result['s_duration_envelope'])
+            if not np.isnan(comp_result['s_duration_rautian_seconds']):
+                durations_rautian.append(comp_result['s_duration_rautian_seconds'])
+            if not np.isnan(comp_result['s_duration_arias_seconds']):
+                durations_arias.append(comp_result['s_duration_arias_seconds'])
+            if not np.isnan(comp_result['s_duration_envelope_seconds']):
+                durations_envelope.append(comp_result['s_duration_envelope_seconds'])
         
         # Calculate mean durations
         mean_rautian = np.mean(durations_rautian) if durations_rautian else np.nan

@@ -981,9 +981,11 @@ def analyze_monotonicity_violations(df_meta_stations, phase='p', sampling_rate=2
         print(f"\n  Most problematic stations (by |residual|):")
         
         # Sort by absolute residual and show top 3
-        top3 = df_violations.nlargest(3, 'residual', key=lambda x: x.abs())[
+        df_violations_sorted = df_violations.copy()
+        df_violations_sorted['abs_residual'] = df_violations_sorted['residual'].abs()
+        top3 = df_violations_sorted.nlargest(3, 'abs_residual')[
             ['station', 'distance_km', 't_detected', 't_theo', 'residual']
-    ]
+        ]
         print(top3.to_string(index=False))
     else:
         print(f"\nNo monotonicity violations found for {phase.upper()}-wave")
@@ -1386,7 +1388,7 @@ def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violat
         
         ax_scatter.set_xlabel('Hypocentral Distance (km)', fontsize=11)
         ax_scatter.set_ylabel(f'{phase.upper()}-wave residual (s)', fontsize=11)
-        ax_scatter.set_title(f'{phase.UP()}-wave: Residuals vs Distance', fontsize=12, fontweight='bold')
+        ax_scatter.set_title(f'{phase.upper()}-wave: Residuals vs Distance', fontsize=12, fontweight='bold')
         ax_scatter.legend(fontsize=9)
         ax_scatter.grid(True, alpha=0.3)
     
