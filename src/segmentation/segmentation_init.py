@@ -42,5 +42,6 @@ from .phasenet_utils import (
     create_obspy_stream_from_dataframe,
     process_single_station_phasenet,
     convert_onset_coordinates,
-    apply_phasenet_to_signals
+    apply_phasenet_to_signals,
+    merge_phasenet_picks_with_metadata
 )

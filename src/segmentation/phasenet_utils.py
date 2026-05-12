@@ -8,6 +8,7 @@ Structured as:
 """
 import numpy as np
 import pandas as pd
+import logging
 from scipy.signal import resample
 from obspy import Stream, Trace
 from typing import Tuple, Optional, Dict, List
@@ -119,7 +120,9 @@ def process_single_station_phasenet(
     result : dict or None
         Dictionary with onset times and probabilities, or None if processing failed
     """
-    
+
+    logger = logging.getLogger(__name__) 
+
     # Create ObsPy Stream
     stream, comp_names = create_obspy_stream_from_dataframe(
         df_station, station_code, sampling_rate_original, signal_column
@@ -137,6 +140,7 @@ def process_single_station_phasenet(
     expected_duration = expected_samples_target / sampling_rate_target
     
     if original_duration < expected_duration:
+        logger.warning(f"Skipping {station_code}: signal too short ({original_duration:.1f}s < {expected_duration:.1f}s)")
         return None
     
     # Resample to target rate
@@ -200,6 +204,9 @@ def convert_onset_coordinates(
     """
     Convert PhaseNet onset indices to original time coordinates.
     
+    Works primarily in the sample domain to minimize floating-point 
+    rounding errors. Only converts to seconds at the final step.
+    
     Parameters
     ----------
     p_idx_resampled : int
@@ -231,33 +238,49 @@ def convert_onset_coordinates(
     -------
     result : dict
         Dictionary with onset times (samples, seconds) and probabilities
+        
+    Notes
+    -----
+    Algorithm works in sample domain:
+    1. Calculate temporal offset in samples (at target rate)
+    2. Adjust onset indices for offset (still at target rate)
+    3. Scale indices to original sampling rate
+    4. Convert to seconds only at the end
+    
+    This approach minimizes rounding errors compared to converting
+    through time domain multiple times.
     """
     
-    # Time relative to annotation trace start
-    t_p_annotation = p_idx_resampled / sampling_rate_target
-    t_s_annotation = s_idx_resampled / sampling_rate_target
+    # Calculate time offset between PhaseNet output and original stream
+    time_offset_seconds = float(p_trace.stats.starttime - original_starttime)
     
-    # Time offset between annotation and original stream
-    time_offset = float(p_trace.stats.starttime - original_starttime)
+    # Convert offset to samples at target rate (100 Hz)
+    time_offset_samples = int(round(time_offset_seconds * sampling_rate_target))
     
-    # Time relative to ORIGINAL stream start
-    t_p_original = t_p_annotation + time_offset
-    t_s_original = t_s_annotation + time_offset
+    # Adjust onset indices for temporal offset (still at target rate)
+    p_idx_adjusted = p_idx_resampled - time_offset_samples
+    s_idx_adjusted = s_idx_resampled - time_offset_samples
     
-    # Convert to sample indices in original signal
-    p_idx_original = int(round(t_p_original * sampling_rate_original))
-    s_idx_original = int(round(t_s_original * sampling_rate_original))
+    # Scale to original sampling rate (e.g., 100 Hz → 200 Hz)
+    scale_factor = sampling_rate_original / sampling_rate_target
+    
+    p_idx_original = int(round(p_idx_adjusted * scale_factor))
+    s_idx_original = int(round(s_idx_adjusted * scale_factor))
+    
+    # Convert to seconds ONLY at the end (from original sample indices)
+    t_p_seconds = p_idx_original / sampling_rate_original
+    t_s_seconds = s_idx_original / sampling_rate_original
     
     return {
         'station_code': station_code,
         'components': ', '.join(comp_names),
         't_p_samples': p_idx_original,
         't_s_samples': s_idx_original,
-        't_p_seconds': float(t_p_original),
-        't_s_seconds': float(t_s_original),
+        't_p_seconds': float(t_p_seconds),
+        't_s_seconds': float(t_s_seconds),
         'p_probability_max': float(p_prob[p_idx_resampled]),
         's_probability_max': float(s_prob[s_idx_resampled]),
-        'time_offset_seconds': float(time_offset),
+        'time_offset_seconds': float(time_offset_seconds),
         'original_duration_s': float(original_duration),
         'annotation_npts': len(p_prob)
     }
@@ -334,43 +357,11 @@ def merge_phasenet_picks_with_metadata(
     """
     Merge PhaseNet onset picks with station metadata.
     
-    Takes PhaseNet picks (one row per station) and merges them with
-    metadata to create a complete dataframe ready for coda detection
-    and windowing.
-    
-    Parameters
-    ----------
-    df_picks : pd.DataFrame
-        PhaseNet picks with columns:
-        - station_code
-        - t_p_samples, t_s_samples
-        - t_p_seconds, t_s_seconds
-        - p_probability_max, s_probability_max
-        - components, time_offset_seconds, original_duration_s, annotation_npts
-    df_meta : pd.DataFrame
-        Station metadata with columns:
-        - STATION_CODE
-        - EVENT_ID, MAGNITUDE, etc.
-        - distance_km, depth_km, etc.
-        
-    Returns
-    -------
-    df_meta_stations : pd.DataFrame
-        Merged dataframe with metadata + PhaseNet picks
-        Columns include:
-        - All metadata columns
-        - t_p_detected_samples, t_p_detected_seconds
-        - t_s_detected_samples, t_s_detected_seconds
-        - p_probability_max, s_probability_max
-        - origin_time_samples, origin_time_seconds (set to 0)
-        
-    Notes
-    -----
-    PhaseNet works on full signals without explicit origin time,
-    so origin_time is set to 0 (all times relative to signal start).
+    Calculates origin_time directly from event and signal timestamps
+    in the metadata (same approach as AR-AIC workflow).
     """
     
-    # Rename columns in df_picks to match expected format
+    # Rinomina colonne
     df_picks_renamed = df_picks.rename(columns={
         'station_code': 'STATION_CODE',
         't_p_samples': 't_p_detected_samples',
@@ -379,12 +370,15 @@ def merge_phasenet_picks_with_metadata(
         't_s_seconds': 't_s_detected_seconds'
     })
     
-    # Merge with metadata
-    df_merged = df_meta.merge(
-        df_picks_renamed,
-        on='STATION_CODE',
-        how='inner'
-    )
+    # Merge
+    df_merged = df_meta.merge(df_picks_renamed, on='STATION_CODE', how='inner')
     
+    # Calculate origin_time from metadata timestamps
+    # (same as add_theoretical_arrivals does internally)
+    event_datetime = pd.to_datetime(df_merged['EVENT_DATE'])
+    first_sample_datetime = pd.to_datetime(df_merged['DATE_TIME_FIRST_SAMPLE'])
+    
+    df_merged['origin_time_seconds'] = (event_datetime - first_sample_datetime).dt.total_seconds()
+    df_merged['origin_time_samples'] = (df_merged['origin_time_seconds'] * 200).astype(int)
     
     return df_merged
