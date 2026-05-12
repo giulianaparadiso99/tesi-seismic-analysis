@@ -4,6 +4,7 @@
 from .search_windows import (
     extract_crustal_velocities,
     add_crustal_velocities,
+    add_hypocentral_distance,
     add_theoretical_arrivals,
     calculate_distance_thresholds,
     calculate_search_windows,

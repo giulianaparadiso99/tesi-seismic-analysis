@@ -74,6 +74,7 @@ from .segmentation.search_windows import (
     extract_crustal_velocities,
     add_crustal_velocities,
     add_theoretical_arrivals,
+    add_hypocentral_distance,
     calculate_distance_thresholds,
     calculate_search_windows,
     calculate_adaptive_windows

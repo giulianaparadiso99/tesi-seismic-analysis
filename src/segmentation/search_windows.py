@@ -290,16 +290,84 @@ def add_crustal_velocities(df_stations,
     
     return df_result
 
+def add_hypocentral_distance(df_stations, hypo_depth_km, 
+                            distance_col='EPICENTRAL_DISTANCE_KM'):
+    """
+    Add hypocentral distance column to station metadata.
+    
+    Calculates 3D distance from hypocenter to each station using:
+    d_hypo = sqrt(d_epicentral^2 + depth^2)
+    
+    Parameters
+    ----------
+    df_stations : pd.DataFrame
+        Station metadata with epicentral distances
+    hypo_depth_km : float
+        Hypocenter depth in kilometers (positive downward from surface)
+    distance_col : str, optional
+        Column name for epicentral distance (default: 'EPICENTRAL_DISTANCE_KM')
+    
+    Returns
+    -------
+    pd.DataFrame
+        df_stations with added column:
+        - hypocentral_distance_km: 3D distance from hypocenter to station (km)
+    
+    Notes
+    -----
+    Hypocentral distance accounts for source depth and represents the actual
+    wave propagation path length from the hypocenter to the station (assuming
+    straight-ray approximation).
+    
+    Examples
+    --------
+    >>> df = pd.DataFrame({'EPICENTRAL_DISTANCE_KM': [10, 50, 100]})
+    >>> df = add_hypocentral_distance(df, hypo_depth_km=8.0)
+    >>> df['hypocentral_distance_km']
+    0    12.81
+    1    50.64
+    2   100.32
+    """
+    # Validate inputs
+    if distance_col not in df_stations.columns:
+        raise ValueError(
+            f"Column '{distance_col}' not found in df_stations. "
+            f"Available columns: {list(df_stations.columns)}"
+        )
+    
+    if hypo_depth_km <= 0:
+        raise ValueError(f"hypo_depth_km must be positive, got {hypo_depth_km}")
+    
+    df_result = df_stations.copy()
+    
+    # Calculate hypocentral distance (3D distance from hypocenter to station)
+    epicentral_dist = df_result[distance_col]
+    hypocentral_dist = np.sqrt(epicentral_dist**2 + hypo_depth_km**2)
+    
+    df_result['hypocentral_distance_km'] = hypocentral_dist
+    
+    # Summary statistics
+    distance_diff = hypocentral_dist - epicentral_dist
+    
+    print(f"Hypocentral distance calculated:")
+    print(f"  Hypocenter depth: {hypo_depth_km:.2f} km")
+    print(f"  Epicentral distance range: {epicentral_dist.min():.2f} - {epicentral_dist.max():.2f} km")
+    print(f"  Hypocentral distance range: {hypocentral_dist.min():.2f} - {hypocentral_dist.max():.2f} km")
+    print(f"  Distance increase (depth correction): {distance_diff.min():.2f} - {distance_diff.max():.2f} km")
+    print(f"  Median distance increase: {distance_diff.median():.2f} km")
+    
+    return df_result
+
 def add_theoretical_arrivals(df_stations, 
-                            hypo_depth_km, sampling_rate=200,
+                            hypo_depth_km, 
+                            sampling_rate=200,
                             distance_col='EPICENTRAL_DISTANCE_KM'):
     """
     Add theoretical P and S arrival time columns.
+    
     Calculates origin_time from EVENT_DATE and DATE_TIME_FIRST_SAMPLE,
     then adds travel time using simple kinematics with hypocentral distance:
     t = origin_time + distance_hypo / velocity
-    
-    where distance_hypo = sqrt(distance_epi^2 + hypo_depth^2)
     
     Parameters
     ----------
@@ -307,6 +375,8 @@ def add_theoretical_arrivals(df_stations,
         Station metadata with crustal velocities
     hypo_depth_km : float
         Hypocenter depth in kilometers (positive downward from surface)
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200)
     distance_col : str, optional
         Column name for epicentral distance (default: 'EPICENTRAL_DISTANCE_KM')
     
@@ -324,8 +394,6 @@ def add_theoretical_arrivals(df_stations,
     Notes
     -----
     Uses straight-ray approximation (no refraction).
-    Hypocentral distance accounts for source depth:
-    d_hypo = sqrt(d_epicentral^2 + depth^2)
     """
     required_cols = [distance_col, 'vp_crust', 'vs_crust', 
                      'EVENT_DATE', 'DATE_TIME_FIRST_SAMPLE']
@@ -336,15 +404,8 @@ def add_theoretical_arrivals(df_stations,
             f"Run add_crustal_velocities() first."
         )
     
-    if hypo_depth_km <= 0:
-        raise ValueError(f"hypo_depth_km must be positive, got {hypo_depth_km}")
-    
-    df_result = df_stations.copy()
-    
-    # Calculate hypocentral distance (3D distance from hypocenter to station)
-    epicentral_dist = df_result[distance_col]
-    hypocentral_dist = np.sqrt(epicentral_dist**2 + hypo_depth_km**2)
-    df_result['hypocentral_distance_km'] = hypocentral_dist
+    # Add hypocentral distance using the new function
+    df_result = add_hypocentral_distance(df_stations, hypo_depth_km, distance_col)
     
     # Calculate origin_time: seconds from file start to event
     event_datetime = pd.to_datetime(df_result['EVENT_DATE'])
@@ -353,28 +414,23 @@ def add_theoretical_arrivals(df_stations,
     
     # Save origin_time as column
     df_result['origin_time'] = origin_time
+    df_result['origin_time_seconds'] = origin_time
+    df_result['origin_time_samples'] = (origin_time * sampling_rate).astype(int)
     
     # Calculate theoretical arrivals: t = origin_time + distance_hypo / velocity
+    hypocentral_dist = df_result['hypocentral_distance_km']
+    
     df_result['t_p_theo_seconds'] = origin_time + hypocentral_dist / df_result['vp_crust']
     df_result['t_s_theo_seconds'] = origin_time + hypocentral_dist / df_result['vs_crust']
     
     # Convert to samples
     df_result['t_p_theo_samples'] = np.round(df_result['t_p_theo_seconds'] * sampling_rate).astype(int)
     df_result['t_s_theo_samples'] = np.round(df_result['t_s_theo_seconds'] * sampling_rate).astype(int)
-
-    print(f"Added theoretical arrival times:")
-    print(f"Hypocenter depth: {hypo_depth_km} km")
-    print(f"Epicentral distance range: {epicentral_dist.min():.2f} - {epicentral_dist.max():.2f} km")
-    print(f"Hypocentral distance range: {hypocentral_dist.min():.2f} - {hypocentral_dist.max():.2f} km")
-    print(f"Origin time range: {origin_time.min():.2f} - {origin_time.max():.2f} s")
-    print(f"t_P range: {df_result['t_p_theo_seconds'].min():.2f} - {df_result['t_p_theo_seconds'].max():.2f} s")
-    print(f"t_S range: {df_result['t_s_theo_seconds'].min():.2f} - {df_result['t_s_theo_seconds'].max():.2f} s")
     
-    # Quantify the difference caused by depth correction
-    distance_diff = hypocentral_dist - epicentral_dist
-    print(f"\nDepth correction impact:")
-    print(f"  Distance increase: {distance_diff.min():.2f} - {distance_diff.max():.2f} km")
-    print(f"  Median distance increase: {distance_diff.median():.2f} km")
+    print(f"\nTheoretical arrival times calculated:")
+    print(f"  Origin time range: {origin_time.min():.2f} - {origin_time.max():.2f} s")
+    print(f"  t_P range: {df_result['t_p_theo_seconds'].min():.2f} - {df_result['t_p_theo_seconds'].max():.2f} s")
+    print(f"  t_S range: {df_result['t_s_theo_seconds'].min():.2f} - {df_result['t_s_theo_seconds'].max():.2f} s")
     
     return df_result
 
