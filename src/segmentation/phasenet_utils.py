@@ -95,7 +95,9 @@ def process_single_station_phasenet(
     model,
     signal_column: str,
     sampling_rate_original: float,
-    sampling_rate_target: float
+    sampling_rate_target: float,
+    min_p_probability: float = 0.1,
+    min_s_probability: float = 0.1
 ) -> Optional[Dict]:
     """
     Apply PhaseNet to a single station.
@@ -114,6 +116,10 @@ def process_single_station_phasenet(
         Original sampling rate (Hz)
     sampling_rate_target : float
         Target sampling rate for PhaseNet (Hz)
+    min_p_probability : float
+        Minimum P-wave probability to consider a valid pick (default: 0.1)
+    min_s_probability : float
+        Minimum S-wave probability to consider a valid pick (default: 0.1)
         
     Returns
     -------
@@ -136,7 +142,7 @@ def process_single_station_phasenet(
     original_duration = original_npts / sampling_rate_original
     
     # Check minimum duration
-    expected_samples_target = 3001
+    expected_samples_target = 3000
     expected_duration = expected_samples_target / sampling_rate_target
     
     if original_duration < expected_duration:
@@ -167,6 +173,24 @@ def process_single_station_phasenet(
     # Find onset as maximum probability
     p_idx_resampled = p_prob.argmax()
     s_idx_resampled = s_prob.argmax()
+
+    p_prob_max = p_prob[p_idx_resampled]
+    s_prob_max = s_prob[s_idx_resampled]
+    
+    if p_prob_max < min_p_probability:
+        logger.warning(
+            f"Skipping {station_code}: P probability too low "
+            f"({p_prob_max:.3f} < {min_p_probability})"
+        )
+        return None
+    
+    if s_prob_max < min_s_probability:
+        logger.warning(
+            f"Skipping {station_code}: S probability too low "
+            f"({s_prob_max:.3f} < {min_s_probability})"
+        )
+        return None
+    
     
     # Convert to original sampling rate and time coordinates
     result = convert_onset_coordinates(
@@ -295,7 +319,9 @@ def apply_phasenet_to_signals(
     model,
     signal_column: str,
     sampling_rate_original: float = 200,
-    sampling_rate_target: float = 100
+    sampling_rate_target: float = 100,
+    min_p_probability: float = 0.1,
+    min_s_probability: float = 0.1
 ) -> pd.DataFrame:
     """
     Apply PhaseNet phase picking to all stations in dataset.
@@ -313,6 +339,10 @@ def apply_phasenet_to_signals(
         Original sampling rate (Hz), default 200
     sampling_rate_target : float
         Target sampling rate for PhaseNet (Hz), default 100
+    min_p_probability : float
+        Minimum P-wave probability to consider a valid pick (default: 0.1)
+    min_s_probability : float
+        Minimum S-wave probability to consider a valid pick (default: 0.1)
         
     Returns
     -------
@@ -342,7 +372,9 @@ def apply_phasenet_to_signals(
             model=model,
             signal_column=signal_column,
             sampling_rate_original=sampling_rate_original,
-            sampling_rate_target=sampling_rate_target
+            sampling_rate_target=sampling_rate_target,
+            min_p_probability=min_p_probability,
+            min_s_probability=min_s_probability
         )
         
         if result is not None:

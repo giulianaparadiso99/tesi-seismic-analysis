@@ -479,13 +479,19 @@ def expand_to_component_level(df_meta_stations, df_meta_clean):
     
     # origin_time should already be in df_meta_stations (from add_theoretical_arrivals)
     # Verify it exists
-    if 'origin_time' not in df_full.columns:
+    # Check for origin_time (with or without suffix)
+    if 'origin_time' not in df_full.columns and 'origin_time_seconds' not in df_full.columns:
         print("Warning: origin_time not found in df_meta_stations.")
         print("Calculating origin_time now (should have been added by add_theoretical_arrivals)")
         event_datetime = pd.to_datetime(df_full['EVENT_DATE'])
         first_sample_datetime = pd.to_datetime(df_full['DATE_TIME_FIRST_SAMPLE'])
         df_full['origin_time'] = (event_datetime - first_sample_datetime).dt.total_seconds()
-    
+        df_full['origin_time_seconds'] = df_full['origin_time']
+        df_full['origin_time_samples'] = (df_full['origin_time'] * 200).astype(int)
+    elif 'origin_time_seconds' in df_full.columns and 'origin_time' not in df_full.columns:
+        # Create legacy alias
+        df_full['origin_time'] = df_full['origin_time_seconds']
+        
     # Initialize coda onset columns (will be populated by add_coda_onsets_to_dataframe)
     for method in ['rautian', 'arias', 'envelope']:
         df_full[f't_coda_{method}'] = np.nan
