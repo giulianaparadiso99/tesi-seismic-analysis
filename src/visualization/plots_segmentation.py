@@ -525,6 +525,235 @@ def plot_onset_detection_results(signals_dict, df_results,
     
     return figures
 
+def plot_onset_detection_results_v2(
+    signals_dict, 
+    df_results,
+    method='ar_pick',
+    signal_unit='cm/s²',
+    stations=None, 
+    figsize_per_station=(10, 8),
+    save_dir=None,
+    show_windows=True
+): 
+    """
+    Plot acceleration time series with detected and theoretical onsets.
+    
+    Creates one figure per station showing Z, N, E components with:
+    - Black lines: acceleration signals
+    - Blue solid lines: detected P onset
+    - Red solid lines: detected S onset
+    - Blue dashed lines: theoretical P onset
+    - Red dashed lines: theoretical S onset
+    - Shaded rectangles: search windows (if show_windows=True)
+    
+    Parameters
+    ----------
+    signals_dict : dict
+        Nested dictionary from convert_signals_to_dict()
+        Structure: {station: {component: array, 'time': array}}
+    df_results : pd.DataFrame
+        Results from detect_onsets_ar_windowed() with columns:
+        - STATION_CODE
+        - t_p_theo_seconds, t_s_theo_seconds
+        - t_p_detected_seconds, t_s_detected_seconds
+        - p_residual, s_residual
+        - p_detection_success, s_detection_success
+        - p_window_start, p_window_end, s_window_start, s_window_end
+    signal_unit : str, optional
+        Unit label for y-axis (default: 'cm/s²')
+        Use 'cm/s' for velocity, 'cm' for displacement
+    stations : list of str, optional
+        Which stations to plot (default: all stations in df_results)
+    figsize_per_station : tuple, optional
+        Figure size (width, height) for each station (default: (10, 8))
+    save_dir : str or Path, optional
+        Directory to save figures. If None, figures are not saved.
+    show_windows : bool, optional
+        If True, show search windows as shaded rectangles (default: True)
+    
+    Returns
+    -------
+    dict
+        Dictionary {station: fig} of created figures
+    
+    Examples
+    --------
+    >>> figs = plot_onset_detection_results(
+    ...     signals_dict, 
+    ...     df_meta_stations,
+    ...     stations=['ACER', 'CLFR', 'SURF'],
+    ...     show_windows=True,
+    ...     save_dir='../figures/onset_detection'
+    ... )
+    >>> plt.show()
+    """
+    
+    if stations is None:
+        stations = df_results['STATION_CODE'].tolist()
+    
+    if save_dir is not None:
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+    
+    figures = {}
+    
+    for station in stations:
+        station_result = df_results[df_results['STATION_CODE'] == station]
+        
+        if len(station_result) == 0:
+            print(f"Warning: No results for station {station}")
+            continue
+        
+        station_result = station_result.iloc[0]
+        
+        # Get signals
+        if station not in signals_dict:
+            print(f"Warning: Station {station} not in signals_dict")
+            continue
+        
+        data = signals_dict[station]
+        time = data['time']
+        
+        # Identify components
+        components = [k for k in data.keys() if k != 'time']
+        
+        comp_z = comp_n = comp_e = None
+        for comp in components:
+            if comp.endswith('Z'): comp_z = comp
+            elif comp.endswith('N') or comp.endswith('2'): comp_n = comp
+            elif comp.endswith('E') or comp.endswith('1'): comp_e = comp
+        
+        if not all([comp_z, comp_n, comp_e]):
+            missing = [x for x, c in [('Z', comp_z), ('N', comp_n), ('E', comp_e)] if c is None]
+            print(f"Warning: {station} missing components: {missing}")
+            continue
+        
+        # Create figure
+        fig, axes = plt.subplots(3, 1, figsize=figsize_per_station, sharex=True)
+        components_list = [(comp_z, 'Vertical'), (comp_n, 'North'), (comp_e, 'East')]
+        
+        for ax, (comp, label) in zip(axes, components_list):
+            signal = data[comp]
+            
+            # Plot signal
+            ax.plot(time, signal, 'k-', linewidth=0.5, alpha=0.7, zorder=1)
+            ax.set_ylabel(f'{label}\n({signal_unit})', fontsize=10)
+            ax.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+            
+            # ========================================
+            # METHOD-SPECIFIC: Detection success flags
+            # ========================================
+            if method == 'ar_pick':
+                # AR-AIC has explicit success flags
+                p_success = station_result.get('p_detection_success', False)
+                s_success = station_result.get('s_detection_success', False)
+                
+                # Search windows (only AR-AIC)
+                if show_windows:
+                    if 'p_window_start_seconds' in station_result.index:
+                        p_win_start = station_result['p_window_start_seconds']
+                        p_win_end = station_result['p_window_end_seconds']
+                        if not pd.isna(p_win_start) and not pd.isna(p_win_end):
+                            ax.axvspan(p_win_start, p_win_end, alpha=0.15, color='blue',
+                                      label='P window' if ax == axes[0] else '', zorder=0)
+                    
+                    if 's_window_start_seconds' in station_result.index:
+                        s_win_start = station_result['s_window_start_seconds']
+                        s_win_end = station_result['s_window_end_seconds']
+                        if not pd.isna(s_win_start) and not pd.isna(s_win_end):
+                            ax.axvspan(s_win_start, s_win_end, alpha=0.15, color='red',
+                                      label='S window' if ax == axes[0] else '', zorder=0)
+            
+            elif method == 'phasenet':
+                # PhaseNet: if station is in df_results, detection was successful
+                p_success = not pd.isna(station_result.get('t_p_seconds', np.nan))
+                s_success = not pd.isna(station_result.get('t_s_seconds', np.nan))
+                # PhaseNet doesn't have search windows (full signal processing)
+            
+            else:
+                raise ValueError(f"Unknown method: {method}")
+            
+            # ========================================
+            # COMMON: Plot theoretical arrivals (dashed)
+            # ========================================
+            if 't_p_theo_seconds' in station_result.index and not pd.isna(station_result['t_p_theo_seconds']):
+                ax.axvline(station_result['t_p_theo_seconds'], color='blue',
+                          linestyle='--', linewidth=1.5, alpha=0.6,
+                          label='P theo' if ax == axes[0] else '', zorder=2)
+            
+            if 't_s_theo_seconds' in station_result.index and not pd.isna(station_result['t_s_theo_seconds']):
+                ax.axvline(station_result['t_s_theo_seconds'], color='red',
+                          linestyle='--', linewidth=1.5, alpha=0.6,
+                          label='S theo' if ax == axes[0] else '', zorder=2)
+            
+            # ========================================
+            # METHOD-SPECIFIC: Detected onset column names
+            # ========================================
+            if method == 'ar_pick':
+                t_p_col = 't_p_detected_seconds'
+                t_s_col = 't_s_detected_seconds'
+            elif method == 'phasenet':
+                t_p_col = 't_p_seconds'
+                t_s_col = 't_s_seconds'
+            
+            # Plot detected arrivals
+            if p_success and t_p_col in station_result.index and not pd.isna(station_result[t_p_col]):
+                ax.axvline(station_result[t_p_col], color='blue',
+                          linestyle='-', linewidth=2.5,
+                          label='P detected' if ax == axes[0] else '', zorder=3)
+            
+            if s_success and t_s_col in station_result.index and not pd.isna(station_result[t_s_col]):
+                ax.axvline(station_result[t_s_col], color='red',
+                          linestyle='-', linewidth=2.5,
+                          label='S detected' if ax == axes[0] else '', zorder=3)
+        
+        # Set xlabel
+        axes[-1].set_xlabel('Time (s)', fontsize=11)
+        
+        # ========================================
+        # METHOD-SPECIFIC: Title with residuals
+        # ========================================
+        method_name = 'AR-AIC' if method == 'ar_pick' else 'PhaseNet'
+        
+        if 'p_residual' in station_result.index and 's_residual' in station_result.index:
+            # Both methods can have residuals if theoretical times are calculated
+            p_res = station_result['p_residual']
+            s_res = station_result['s_residual']
+            
+            if p_success and s_success:
+                title = (f"Station {station} - {method_name} Onset Detection\n"
+                        f"P residual: {p_res:+.2f} s  |  S residual: {s_res:+.2f} s")
+            elif p_success:
+                title = (f"Station {station} - {method_name} Onset Detection\n"
+                        f"P residual: {p_res:+.2f} s  |  S detection FAILED")
+            elif s_success:
+                title = (f"Station {station} - {method_name} Onset Detection\n"
+                        f"P detection FAILED  |  S residual: {s_res:+.2f} s")
+            else:
+                title = f"Station {station} - {method_name} Detection FAILED"
+        else:
+            # No residuals calculated
+            if p_success and s_success:
+                title = f"Station {station} - {method_name} Onset Detection"
+            else:
+                title = f"Station {station} - {method_name} Detection FAILED"
+        
+        fig.suptitle(title, fontsize=12, fontweight='bold')
+        
+        # Legend
+        axes[0].legend(loc='upper right', fontsize=9, framealpha=0.9)
+        plt.tight_layout()
+        
+        # Save
+        if save_dir is not None:
+            save_path = save_dir / f'onset_detection_{station}_{method}.pdf'
+            fig.savefig(save_path, dpi=150, bbox_inches='tight')
+            print(f"Saved: {save_path}")
+        
+        figures[station] = fig
+    
+    return figures
+
 def plot_coda_onset_results(signals_dict, df_onsets_full,
                             signal_unit='cm/s²',
                             stations=None,
