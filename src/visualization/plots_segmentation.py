@@ -666,8 +666,8 @@ def plot_onset_detection_results_v2(
             
             elif method == 'phasenet':
                 # PhaseNet: if station is in df_results, detection was successful
-                p_success = not pd.isna(station_result.get('t_p_seconds', np.nan))
-                s_success = not pd.isna(station_result.get('t_s_seconds', np.nan))
+                p_success = not pd.isna(station_result.get('t_p_detected_seconds', np.nan))
+                s_success = not pd.isna(station_result.get('t_s_detected_seconds', np.nan))
                 # PhaseNet doesn't have search windows (full signal processing)
             
             else:
@@ -693,8 +693,8 @@ def plot_onset_detection_results_v2(
                 t_p_col = 't_p_detected_seconds'
                 t_s_col = 't_s_detected_seconds'
             elif method == 'phasenet':
-                t_p_col = 't_p_seconds'
-                t_s_col = 't_s_seconds'
+                t_p_col = 't_p_detected_seconds'
+                t_s_col = 't_s_detected_seconds'
             
             # Plot detected arrivals
             if p_success and t_p_col in station_result.index and not pd.isna(station_result[t_p_col]):
