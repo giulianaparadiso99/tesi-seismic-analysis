@@ -154,7 +154,8 @@ def process_single_station_phasenet(
     stream_resampled.resample(sampling_rate_target)
     
     # Apply PhaseNet
-    annotations = model.annotate(stream_resampled)
+    overlap_samples = int(28.0 * sampling_rate_target)
+    annotations = model.annotate(stream_resampled, overlap=overlap_samples)
     
     # Extract P and S probability traces
     p_traces = annotations.select(channel="PhaseNet_P")
