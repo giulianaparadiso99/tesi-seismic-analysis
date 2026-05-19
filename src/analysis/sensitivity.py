@@ -116,67 +116,6 @@ def perturb_picks_bias(
     return df_perturbed
 
 
-def perturb_picks_distance_dependent(
-    df_picks: pd.DataFrame,
-    base_std: float,
-    distance_factor: float,
-    sampling_rate: float = 200.0,
-    random_state: Optional[int] = None
-) -> pd.DataFrame:
-    """
-    Perturb picks with error that increases with distance.
-    
-    Parameters
-    ----------
-    df_picks : pd.DataFrame
-        DataFrame with picks and 'HYPOCENTRAL_DISTANCE_KM' column
-    base_std : float
-        Base standard deviation (seconds)
-    distance_factor : float
-        Factor for distance-dependent error (s/km)
-        Total std = base_std + distance_factor × distance
-    sampling_rate : float
-        Sampling rate
-    random_state : int, optional
-        Random seed
-        
-    Returns
-    -------
-    df_perturbed : pd.DataFrame
-        DataFrame with perturbed picks
-    """
-    
-    df_perturbed = df_picks.copy()
-    
-    if random_state is not None:
-        np.random.seed(random_state)
-    
-    # Calculate distance-dependent std for each station
-    distances = df_picks['HYPOCENTRAL_DISTANCE_KM'].values
-    stds = base_std + distance_factor * distances
-    
-    # Generate noise with varying std
-    noise_p = np.array([np.random.normal(0, std) for std in stds])
-    noise_s = np.array([np.random.normal(0, std) for std in stds])
-    
-    # Apply noise
-    df_perturbed['t_p_detected_seconds'] = df_picks['t_p_detected_seconds'] + noise_p
-    df_perturbed['t_s_detected_seconds'] = df_picks['t_s_detected_seconds'] + noise_s
-    
-    # Apply constraints
-    df_perturbed = apply_physical_constraints(df_perturbed, sampling_rate)
-    
-    # Update samples
-    df_perturbed['t_p_detected_samples'] = (
-        df_perturbed['t_p_detected_seconds'] * sampling_rate
-    ).astype(int)
-    df_perturbed['t_s_detected_samples'] = (
-        df_perturbed['t_s_detected_seconds'] * sampling_rate
-    ).astype(int)
-    
-    return df_perturbed
-
-
 def apply_physical_constraints(
     df: pd.DataFrame,
     sampling_rate: float
