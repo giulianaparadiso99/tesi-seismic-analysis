@@ -320,7 +320,7 @@ def compute_spatial_ensemble(
             f"Window '{window_name}' too short: tau_max={tau_max_seconds:.3f}s <= tau_min={tau_min:.3f}s"
         )
     
-    # ===== CRITICAL FIX: Generate tau in SAMPLES, not seconds =====
+    # Generate tau in SAMPLES, not seconds =====
     # Convert tau_min and tau_max to samples
     tau_min_samples = max(1, int(np.round(tau_min * sampling_rate)))
     tau_max_samples = int(np.floor(tau_max_seconds * sampling_rate))
