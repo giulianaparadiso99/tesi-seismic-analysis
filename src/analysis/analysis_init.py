@@ -35,6 +35,16 @@ from .signals_scaling_spatial import (
     analyze_single_signal
 )
 
+# Sensitivity Analysis
+from .sensitivity import (
+    perturb_picks_gaussian,
+    perturb_picks_bias,
+    perturb_picks_distance_dependent,
+    compute_sensitivity_metrics,
+    compute_monte_carlo_statistics,
+    create_sensitivity_summary,
+    save_intermediate_results
+)
 __all__ = [
     # PDF Analysis
     'gaussian_fit_analysis',

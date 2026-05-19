@@ -141,6 +141,22 @@ from .analysis.signals_scaling_spatial import (
 )
 
 # ===============================================================================
+# Analysis - Sensitivity Analysis
+# ===============================================================================
+
+
+# Sensitivity Analysis
+from .analysis.sensitivity import (
+    perturb_picks_gaussian,
+    perturb_picks_bias,
+    perturb_picks_distance_dependent,
+    compute_sensitivity_metrics,
+    compute_monte_carlo_statistics,
+    create_sensitivity_summary,
+    save_intermediate_results
+)
+
+# ===============================================================================
 # Visualization
 # ===============================================================================
 
