@@ -42,7 +42,9 @@ from .sensitivity import (
     compute_sensitivity_metrics,
     compute_monte_carlo_statistics,
     create_sensitivity_summary,
-    save_intermediate_results
+    save_intermediate_results,
+    run_sensitivity_analysis,
+    create_summary
 )
 __all__ = [
     # PDF Analysis

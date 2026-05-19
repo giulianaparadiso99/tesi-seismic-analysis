@@ -9,9 +9,11 @@ This module provides:
 
 import numpy as np
 import pandas as pd
-from typing import Dict, Tuple, List, Optional
-from pathlib import Path
 import pickle
+import logging
+from typing import Dict, Tuple, List, Optional, Callable
+from pathlib import Path
+from collections import defaultdict
 
 
 # ==============================================================================
@@ -257,6 +259,365 @@ def compute_monte_carlo_statistics(
         'p95': np.nanpercentile(zeta_stack, 95, axis=0),
         'median': np.nanmedian(zeta_stack, axis=0)
     }
+
+# ==============================================================================
+# WRAPPER FUNCTION
+# ==============================================================================
+
+def run_sensitivity_analysis(
+    data_type: str,
+    signals_dict: Dict,
+    df_full: pd.DataFrame,
+    baseline_results: Dict,
+    coda_methods: list,
+    perturbation_scenarios: Dict,
+    segment_function: Callable,
+    analyze_function: Callable,
+    config: Dict,
+    output_dir: Path,
+    verbose: bool = False
+) -> Dict:
+    """
+    Run complete sensitivity analysis for ONE data type.
+    
+    Loops over:
+    - coda_methods (rautian, arias, envelope, median)
+    - perturbation scenarios (noise_small, noise_medium, etc.)
+    - Monte Carlo runs
+    
+    Parameters
+    ----------
+    data_type : str
+        'acceleration', 'velocity', or 'displacement'
+    signals_dict : dict
+        Signal dictionary for this data type
+    df_full : pd.DataFrame
+        Full dataframe with picks
+    baseline_results : dict
+        Baseline moment scaling results {coda_method: df_summary}
+    coda_methods : list
+        List of coda methods to analyze
+    perturbation_scenarios : dict
+        {scenario_name: {'type': 'gaussian'|'bias', 'std'|'bias': float}}
+    segment_function : callable
+        Function to segment signals (segment_all_signals)
+    analyze_function : callable
+        Function to analyze windows (analyze_all_windows)
+    config : dict
+        Configuration with TAU_MIN, Q_VALUES, SAMPLING_RATE, etc.
+    output_dir : Path
+        Directory to save intermediate results
+    verbose : bool
+        If True, print detailed progress
+        
+    Returns
+    -------
+    results : dict
+        {coda_method: {scenario: {window: metrics}}}
+    """
+    
+    
+    logger = logging.getLogger(__name__)
+    
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Initialize results structure
+    results = {method: defaultdict(dict) for method in coda_methods}
+    
+    # Progress tracking
+    total_combinations = len(coda_methods) * (len(perturbation_scenarios) + 1)
+    current = 0
+    
+    print(f"\n{'='*80}")
+    print(f"SENSITIVITY ANALYSIS: {data_type.upper()}")
+    print(f"{'='*80}")
+    print(f"Coda methods: {len(coda_methods)}")
+    print(f"Scenarios: {len(perturbation_scenarios)} + Monte Carlo ({config['N_MONTE_CARLO']} runs)")
+    print(f"Total combinations: {total_combinations}")
+    print(f"{'='*80}\n")
+    
+    # Loop over coda methods
+    for coda_method in coda_methods:
+        
+        print(f"\n[{data_type.upper()}] Processing: {coda_method}")
+        print(f"{'-'*80}")
+        
+        # Extract baseline zeta
+        baseline_zeta = {}
+        for window in ['pre_event', 'p_wave', 's_wave', 'coda']:
+            try:
+                baseline_zeta[window] = baseline_results[coda_method][
+                    baseline_results[coda_method]['window'] == window
+                ]['zeta'].values[0]
+            except:
+                baseline_zeta[window] = None
+        
+        # Perturbation scenarios
+        scenario_summary = []
+        
+        for scenario_name, scenario_params in perturbation_scenarios.items():
+            
+            current += 1
+            
+            if verbose:
+                print(f"  [{current}/{total_combinations}] {scenario_name}...", end=' ')
+            
+            # Perturb picks
+            if scenario_params['type'] == 'gaussian':
+                df_perturbed = perturb_picks_gaussian(
+                    df_full,
+                    noise_std=scenario_params['std'],
+                    sampling_rate=config['SAMPLING_RATE'],
+                    random_state=42
+                )
+            elif scenario_params['type'] == 'bias':
+                df_perturbed = perturb_picks_bias(
+                    df_full,
+                    bias_seconds=scenario_params['bias'],
+                    sampling_rate=config['SAMPLING_RATE']
+                )
+            else:
+                raise ValueError(f"Unknown perturbation type: {scenario_params['type']}")
+            
+            # Regenerate windows
+            try:
+                windowed_perturbed = segment_function(
+                    signals_dict,
+                    df_perturbed,
+                    coda_method=coda_method
+                )
+            except Exception as e:
+                if verbose:
+                    print(f"FAILED (windowing)")
+                logger.warning(f"{data_type}/{coda_method}/{scenario_name}: windowing failed - {e}")
+                continue
+            
+            # Compute moment scaling
+            try:
+                results_perturbed = analyze_function(
+                    windowed_perturbed,
+                    signal_field=config['SIGNAL_COLUMN'],
+                    tau_min=config['TAU_MIN'],
+                    n_tau=None,
+                    q_values=config['Q_VALUES'],
+                    sampling_rate=config['SAMPLING_RATE'],
+                    fit_range=None
+                )
+            except Exception as e:
+                if verbose:
+                    print(f"FAILED (analysis)")
+                logger.warning(f"{data_type}/{coda_method}/{scenario_name}: analysis failed - {e}")
+                continue
+            
+            # Compute metrics for each window
+            window_metrics = {}
+            for window in ['pre_event', 'p_wave', 's_wave', 'coda']:
+                
+                if baseline_zeta[window] is None:
+                    continue
+                
+                if window not in results_perturbed or results_perturbed[window] is None:
+                    continue
+                
+                zeta_perturbed = results_perturbed[window]['scaling']['zeta']
+                zeta_baseline = baseline_zeta[window]
+                
+                metrics = compute_sensitivity_metrics(
+                    zeta_baseline,
+                    zeta_perturbed,
+                    config['Q_VALUES']
+                )
+                
+                window_metrics[window] = metrics
+                
+                scenario_summary.append({
+                    'coda_method': coda_method,
+                    'scenario': scenario_name,
+                    'window': window,
+                    'rmse': metrics['rmse'],
+                    'mae': metrics['mae'],
+                    'correlation': metrics['correlation'],
+                    'max_deviation': metrics['max_deviation']
+                })
+            
+            results[coda_method][scenario_name] = window_metrics
+            
+            if verbose:
+                print(f"OK ({len(window_metrics)} windows)")
+            
+            # Save intermediate
+            intermediate_file = output_dir / f'{data_type}_{coda_method}_{scenario_name}.pkl'
+            save_intermediate_results(
+                {scenario_name: window_metrics},
+                intermediate_file
+            )
+        
+        # Monte Carlo analysis
+        current += 1
+        print(f"  [{current}/{total_combinations}] Monte Carlo ({config['N_MONTE_CARLO']} runs)...", end=' ')
+        
+        mc_zeta = {window: [] for window in ['pre_event', 'p_wave', 's_wave', 'coda']}
+        n_successful = 0
+        
+        for mc_run in range(config['N_MONTE_CARLO']):
+            
+            # Perturb
+            df_mc = perturb_picks_gaussian(
+                df_full,
+                noise_std=config['MONTE_CARLO_STD'],
+                sampling_rate=config['SAMPLING_RATE'],
+                random_state=42 + mc_run
+            )
+            
+            # Regenerate windows
+            try:
+                windowed_mc = segment_function(
+                    signals_dict,
+                    df_mc,
+                    coda_method=coda_method
+                )
+            except Exception as e:
+                continue
+            
+            # Analyze
+            try:
+                results_mc = analyze_function(
+                    windowed_mc,
+                    signal_field=config['SIGNAL_COLUMN'],
+                    tau_min=config['TAU_MIN'],
+                    n_tau=None,
+                    q_values=config['Q_VALUES'],
+                    sampling_rate=config['SAMPLING_RATE'],
+                    fit_range=None
+                )
+            except Exception as e:
+                continue
+            
+            # Store zeta
+            for window in ['pre_event', 'p_wave', 's_wave', 'coda']:
+                if window in results_mc and results_mc[window] is not None:
+                    mc_zeta[window].append(results_mc[window]['scaling']['zeta'])
+            
+            n_successful += 1
+        
+        # Compute MC statistics
+        mc_results = {}
+        for window in ['pre_event', 'p_wave', 's_wave', 'coda']:
+            
+            if len(mc_zeta[window]) == 0:
+                continue
+            
+            mc_stats = compute_monte_carlo_statistics(mc_zeta[window], config['Q_VALUES'])
+            
+            if baseline_zeta[window] is not None:
+                metrics = compute_sensitivity_metrics(
+                    baseline_zeta[window],
+                    mc_stats['mean'],
+                    config['Q_VALUES']
+                )
+                
+                mc_results[window] = {
+                    'statistics': mc_stats,
+                    'metrics': metrics,
+                    'n_successful_runs': len(mc_zeta[window])
+                }
+                
+                scenario_summary.append({
+                    'coda_method': coda_method,
+                    'scenario': 'monte_carlo',
+                    'window': window,
+                    'rmse': metrics['rmse'],
+                    'mae': metrics['mae'],
+                    'correlation': metrics['correlation'],
+                    'max_deviation': metrics['max_deviation']
+                })
+        
+        results[coda_method]['monte_carlo'] = mc_results
+        
+        print(f"OK ({n_successful}/{config['N_MONTE_CARLO']} successful)")
+        
+        # Save intermediate for this method
+        method_file = output_dir / f'{data_type}_{coda_method}_complete.pkl'
+        save_intermediate_results(results[coda_method], method_file)
+        
+        # Print compact summary for this method
+        if len(scenario_summary) > 0:
+            df_method = pd.DataFrame(scenario_summary)
+            df_method_pivot = df_method.pivot_table(
+                index=['scenario', 'window'],
+                values='rmse',
+                aggfunc='mean'
+            )
+            print(f"\n  Summary for {coda_method}:")
+            print(df_method_pivot.to_string())
+    
+    print(f"\n{'='*80}")
+    print(f"COMPLETED: {data_type.upper()}")
+    print(f"{'='*80}\n")
+    
+    return dict(results)
+
+
+def create_summary(
+    results: Dict,
+    data_type: str,
+    save_path: Optional[Path] = None
+) -> pd.DataFrame:
+    """
+    Create compact summary table for one data type.
+    
+    Parameters
+    ----------
+    results : dict
+        Results from run_sensitivity_for_datatype
+    data_type : str
+        Data type name
+    save_path : Path, optional
+        Where to save CSV
+        
+    Returns
+    -------
+    df_summary : pd.DataFrame
+        Compact summary with one row per (coda_method, scenario, window)
+    """
+    
+    rows = []
+    
+    for coda_method, method_results in results.items():
+        for scenario, scenario_results in method_results.items():
+            
+            # Handle regular scenarios
+            if isinstance(scenario_results, dict) and 'pre_event' in scenario_results:
+                for window, metrics in scenario_results.items():
+                    if isinstance(metrics, dict) and 'rmse' in metrics:
+                        rows.append({
+                            'data_type': data_type,
+                            'coda_method': coda_method,
+                            'scenario': scenario,
+                            'window': window,
+                            **metrics
+                        })
+            
+            # Handle Monte Carlo (nested structure)
+            elif isinstance(scenario_results, dict):
+                for window, mc_data in scenario_results.items():
+                    if isinstance(mc_data, dict) and 'metrics' in mc_data:
+                        rows.append({
+                            'data_type': data_type,
+                            'coda_method': coda_method,
+                            'scenario': scenario,
+                            'window': window,
+                            **mc_data['metrics'],
+                            'n_mc_runs': mc_data.get('n_successful_runs', 0)
+                        })
+    
+    df_summary = pd.DataFrame(rows)
+    
+    if save_path is not None:
+        df_summary.to_csv(save_path, index=False)
+    
+    return df_summary
 
 
 # ==============================================================================
