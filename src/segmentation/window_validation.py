@@ -1,20 +1,115 @@
 """
-Quality control functions for seismic signal windowing.
+Quality control and validation for phase detection and windowing.
 
-This module provides validation functions to check:
-- Peak value location (should occur in S-wave window)
-- Arrival time monotonicity with hypocentral distance
-- Signal-to-noise ratio (SNR) for onset picks
+This module provides comprehensive validation functions to identify
+problematic onset picks, assess signal quality, and detect systematic
+errors in phase detection results.
+
+Functions
+---------
+Individual checks:
+    check_peak_in_s_wave : Validate peak timing (should be in S-wave window)
+    check_monotonicity_station : Check arrival time ordering by distance
+    check_snr : Signal-to-noise ratio validation
+
+Batch validation:
+    quality_control_all_stations : Run all checks for entire dataset
+    print_quality_control_summary : Hierarchical table of results
+    print_failed_checks : Detailed failure information
+    print_detailed_failures : Full diagnostic output
+
+Monotonicity analysis:
+    analyze_monotonicity_violations : Identify and analyze violations
+    print_violation_summary : Human-readable violation report
+    plot_monotonicity_analysis : Visual analysis of distance-time relationship
+    analyze_residuals_vs_violations : Correlate residuals with violations
+
+Quality Control Tests
+---------------------
+1. **Peak Timing Check**
+   - Validates that peak ground motion (PGA/PGV/PGD) occurs in S-wave window
+   - Failure indicates: misidentified S-onset, or unusual wave propagation
+   - Physical basis: S-waves carry most seismic energy
+
+2. **Monotonicity Check**
+   - Validates that arrival times increase with hypocentral distance
+   - Uses 3D distance (not epicentral) accounting for source depth
+   - Failure indicates: picking errors, or strong lateral velocity variations
+   - Physical basis: waves propagate outward from source at finite velocity
+
+3. **Signal-to-Noise Ratio (SNR)**
+   - Compares RMS amplitude in phase window vs pre-event noise
+   - Default threshold: SNR ≥ 3.0 (factor of 3 above noise)
+   - Failure indicates: weak signal, high noise, or misidentified arrival
+   - Uses first N seconds of phase window (default: 5s)
+
+Typical Validation Results
+--------------------------
+For good-quality local/regional data (d < 150 km, M > 3.5):
+- Peak timing: 90-95% pass rate
+- Monotonicity P: 85-95% pass rate
+- Monotonicity S: 80-90% pass rate (S harder to pick)
+- SNR P: 95-99% pass rate
+- SNR S: 85-95% pass rate
+
+Lower pass rates may indicate:
+- Poor event location quality
+- Complex crustal structure (strong lateral variations)
+- High ambient noise levels
+- Inadequate search window sizing
+
+Monotonicity Violations
+-----------------------
+Common causes:
+1. **Picking errors**: Most common for S-waves (more emergent)
+2. **Velocity anomalies**: Sedimentary basins (slow) vs basement (fast)
+3. **Location errors**: Epicenter/depth uncertainties of ±2-5 km
+4. **3D effects**: Assuming 1D velocity model in complex geology
+
+Investigation workflow:
+1. Run analyze_monotonicity_violations() to identify problem stations
+2. Check residuals: large |residual| suggests velocity model mismatch
+3. Visually inspect waveforms using plot functions
+4. Compare with theoretical arrivals
+5. Consider re-picking or excluding from analysis
+
+Examples
+--------
+>>> # Comprehensive quality control
+>>> qc_results = quality_control_all_stations(
+...     windowed_signals,
+...     df_full,
+...     df_meta_stations,
+...     peak_column='PGA_CM/S^2',
+...     time_peak_column='TIME_PGA_S',
+...     snr_threshold=3.0
+... )
+>>> print_quality_control_summary(qc_results)
+>>> 
+>>> # Analyze monotonicity violations
+>>> violations_p = analyze_monotonicity_violations(df_meta_stations, phase='p')
+>>> print_violation_summary(violations_p, phase='p')
+>>> 
+>>> # Visual analysis
+>>> fig = plot_monotonicity_analysis(df_meta_stations, violations_p, violations_s)
+>>> plt.show()
 """
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from typing import Dict, Optional, Tuple, Union, Any, Literal
+from pathlib import Path
 
-def check_peak_in_s_wave(df_metadata, station, component, 
-                        peak_column, time_peak_column,
-                        coda_method='rautian', 
-                        sampling_rate=200):
+def check_peak_in_s_wave(
+    df_metadata: pd.DataFrame, 
+    station: str, 
+    component: str, 
+    peak_column: str, 
+    time_peak_column: str,
+    coda_method: str = 'rautian', 
+    sampling_rate: float = 200
+) -> Dict[str, Any]:
     """
     Check if peak value occurs in S-wave window using only metadata.
     
@@ -135,7 +230,12 @@ def check_peak_in_s_wave(df_metadata, station, component,
         'peak_time': peak_time
     }
 
-def check_monotonicity_station(df_meta_stations, station, phase='p', sampling_rate=200):
+def check_monotonicity_station(
+    df_meta_stations: pd.DataFrame, 
+    station: str, 
+    phase: str = 'p', 
+    sampling_rate: float = 200
+) -> Dict[str, Any]:
     """
     Check if arrival time is monotonic with distance for this station.
     
@@ -305,8 +405,15 @@ def check_monotonicity_station(df_meta_stations, station, phase='p', sampling_ra
         'violation_side': violation_side
     }
 
-def check_snr(windowed_signals, station, component, 
-              phase='p', threshold=3.0, signal_duration=5.0, dt=0.005):
+def check_snr(
+    windowed_signals: Dict[str, Dict[str, Dict[str, Dict]]], 
+    station: str, 
+    component: str, 
+    phase: str = 'p', 
+    threshold: float = 3.0, 
+    signal_duration: float = 5.0, 
+    dt: float = 0.005
+) -> Dict[str, Any]:
     """
     Check SNR for P or S pick using windowed signals.
     
@@ -392,9 +499,15 @@ def check_snr(windowed_signals, station, component,
     }
 
 
-def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
-                                 peak_column, time_peak_column,
-                                 snr_threshold=3.0, coda_method='rautian'):
+def quality_control_all_stations(
+    windowed_signals: Dict[str, Dict[str, Dict[str, Dict]]], 
+    df_full: pd.DataFrame, 
+    df_meta_stations: pd.DataFrame,
+    peak_column: str, 
+    time_peak_column: str,
+    snr_threshold: float = 3.0, 
+    coda_method: str = 'rautian'
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
     """
     Run all quality checks for all stations and components.
     
@@ -540,7 +653,9 @@ def quality_control_all_stations(windowed_signals, df_full, df_meta_stations,
     
     return results
 
-def print_quality_control_summary(qc_results):
+def print_quality_control_summary(
+    qc_results: Dict[str, Dict[str, Dict[str, Any]]]
+) -> None:
     """
     Print quality control results in hierarchical table format.
     
@@ -632,7 +747,10 @@ def print_quality_control_summary(qc_results):
     print("=" * 70)
 
 
-def print_failed_checks(qc_results, signal_unit='cm/s²'):
+def print_failed_checks(
+    qc_results: Dict[str, Dict[str, Dict[str, Any]]], 
+    signal_unit: str = 'cm/s²'
+) -> None:
     """
     Print detailed information for components that failed quality checks.
     
@@ -698,8 +816,27 @@ def print_failed_checks(qc_results, signal_unit='cm/s²'):
     
     print("=" * 70)
 
-def print_detailed_failures(qc_results, signal_unit='cm/s²'):  # ← AGGIUNGI parametro
-    """Print detailed information for failed checks."""
+def print_detailed_failures(
+    qc_results: Dict[str, Dict[str, Dict[str, Any]]], 
+    signal_unit: str = 'cm/s²'
+) -> None:
+    """
+    Print detailed failure report with specific values.
+
+    Shows RMS values for SNR checks and specific time comparisons
+    for monotonicity violations.
+
+    Parameters
+    ----------
+    qc_results : dict
+        Output from quality_control_all_stations()
+    signal_unit : str, optional
+        Unit for peak value display (default: 'cm/s²')
+        
+    Examples
+    --------
+    >>> print_detailed_failures(qc_results, signal_unit='cm/s')
+    """
     
     print("\n" + "="*80)
     print("DETAILED FAILURE REPORT")
@@ -714,11 +851,11 @@ def print_detailed_failures(qc_results, signal_unit='cm/s²'):  # ← AGGIUNGI p
             
             print(f"\n{station}-{component}:")
             
-            # Peak failure (non "PGA")
-            if not checks['peak_check']['passed']:  # ← FIX: 'peak_check' non 'pga_check'
+            # Peak failure
+            if not checks['peak_check']['passed']:
                 peak = checks['peak_check']
                 print(f"  ✗ Peak: Found in '{peak['peak_window']}' window "
-                      f"(value={peak['peak_value']:.4f} {signal_unit})")  # ← FIX: usa parametro
+                      f"(value={peak['peak_value']:.4f} {signal_unit})")
             
             # Monotonicity P failure
             if not checks['monotonicity_p']['passed']:
@@ -752,7 +889,11 @@ def print_detailed_failures(qc_results, signal_unit='cm/s²'):  # ← AGGIUNGI p
 # ========================== Monotonicity Violation Analysis ===================================
 # ===============================================================================================
 
-def analyze_monotonicity_violations(df_meta_stations, phase='p', sampling_rate=200):
+def analyze_monotonicity_violations(
+    df_meta_stations: pd.DataFrame, 
+    phase: str = 'p', 
+    sampling_rate: float = 200
+) -> pd.DataFrame:
     """
     Analyze all monotonicity violations for a given phase.
     
@@ -992,7 +1133,10 @@ def analyze_monotonicity_violations(df_meta_stations, phase='p', sampling_rate=2
     
     return df_violations
 
-def print_violation_summary(df_violations, phase='p'):
+def print_violation_summary(
+    df_violations: pd.DataFrame, 
+    phase: str = 'p'
+) -> None:
     """
     Print human-readable summary of monotonicity violations.
     
@@ -1055,8 +1199,14 @@ def print_violation_summary(df_violations, phase='p'):
     
     print("\n" + "="*80)
 
-def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violations_s=None,
-                               figsize=(16, 6), output_path=None, sampling_rate=200):
+def plot_monotonicity_analysis(
+    df_meta_stations: pd.DataFrame, 
+    df_violations_p: Optional[pd.DataFrame] = None, 
+    df_violations_s: Optional[pd.DataFrame] = None,
+    figsize: Tuple[int, int] = (16, 6), 
+    output_path: Optional[Union[str, Path]] = None, 
+    sampling_rate: float = 200
+) -> plt.Figure:
     """
     Plot distance vs arrival time showing monotonicity violations.
     
@@ -1234,8 +1384,12 @@ def plot_monotonicity_analysis(df_meta_stations, df_violations_p=None, df_violat
     
     return fig
 
-def analyze_residuals_vs_violations(df_meta_stations, df_violations_p, df_violations_s,
-                                    figsize=(16, 10)):
+def analyze_residuals_vs_violations(
+    df_meta_stations: pd.DataFrame, 
+    df_violations_p: pd.DataFrame, 
+    df_violations_s: pd.DataFrame,
+    figsize: Tuple[int, int] = (16, 10)
+) -> plt.Figure:
     """
     Analyze relationship between residuals and violations.
     

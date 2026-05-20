@@ -1,14 +1,78 @@
 """
-Onset detection using AR-AIC method.
+AR-AIC phase detection for seismic signals.
 
-Functions for detecting P and S wave arrivals using the Autoregressive-Akaike
-Information Criterion (AR-AIC) method implemented in ObsPy.
+This module implements onset detection using the Autoregressive-Akaike
+Information Criterion (AR-AIC) method via ObsPy, plus multiple coda onset
+detection algorithms.
+
+Functions
+---------
+P/S wave detection:
+    detect_onsets_arpick : Detect P and S arrivals using AR-AIC with search windows
+
+Coda onset detection:
+    detect_coda_start : Single-method coda detection
+    detect_coda_start_all_methods : Run all methods for comparison
+    add_coda_onsets_to_dataframe : Populate DataFrame with coda times
+
+Statistical validation:
+    compute_coda_method_statistics : Compare coda detection methods
+
+Coda Detection Methods
+----------------------
+Rautian (1978): Lapse time = 2 × S-wave travel time
+    - Theoretical, assumes homogeneous scattering
+    - Independent of signal amplitude
+    - Fast, no waveform processing needed
+
+Arias Intensity (D5-95): Cumulative energy threshold
+    - Empirical, based on strong-motion engineering
+    - Measures significant duration of ground shaking
+    - Standard in ESM flatfile (Lanzano et al., 2019)
+
+Envelope decay: Amplitude-based threshold
+    - Signal envelope drops below threshold (typically 20-30% of peak)
+    - Common in strong-motion processing (Boore & Bommer, 2005)
+    - Sensitive to noise and late-arriving scattered waves
+
+Median: Robust combination of all three methods
+    - Reduces impact of outliers
+    - Requires all methods to succeed
+
+Output Format
+-------------
+All functions use dual representation (samples + seconds) to avoid
+rounding artifacts. Columns created:
+- t_p/s_detected_samples, t_p/s_detected_seconds
+- t_coda_<method>_samples, t_coda_<method>_seconds
+- Legacy aliases without suffix for backward compatibility
 
 References
 ----------
-Leonard, M., & Kennett, B. L. N. (1999). Multi-component autoregressive 
-techniques for the analysis of seismograms. Physics of the Earth and 
-Planetary Interiors, 113(1-4), 247-263.
+Leonard, M., & Kennett, B. L. N. (1999). "Multi-component autoregressive 
+    techniques for the analysis of seismograms." Physics of the Earth and 
+    Planetary Interiors, 113(1-4), 247-263.
+Rautian, T. G., & Khalturin, V. I. (1978). "The use of the coda for
+    determination of the earthquake source spectrum." Bulletin of the
+    Seismological Society of America, 68(4), 923-948.
+Boore, D. M., & Bommer, J. J. (2005). "Processing of strong-motion
+    accelerograms: needs, options and consequences." Soil Dynamics and
+    Earthquake Engineering, 25(2), 93-115.
+Lanzano, G., et al. (2019). "The pan-European Engineering Strong Motion
+    (ESM) flatfile: compilation criteria and data statistics." Bulletin of
+    Earthquake Engineering, 17, 561-582.
+    
+Examples
+--------
+>>> # Detect P and S onsets
+>>> df_stations = detect_onsets_arpick(signals_dict, df_meta_stations)
+>>> 
+>>> # Add coda onsets (all methods)
+>>> df_full = add_coda_onsets_to_dataframe(df_full, signals_dict)
+>>> 
+>>> # Compare methods statistically
+>>> stats = compute_coda_method_statistics(df_full)
+>>> print(f"Rautian-Arias correlation: {stats['pairwise']['rautian_arias']['correlation']:.3f}")
 """
 
 import numpy as np

@@ -1,11 +1,80 @@
 """
-Utility functions for PhaseNet phase picking.
+PhaseNet deep-learning phase picker integration.
 
-Structured as:
-- Low-level: single-station processing
-- Mid-level: validation, coordinate conversion
-- High-level: batch processing (called from notebook)
+This module provides utilities for applying PhaseNet (Zhu & Beroza, 2019)
+to seismic signals via the SeisBench framework. It handles data preparation,
+model invocation, coordinate conversion, and metadata merging.
+
+Functions are organized by abstraction level:
+
+Low-level (single-station processing):
+    get_station_from_filename : Extract station code from filename
+    get_component_from_filename : Extract component code from filename
+    create_obspy_stream_from_dataframe : Convert DataFrame to ObsPy Stream
+    process_single_station_phasenet : Apply PhaseNet to one station
+
+Mid-level (validation and conversion):
+    convert_onset_coordinates : Convert PhaseNet output to original time base
+    
+High-level (batch processing):
+    apply_phasenet_to_signals : Process entire dataset
+    merge_phasenet_picks_with_metadata : Join picks with station metadata
+
+Technical Details
+-----------------
+PhaseNet model: Pre-trained ETHZ model via SeisBench
+Target sampling rate: 100 Hz (resampled internally)
+Minimum signal duration: 30 seconds
+Output format: Dual representation (samples + seconds)
+
+Coordinate Conversion
+---------------------
+PhaseNet operates on resampled signals (100 Hz) with potential temporal
+offset from original recording. The conversion pipeline:
+1. Calculate temporal offset between PhaseNet output and original signal
+2. Adjust onset indices for offset (at target rate)
+3. Scale indices to original sampling rate
+4. Convert to seconds only at final step
+
+This sample-domain approach minimizes floating-point rounding errors
+compared to multiple time-domain conversions.
+
+Component Naming
+----------------
+Automatically detects and handles multiple conventions:
+- Standard ITACA: HNE, HNN, HNZ
+- Alternative: HGE, HGN, HGZ
+- Rotated: HN1, HN2, HNZ
+
+References
+----------
+Zhu, W., & Beroza, G. C. (2019). "PhaseNet: a deep-neural-network-based
+    seismic arrival-time picking method." Geophysical Journal International,
+    216(1), 261-273.
+Woollam, J., et al. (2022). "SeisBench—A Toolbox for Machine Learning in
+    Seismology." Seismological Research Letters, 93(3), 1695-1709.
+
+Examples
+--------
+>>> import seisbench.models as sbm
+>>> 
+>>> # Load pre-trained model
+>>> model = sbm.PhaseNet.from_pretrained("ethz")
+>>> 
+>>> # Process all signals
+>>> df_picks = apply_phasenet_to_signals(
+...     df_signals, 
+...     model, 
+...     signal_column='acceleration',
+...     sampling_rate_original=200,
+...     sampling_rate_target=100
+... )
+>>> 
+>>> # Merge with metadata
+>>> df_merged = merge_phasenet_picks_with_metadata(df_picks, df_meta_stations)
+>>> print(df_merged[['STATION_CODE', 't_p_detected_seconds', 't_s_detected_seconds']])
 """
+
 import numpy as np
 import pandas as pd
 import logging

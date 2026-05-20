@@ -1,21 +1,88 @@
 """
-Signal windowing functions for seismic phase segmentation.
+Four-window signal segmentation for seismic phase analysis.
 
-This module provides functions to segment seismic signals into temporal windows
-based on detected phase onsets (P-wave, S-wave, coda).
+This module segments seismic signals into four temporal windows based on
+detected phase onsets, enabling separate analysis of different wave types
+and noise characteristics.
+
+Functions
+---------
+segment_signal_into_windows : Segment single signal into four windows
+segment_all_signals : Batch segmentation for entire dataset
+get_window_statistics : Extract statistics for specific window across signals
+
+Window Definitions
+------------------
+Four non-overlapping windows span the entire signal:
+
+1. **Pre-event** [t_start, t_P):
+   - Noise reference before first arrival
+   - Duration: configurable (default: 5s before P, or full pre-P signal)
+   - Used for: SNR calculation, noise characteristics
+
+2. **P-wave** [t_P, t_S):
+   - P-wave arrival and coda
+   - Duration: variable (depends on P-S time difference)
+   - Typical: 2-8 seconds for local/regional events
+
+3. **S-wave** [t_S, t_coda):
+   - S-wave arrival and initial coda
+   - Duration: variable (depends on coda detection method)
+   - Typically contains peak ground motion (PGA/PGV/PGD)
+
+4. **Coda** [t_coda, t_end]:
+   - Late-arriving scattered waves
+   - Duration: variable (depends on recording length and coda start)
+   - Used for: scattering analysis, quality factor estimation
+
+Output Structure
+----------------
+Each window contains:
+- signal: array of signal values
+- start_samples, end_samples: integer boundaries
+- start_seconds, end_seconds: float boundaries
+- duration_samples, duration_seconds: window lengths
+- time: array (optional, for backward compatibility)
+- Legacy keys (t_start, t_end, duration) point to seconds
+
+All coordinates available in both samples and seconds to avoid
+rounding artifacts during subsequent processing.
+
+Implementation Notes
+--------------------
+Segmentation uses sample-domain slicing (signal[start:end]) for efficiency.
+Seconds representation is computed via division by sampling_rate.
+
+Pre-event window strategies:
+- Fixed duration: 5 seconds before P (standard)
+- Full: all available signal from recording start
+- Custom: user-specified duration
+
+Examples
+--------
+>>> # Segment single signal
+>>> windows = segment_signal_into_windows(
+...     signal, t_p=2440, t_s=2960, t_coda=4140,
+...     unit='samples', pre_p_duration=1000
+... )
+>>> print(f"S-wave duration: {windows['s_wave']['duration_seconds']:.2f}s")
+>>> 
+>>> # Batch segmentation
+>>> windowed = segment_all_signals(
+...     signals_dict, 
+...     df_onsets,
+...     coda_method='rautian',
+...     pre_p_duration=5.0
+... )
+>>> 
+>>> # Extract statistics
+>>> s_wave_stats = get_window_statistics(windowed, 's_wave')
+>>> print(f"Mean S-wave duration: {s_wave_stats['duration_seconds'].mean():.2f}s")
 """
 
 import numpy as np
 import pandas as pd
 from typing import Dict, Literal, Optional, Tuple, Union
-
-
-"""
-Signal windowing functions for seismic phase segmentation.
-
-This module provides functions to segment seismic signals into temporal windows
-based on detected phase onsets (P-wave, S-wave, coda).
-"""
 
 def segment_signal_into_windows(
     signal: np.ndarray,
@@ -477,24 +544,67 @@ def get_window_statistics(
 ) -> pd.DataFrame:
     """
     Extract statistics for a specific window across all signals.
-    
+
+    Computes summary statistics (mean, std, peak amplitude, duration) for
+    a given temporal window across all station-component pairs.
+
     Parameters
     ----------
     windowed_signals : dict
-        Output from segment_all_signals()
-    window_name : str
-        Which window: 'pre_event', 'p_wave', 's_wave', 'coda'
+        Nested dictionary from segment_all_signals()
+        Structure: {station: {component: {window_name: {...}}}}
+    window_name : {'pre_event', 'p_wave', 's_wave', 'coda'}
+        Which temporal window to analyze
         
     Returns
     -------
-    df_stats : pd.DataFrame
-        Statistics with columns: station, component, duration, 
-        n_samples, mean, std, max, min, pga
+    pd.DataFrame
+        Summary statistics with columns:
+        - station: Station code (str)
+        - component: Component code (str)
+        - start_samples, end_samples: Window boundaries in samples (int)
+        - start_seconds, end_seconds: Window boundaries in seconds (float)
+        - duration_samples: Window length in samples (int)
+        - duration_seconds: Window length in seconds (float)
+        - n_samples: Number of samples in window (int)
+        - mean: Mean amplitude (float)
+        - std: Standard deviation (float)
+        - max: Maximum amplitude (float)
+        - min: Minimum amplitude (float)
+        - peak: Peak absolute amplitude (float)
         
+    Notes
+    -----
+    The 'peak' column represents max(|signal|), which is equivalent to PGA
+    for acceleration windows or PGV/PGD for velocity/displacement windows.
+
+    Useful for:
+    - Identifying outliers (stations with anomalous amplitudes)
+    - Quality control (checking window durations are consistent)
+    - Selecting representative examples for visualization
+    - Comparing signal characteristics across seismic phases
+
     Examples
     --------
-    >>> stats = get_window_statistics(windowed, 's_wave')
-    >>> stats.describe()
+    >>> # Analyze S-wave windows
+    >>> stats = get_window_statistics(windowed_signals, 's_wave')
+    >>> print(stats[['station', 'duration_seconds', 'peak']].head())
+    >>> stats['duration_seconds'].describe()
+    count    66.000000
+    mean      6.234545
+    std       1.523456
+    min       3.450000
+    max      10.120000
+
+    >>> # Find stations with longest coda
+    >>> coda_stats = get_window_statistics(windowed_signals, 'coda')
+    >>> longest_coda = coda_stats.nlargest(5, 'duration_seconds')
+    >>> print(longest_coda[['station', 'component', 'duration_seconds']])
+
+    >>> # Compare peak amplitudes across phases
+    >>> for phase in ['pre_event', 'p_wave', 's_wave', 'coda']:
+    ...     stats = get_window_statistics(windowed_signals, phase)
+    ...     print(f"{phase}: mean peak = {stats['peak'].mean():.2e}")
     """
     
     records = []

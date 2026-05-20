@@ -1,17 +1,97 @@
 """
-Crustal velocity estimation - adapted for Ubaye 2024 dataset.
+Crustal velocity models and adaptive search window calculation.
 
-Column names from preprocessing:
-- STATION_CODE: Station identifier
-- STATION_LATITUDE_DEGREE: Station latitude
-- STATION_LONGITUDE_DEGREE: Station longitude  
-- EVENT_DEPTH_KM: Hypocentral distance
+This module provides functions to:
+1. Extract depth-dependent crustal velocities from CRUST1.0
+2. Calculate theoretical P/S arrival times using straight-ray approximation
+3. Compute adaptive search windows that scale with epicentral distance
+
+Functions
+---------
+Crustal velocity (CRUST1.0):
+    extract_crustal_velocities : Extract v_P and v_S for given location and depth
+    add_crustal_velocities : Query CRUST1.0 for all stations
+
+Distance and arrivals:
+    add_hypocentral_distance : Calculate 3D source-receiver distance
+    add_theoretical_arrivals : Compute P/S arrival times using v_crust
+
+Search windows:
+    calculate_search_windows : Fixed-width windows (baseline)
+    calculate_distance_thresholds : Compute empirical distance bins
+    calculate_adaptive_windows : Distance-dependent window sizing (recommended)
+
+CRUST1.0 Integration
+--------------------
+The module automatically loads the CRUST1.0 velocity model from
+`data/Crust1.0/model/`. Layer selection is adaptive: only layers
+traversed by a vertical ray from hypocenter to surface are included
+in the thickness-weighted average velocity.
+
+This accounts for:
+- Sediment layers (varying thickness)
+- Upper/middle/lower crust
+- Hypocenter depth (excludes deeper layers)
+
+Theoretical Arrival Times
+-------------------------
+Computed using straight-ray approximation:
+    t_arrival = t_origin + d_hypo / v_crust
+
+where:
+- d_hypo = sqrt(d_epicentral² + depth²) [hypocentral distance]
+- v_crust = thickness-weighted average from CRUST1.0
+
+This 1D approximation ignores:
+- Lateral velocity variations
+- Ray bending (refraction)
+- 3D crustal structure
+
+Typical uncertainties: ±1-3 seconds for regional distances (<200 km)
+
+Adaptive Search Windows
+-----------------------
+Windows scale with distance to account for:
+- Accumulated velocity model errors (increase with distance)
+- Lateral heterogeneities (stronger effect at larger offsets)
+- Uncertainty in source location (angular uncertainty grows with distance)
+
+Standard strategy (3 distance bins):
+- Near (<50 km): ±3s for P, ±6s for S
+- Regional (50-150 km): ±5s for P, ±10s for S
+- Distant (>150 km): ±7s for P, ±14s for S
+
+S-windows are 2× wider than P-windows because S arrivals are typically
+more emergent and harder to pick precisely.
+
+Output Format
+-------------
+All functions create dual representation (samples + seconds) to avoid
+rounding artifacts:
+- *_samples columns: integer sample indices
+- *_seconds columns: floating-point times
+- Legacy columns without suffix point to preferred unit
 
 References
 ----------
-Laske, G., Masters, G., Ma, Z., & Pasyanos, M. (2013).
-Update on CRUST1.0 - A 1-degree global model of Earth's crust.
-Geophysical Research Abstracts, 15, EGU2013-2658.
+Laske, G., Masters, G., Ma, Z., & Pasyanos, M. (2013). "Update on
+    CRUST1.0 - A 1-degree global model of Earth's crust." Geophysical
+    Research Abstracts, 15, EGU2013-2658.
+
+Examples
+--------
+>>> # Add crustal velocities from CRUST1.0
+>>> df_stations = add_crustal_velocities(df_stations, hypo_depth_km=10.4)
+>>> 
+>>> # Calculate theoretical arrivals
+>>> df_stations = add_theoretical_arrivals(df_stations, hypo_depth_km=10.4)
+>>> 
+>>> # Adaptive windows (recommended)
+>>> thresholds = calculate_distance_thresholds(df_stations, method='tertiles')
+>>> df_stations = calculate_adaptive_windows(df_stations, thresholds)
+>>> 
+>>> # Check window sizes
+>>> print(df_stations[['STATION_CODE', 'p_window_start_seconds', 'p_window_end_seconds']])
 """
 
 import sys
