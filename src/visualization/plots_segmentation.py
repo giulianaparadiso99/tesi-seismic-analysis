@@ -10,16 +10,14 @@ Includes plots for:
 - Residuals analysis
 """
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from scipy import stats as scipy_stats
 from scipy.stats import pearsonr, linregress
 from pathlib import Path
-import re
-from typing import Dict, List, Optional, Literal
-import os
-import matplotlib.patches as mpatches
+from typing import Dict, List, Optional, Tuple, Any, Union
 from IPython.display import display
 from src import set_plot_style
 colors, colors1 = set_plot_style()
@@ -77,7 +75,10 @@ def display_theoretical_arrivals_table(df_stations, n_rows=10):
     
     return table
 
-def plot_apparent_vs_crustal_velocities(df_meta_stations, figsize=(16, 6)):
+def plot_apparent_vs_crustal_velocities(
+    df_meta_stations: pd.DataFrame, 
+    figsize: Tuple[int, int] = (16, 6)
+) -> plt.Figure:
     """
     Compare apparent velocities (from detected arrivals) with CRUST1.0 velocities.
     
@@ -140,7 +141,11 @@ def plot_apparent_vs_crustal_velocities(df_meta_stations, figsize=(16, 6)):
     plt.tight_layout()
     return fig
 
-def plot_crustal_velocities_vs_distance(df_meta_stations, figsize=(16, 6), output_path=None):
+def plot_crustal_velocities_vs_distance(
+    df_meta_stations: pd.DataFrame, 
+    figsize: Tuple[int, int] = (16, 6), 
+    output_path: Optional[Path] = None
+) -> plt.Figure:
     """
     Plot crustal velocities (v_P and v_S) vs epicentral distance.
     
@@ -216,7 +221,6 @@ def plot_crustal_velocities_vs_distance(df_meta_stations, figsize=(16, 6), outpu
     plt.tight_layout(rect=[0, 0.05, 1, 1])
     
     if output_path is not None:
-        from pathlib import Path
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -224,7 +228,11 @@ def plot_crustal_velocities_vs_distance(df_meta_stations, figsize=(16, 6), outpu
     
     return fig
 
-def plot_theoretical_arrivals(df_stations, figsize=(12, 6), save_path=None):
+def plot_theoretical_arrivals(
+    df_stations: pd.DataFrame, 
+    figsize: Tuple[int, int] = (12, 6), 
+    output_path: Optional[Path] = None
+) -> Tuple[plt.Figure, plt.Axes]:
     """
     Plot theoretical P and S arrival times vs epicentral distance.
     
@@ -242,7 +250,7 @@ def plot_theoretical_arrivals(df_stations, figsize=(12, 6), save_path=None):
         - vs_crust
     figsize : tuple, optional
         Figure size (width, height) in inches
-    save_path : str or Path, optional
+    output_path : str or Path, optional
         If provided, save figure to this path
     
     Returns
@@ -316,9 +324,13 @@ def plot_theoretical_arrivals(df_stations, figsize=(12, 6), save_path=None):
     plt.tight_layout()
     
     # Save if requested
-    if save_path:
-        fig.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Figure saved: {save_path}")
+    if output_path is not None:
+        output_path = Path(output_path)
+        if output_path.suffix == '':
+            output_path = output_path.with_suffix('.pdf')
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {output_path}")
     
     return fig, ax
 
@@ -326,7 +338,7 @@ def plot_onset_detection_results(signals_dict, df_results,
                                  signal_unit='cm/s²',
                                  stations=None, 
                                  figsize_per_station=(10, 8),
-                                 save_dir=None,
+                                 output_dir: Optional[Union[str, Path]] = None,
                                  show_windows=True):
     """
     Plot acceleration time series with detected and theoretical onsets.
@@ -359,7 +371,7 @@ def plot_onset_detection_results(signals_dict, df_results,
         Which stations to plot (default: all stations in df_results)
     figsize_per_station : tuple, optional
         Figure size (width, height) for each station (default: (10, 8))
-    save_dir : str or Path, optional
+    output_dir : str or Path, optional
         Directory to save figures. If None, figures are not saved.
     show_windows : bool, optional
         If True, show search windows as shaded rectangles (default: True)
@@ -376,7 +388,7 @@ def plot_onset_detection_results(signals_dict, df_results,
     ...     df_meta_stations,
     ...     stations=['ACER', 'CLFR', 'SURF'],
     ...     show_windows=True,
-    ...     save_dir='../figures/onset_detection'
+    ...     output_dir='../figures/onset_detection'
     ... )
     >>> plt.show()
     """
@@ -384,9 +396,9 @@ def plot_onset_detection_results(signals_dict, df_results,
     if stations is None:
         stations = df_results['STATION_CODE'].tolist()
     
-    if save_dir is not None:
-        save_dir = Path(save_dir)
-        save_dir.mkdir(parents=True, exist_ok=True)
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
     
     figures = {}
     
@@ -516,10 +528,10 @@ def plot_onset_detection_results(signals_dict, df_results,
         plt.tight_layout()
         
         # Save if requested
-        if save_dir is not None:
-            save_path = save_dir / f'onset_detection_{station}.pdf'
-            fig.savefig(save_path, dpi=150, bbox_inches='tight')
-            print(f"Saved: {save_path}")
+        if output_dir is not None:
+            output_path = output_dir / f'onset_detection_{station}.pdf'
+            fig.savefig(output_path, dpi=150, bbox_inches='tight')
+            print(f"Saved: {output_path}")
         
         figures[station] = fig
     
@@ -532,7 +544,7 @@ def plot_onset_detection_results_v2(
     signal_unit='cm/s²',
     stations=None, 
     figsize_per_station=(10, 8),
-    save_dir=None,
+    output_dir=None,
     show_windows=True
 ): 
     """
@@ -566,7 +578,7 @@ def plot_onset_detection_results_v2(
         Which stations to plot (default: all stations in df_results)
     figsize_per_station : tuple, optional
         Figure size (width, height) for each station (default: (10, 8))
-    save_dir : str or Path, optional
+    output_dir : str or Path, optional
         Directory to save figures. If None, figures are not saved.
     show_windows : bool, optional
         If True, show search windows as shaded rectangles (default: True)
@@ -583,7 +595,7 @@ def plot_onset_detection_results_v2(
     ...     df_meta_stations,
     ...     stations=['ACER', 'CLFR', 'SURF'],
     ...     show_windows=True,
-    ...     save_dir='../figures/onset_detection'
+    ...     output_dir='../figures/onset_detection'
     ... )
     >>> plt.show()
     """
@@ -591,9 +603,9 @@ def plot_onset_detection_results_v2(
     if stations is None:
         stations = df_results['STATION_CODE'].tolist()
     
-    if save_dir is not None:
-        save_dir = Path(save_dir)
-        save_dir.mkdir(parents=True, exist_ok=True)
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
     
     figures = {}
     
@@ -745,10 +757,10 @@ def plot_onset_detection_results_v2(
         plt.tight_layout()
         
         # Save
-        if save_dir is not None:
-            save_path = save_dir / f'onset_detection_{station}_{method}.pdf'
-            fig.savefig(save_path, dpi=150, bbox_inches='tight')
-            print(f"Saved: {save_path}")
+        if output_dir is not None:
+            output_path = output_dir / f'onset_detection_{station}_{method}.pdf'
+            fig.savefig(output_path, dpi=150, bbox_inches='tight')
+            print(f"Saved: {output_path}")
         
         figures[station] = fig
     
@@ -758,7 +770,7 @@ def plot_coda_onset_results(signals_dict, df_onsets_full,
                             signal_unit='cm/s²',
                             stations=None,
                             figsize_per_station=(10, 8),
-                            save_dir=None):
+                            output_dir=None):
     """
     Plot acceleration time series with S-wave and coda onsets for all three methods.
     
@@ -787,7 +799,7 @@ def plot_coda_onset_results(signals_dict, df_onsets_full,
         Which stations to plot (default: all stations in df_onsets_full)
     figsize_per_station : tuple, optional
         Figure size (width, height) for each station (default: (10, 8))
-    save_dir : str or Path, optional
+    output_dir : str or Path, optional
         Directory to save figures. If None, figures are not saved.
     
     Returns
@@ -799,16 +811,16 @@ def plot_coda_onset_results(signals_dict, df_onsets_full,
     --------
     >>> figs = plot_coda_onset_results(signals_dict, df_onsets_full,
     ...                                stations=['ACER', 'CLFR'],
-    ...                                save_dir='../figures/coda_detection')
+    ...                                output_dir='../figures/coda_detection')
     >>> plt.show()
     """
     
     if stations is None:
         stations = df_onsets_full['STATION_CODE'].unique().tolist()
     
-    if save_dir is not None:
-        save_dir = Path(save_dir)
-        save_dir.mkdir(parents=True, exist_ok=True)
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
     
     figures = {}
     
@@ -931,16 +943,19 @@ def plot_coda_onset_results(signals_dict, df_onsets_full,
         plt.tight_layout()
         
         # Save if requested
-        if save_dir is not None:
-            save_path = save_dir / f'coda_detection_{station}.pdf'
-            fig.savefig(save_path, dpi=150, bbox_inches='tight')
-            print(f"Saved: {save_path}")
+        if output_dir is not None:
+            output_path = output_dir / f'coda_detection_{station}.pdf'
+            fig.savefig(output_path, dpi=150, bbox_inches='tight')
+            print(f"Saved: {output_path}")
         
         figures[station] = fig
     
     return figures
 
-def plot_coda_scatter_comparison(stats, save_path=None):
+def plot_coda_scatter_comparison(
+    stats: Dict[str, Any], 
+    output_path: Optional[Union[str, Path]] = None
+) -> plt.Figure:
     """
     Create scatter plots comparing coda detection methods.
     
@@ -955,7 +970,7 @@ def plot_coda_scatter_comparison(stats, save_path=None):
     ----------
     stats : dict
         Statistics dictionary from compute_coda_method_statistics()
-    save_path : str or Path, optional
+    output_path : str or Path, optional
         If provided, save figure to this path
     
     Returns
@@ -1023,16 +1038,19 @@ def plot_coda_scatter_comparison(stats, save_path=None):
     
     plt.tight_layout()
     
-    if save_path:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {save_path}")
+    if output_path:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {output_path}")
     
     return fig
 
 
-def plot_bland_altman_comparison(stats, save_path=None):
+def plot_bland_altman_comparison(
+    stats: Dict[str, Any], 
+    output_path: Optional[Union[str, Path]] = None
+) -> plt.Figure:
     """
     Create Bland-Altman plots for method comparison.
     
@@ -1048,7 +1066,7 @@ def plot_bland_altman_comparison(stats, save_path=None):
     ----------
     stats : dict
         Statistics dictionary from compute_coda_method_statistics()
-    save_path : str or Path, optional
+    output_path : str or Path, optional
         If provided, save figure to this path
     
     Returns
@@ -1125,16 +1143,19 @@ def plot_bland_altman_comparison(stats, save_path=None):
     
     plt.tight_layout()
     
-    if save_path:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {save_path}")
+    if output_path:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {output_path}")
     
     return fig
 
 
-def plot_residuals_vs_distance(stats, save_path=None):
+def plot_residuals_vs_distance(
+    stats: Dict[str, Any], 
+    output_path: Optional[Union[str, Path]] = None
+) -> plt.Figure:
     """
     Plot method differences vs epicentral distance.
     
@@ -1145,7 +1166,7 @@ def plot_residuals_vs_distance(stats, save_path=None):
     ----------
     stats : dict
         Statistics dictionary from compute_coda_method_statistics()
-    save_path : str or Path, optional
+    output_path : str or Path, optional
         If provided, save figure to this path
     
     Returns
@@ -1216,16 +1237,19 @@ def plot_residuals_vs_distance(stats, save_path=None):
     
     plt.tight_layout()
     
-    if save_path:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {save_path}")
+    if output_path:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {output_path}")
     
     return fig
 
 
-def plot_pairwise_difference_histograms(stats, save_path=None):
+def plot_pairwise_difference_histograms(
+    stats: Dict[str, Any], 
+    output_path: Optional[Union[str, Path]] = None
+) -> plt.Figure:
     """
     Plot histograms of pairwise differences between methods.
     
@@ -1236,7 +1260,7 @@ def plot_pairwise_difference_histograms(stats, save_path=None):
     ----------
     stats : dict
         Statistics dictionary from compute_coda_method_statistics()
-    save_path : str or Path, optional
+    output_path : str or Path, optional
         If provided, save figure to this path
     
     Returns
@@ -1307,16 +1331,19 @@ def plot_pairwise_difference_histograms(stats, save_path=None):
     
     plt.tight_layout()
     
-    if save_path:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {save_path}")
+    if output_path:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {output_path}")
     
     return fig
 
 
-def plot_correlation_matrix_heatmap(stats, save_path=None):
+def plot_correlation_matrix_heatmap(
+    stats: Dict[str, Any], 
+    output_path: Optional[Union[str, Path]] = None
+) -> plt.Figure:
     """
     Plot correlation matrix heatmap for all methods.
     
@@ -1327,7 +1354,7 @@ def plot_correlation_matrix_heatmap(stats, save_path=None):
     ----------
     stats : dict
         Statistics dictionary from compute_coda_method_statistics()
-    save_path : str or Path, optional
+    output_path : str or Path, optional
         If provided, save figure to this path
     
     Returns
@@ -1396,11 +1423,11 @@ def plot_correlation_matrix_heatmap(stats, save_path=None):
     
     plt.tight_layout()
     
-    if save_path:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {save_path}")
+    if output_path:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {output_path}")
     
     return fig
 
@@ -1484,7 +1511,7 @@ def plot_station_windows(
     signal_unit: str = 'cm/s²',
     coda_method: str = 'rautian',
     figsize: tuple = (14, 10),
-    save_path: Optional[str] = None,
+    output_path: Optional[Union[str, Path]] = None,
     show_onset_lines: bool = True,
     show_window_backgrounds: bool = True,
     title_suffix: str = ''
@@ -1511,7 +1538,7 @@ def plot_station_windows(
         Only used if df_onsets is provided (default: 'rautian')
     figsize : tuple, optional
         Figure size (width, height) in inches (default: (14, 10))
-    save_path : str, optional
+    output_path : str, optional
         If provided, save figure to this path
     show_onset_lines : bool, optional
         Show vertical lines at onset times (default: True)
@@ -1668,10 +1695,13 @@ def plot_station_windows(
     plt.tight_layout(rect=[0, 0, 1, 0.98])
     
     # Save if requested
-    if save_path:
-        os.makedirs(os.path.dirname(save_path) or '.', exist_ok=True)
-        fig.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"Saved: {save_path}")
+    if output_path is not None:  # era save_path
+        output_path = Path(output_path)
+        if output_path.suffix == '':
+            output_path = output_path.with_suffix('.pdf')
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=150, bbox_inches='tight')
+        print(f"Saved: {output_path}")
     
     return fig
 
@@ -1682,7 +1712,7 @@ def plot_multiple_stations(
     windowed_signals: Dict,
     df_onsets: Optional[pd.DataFrame] = None,
     coda_method: str = 'rautian',
-    save_dir: Optional[str] = None,
+    output_dir: Optional[Union[str, Path]] = None,
     close_after_save: bool = True,
     **kwargs
 ) -> Dict[str, plt.Figure]:
@@ -1701,7 +1731,7 @@ def plot_multiple_stations(
         Onset times DataFrame
     coda_method : str, optional
         Coda detection method name (default: 'rautian')
-    save_dir : str, optional
+    output_dir : str, optional
         Directory to save plots (e.g., 'plots/windows/')
         If None, plots are not saved automatically
     close_after_save : bool, optional
@@ -1725,7 +1755,7 @@ def plot_multiple_stations(
     >>> # Plot all stations and save to directory
     >>> stations = list(windowed_signals.keys())
     >>> plot_multiple_stations(stations, signals_dict, windowed_signals,
-    ...                        save_dir='plots/windows/', 
+    ...                        output_dir='plots/windows/', 
     ...                        close_after_save=True)
     """
     
@@ -1736,10 +1766,10 @@ def plot_multiple_stations(
     for i, station in enumerate(stations, 1):
         try:
             # Determine save path if directory provided
-            if save_dir:
-                save_path = os.path.join(save_dir, f'{station}_windows.pdf')
+            if output_dir:
+                output_path = Path(output_dir) / f'{station}_windows.pdf'
             else:
-                save_path = None
+                output_path = None
             
             # Create plot
             fig = plot_station_windows(
@@ -1748,12 +1778,12 @@ def plot_multiple_stations(
                 windowed_signals=windowed_signals,
                 df_onsets=df_onsets,
                 coda_method=coda_method,
-                save_path=save_path,
+                output_path=output_path,
                 **kwargs
             )
             
             # Store or close
-            if close_after_save and save_path:
+            if close_after_save and output_path:
                 plt.close(fig)
             else:
                 figures[station] = fig
@@ -1779,7 +1809,7 @@ def plot_window_comparison(
     method_labels: List[str],
     signal_unit: str = 'cm/s²',
     figsize: tuple = (14, 6),
-    save_path: Optional[str] = None
+    output_path: Optional[Union[str, Path]] = None
 ) -> plt.Figure:
     """
     Compare different windowing methods for the same signal.
@@ -1803,7 +1833,7 @@ def plot_window_comparison(
     signal_unit : str, optional
     figsize : tuple, optional
         Figure size (default: (14, 6))
-    save_path : str, optional
+    output_path : str, optional
         Path to save figure
         
     Returns
@@ -1881,9 +1911,12 @@ def plot_window_comparison(
     
     plt.tight_layout()
     
-    if save_path:
-        os.makedirs(os.path.dirname(save_path) or '.', exist_ok=True)
-        fig.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"Saved: {save_path}")
+    if output_path is not None:
+        output_path = Path(output_path)
+        if output_path.suffix == '':
+            output_path = output_path.with_suffix('.pdf')
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=150, bbox_inches='tight')
+        print(f"Saved: {output_path}")
     
     return fig
