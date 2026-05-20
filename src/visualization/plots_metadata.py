@@ -312,10 +312,12 @@ def plot_correlation_matrix(
     plt.tight_layout()
  
     if output_path is not None:
-        save_path = Path(output_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, bbox_inches='tight')
-        print(f"Saved: {save_path}")
+        output_path = Path(output_path)
+        if output_path.suffix == '':
+            output_path = output_path.with_suffix('.pdf')
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_path, bbox_inches='tight')
+        print(f"Saved: {output_path}")
  
     plt.show()
     plt.close()
@@ -370,10 +372,12 @@ def plot_significant_corr_diff(
     plt.tight_layout()
  
     if output_path is not None:
-        save_path = Path(output_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, bbox_inches='tight')
-        print(f"Saved: {save_path}")
+        output_path = Path(output_path)
+        if output_path.suffix == '':
+            output_path = output_path.with_suffix('.pdf')
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_path, bbox_inches='tight')
+        print(f"Saved: {output_path}")
  
     plt.show()
     plt.close()
@@ -498,10 +502,12 @@ def plot_station_map(
     plt.tight_layout()
     
     if output_path is not None:
-        save_path = Path(output_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {save_path}")
+        output_path = Path(output_path)
+        if output_path.suffix == '':
+            output_path = output_path.with_suffix('.pdf')
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_path, bbox_inches='tight')
+        print(f"Saved: {output_path}")
     
     plt.show()
     plt.close()

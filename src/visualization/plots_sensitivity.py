@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from src.visualization.plot_settings import set_plot_style
 import logging
 
 logger = logging.getLogger(__name__)

@@ -1,13 +1,109 @@
 """
 plot_segmentation.py
 --------------------
-Visualization functions for event segmentation results.
+Visualization functions for seismic event segmentation and phase detection.
 
-Includes plots for:
-- Theoretical arrival times
-- Detected vs theoretical onsets comparison
-- Window boundaries
-- Residuals analysis
+This module provides comprehensive plotting utilities for visualizing and
+validating seismic phase identification results, including:
+- Theoretical P/S arrival time predictions from crustal velocity models
+- AR-AIC and PhaseNet onset detection performance
+- Four-window segmentation (pre-event, P-wave, S-wave, coda)
+- Coda onset detection method comparison (Rautian, Arias, Envelope)
+- Statistical validation and residual analysis
+
+The module supports multiple phase detection methods and enables direct
+comparison of their performance through various diagnostic plots.
+
+Functions
+---------
+Theoretical arrivals and crustal velocities:
+    display_theoretical_arrivals_table : Display table of predicted arrivals
+    plot_apparent_vs_crustal_velocities : Compare observed vs CRUST1.0 velocities
+    plot_crustal_velocities_vs_distance : Show velocity variation with distance
+    plot_theoretical_arrivals : Plot P/S arrival times vs epicentral distance
+
+Onset detection validation:
+    plot_onset_detection_results : Visualize AR-AIC detection on waveforms
+    plot_onset_detection_results_v2 : Generic plotter supporting multiple methods
+    plot_coda_onset_results : Visualize coda detection on three-component data
+
+Coda method comparison:
+    plot_coda_scatter_comparison : Scatter plots comparing method pairs
+    plot_bland_altman_comparison : Bland-Altman agreement analysis
+    plot_residuals_vs_distance : Method differences vs epicentral distance
+    plot_pairwise_difference_histograms : Distribution of method differences
+    plot_correlation_matrix_heatmap : Correlation matrix between methods
+
+Window segmentation visualization:
+    get_station_components : Auto-detect component naming convention
+    plot_station_windows : Show four-window segmentation for one station
+    plot_multiple_stations : Batch plotting for multiple stations
+    plot_window_comparison : Compare different windowing strategies
+
+Notes
+-----
+Onset detection methods supported:
+- AR-AIC: Autoregressive model with Akaike Information Criterion
+- PhaseNet: Deep learning phase picker (Zhu & Beroza, 2019)
+
+Coda onset detection methods:
+- Rautian (1978): t_coda = 2×t_S from origin time
+- Arias (dt_PS): Empirical rule based on S-P time difference
+- Envelope: Energy-based detection using signal envelope
+
+Component naming conventions automatically detected:
+- Standard ITACA: HNE, HNN, HNZ (East, North, Vertical)
+- Alternative: HGE, HGN, HGZ or HN1, HN2, HNZ
+
+References
+----------
+Rautian, T. G., & Khalturin, V. I. (1978). "The use of the coda for
+    determination of the earthquake source spectrum." Bulletin of the
+    Seismological Society of America, 68(4), 923-948.
+Zhu, W., & Beroza, G. C. (2019). "PhaseNet: a deep-neural-network-based
+    seismic arrival-time picking method." Geophysical Journal International,
+    216(1), 261-273.
+Lazo, G., et al. (2022). CRUST1.0 velocity model implementation for arrival
+    time prediction.
+
+Examples
+--------
+>>> from src.visualization.plots_segmentation import (
+...     plot_theoretical_arrivals,
+...     plot_onset_detection_results_v2,
+...     plot_station_windows
+... )
+>>>
+>>> # Plot theoretical arrivals
+>>> fig = plot_theoretical_arrivals(
+...     df_meta_stations,
+...     output_path='../figures/theoretical_arrivals.pdf'
+... )
+>>>
+>>> # Compare AR-AIC vs PhaseNet detection
+>>> figs_ar = plot_onset_detection_results_v2(
+...     signals_dict, df_results_ar,
+...     method='ar_pick',
+...     stations=['ACER', 'CLFR', 'SURF'],
+...     output_dir='../figures/onset_detection/ar_aic/'
+... )
+>>>
+>>> figs_pn = plot_onset_detection_results_v2(
+...     signals_dict, df_results_pn,
+...     method='phasenet',
+...     stations=['ACER', 'CLFR', 'SURF'],
+...     output_dir='../figures/onset_detection/phasenet/'
+... )
+>>>
+>>> # Visualize four-window segmentation
+>>> fig = plot_station_windows(
+...     station='BRZ',
+...     signals_dict=signals_dict,
+...     windowed_signals=windowed_dict,
+...     coda_method='rautian',
+...     output_path='../figures/windows/BRZ_windows.pdf'
+... )
+>>> plt.show()
 """
 
 import pandas as pd
@@ -19,7 +115,7 @@ from scipy.stats import pearsonr, linregress
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Union
 from IPython.display import display
-from src import set_plot_style
+from src.visualization.plot_settings import set_plot_style
 colors, colors1 = set_plot_style()
 
 
