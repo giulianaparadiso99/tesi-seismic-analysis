@@ -1,15 +1,16 @@
 """
 Preprocessing module for seismic signals.
 
-Includes data loading from .ASC files, metadata cleaning, signal preprocessing
-(baseline correction, filtering, normalization), and integration 
-(acceleration → velocity → displacement).
+Provides metadata cleaning and signal preprocessing functions for seismic
+acceleration, velocity, and displacement data.
 
-Modules:
-    io - Data loading from .ASC archive
-    cleaning_metadata - Metadata preprocessing
-    cleaning_signals - Signal preprocessing
-    signals_integration - Integration (ObsPy-compatible)
+Submodules:
+    cleaning_metadata   - Metadata preprocessing pipeline
+    cleaning_signals    - Signal preprocessing (baseline, filtering, normalization)
+    signals_integration - Integration (acceleration → velocity → displacement)
+
+Currently exposed at module level:
+    clean_metadata - Full metadata cleaning pipeline
 """
 
 from .cleaning_metadata import clean_metadata
@@ -20,17 +21,9 @@ from .cleaning_signals import (
 )
 
 __all__ = [
-    # I/O
-    'build_metadata',
-    'build_accelerations',
-    'build_dataframes',
     # Metadata
     'clean_metadata',
     # Signals
     'preprocess_signals',
-    'validate_preprocessing',
-    # Integration
-    'integrate_to_velocity',
-    'integrate_to_displacement',
-    'validate_integration',
+    'validate_preprocessing'
 ]

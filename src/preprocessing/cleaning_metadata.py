@@ -11,15 +11,15 @@ The pipeline is organised as a set of private helper functions, each
 responsible for a single preprocessing step, composed by the public
 entry point clean_metadata():
 
-    1. _replace_missing  — replace empty strings and 'None' with NaN
-    2. _drop_columns     — remove uninformative, constant, or irrelevant columns
-    3. _convert_types    — cast numeric columns to float64 and date columns
-                           to datetime
-    4. _normalize_strings — strip leading/trailing whitespace from string columns
-    5. _remove_duplicates — drop duplicate rows
+    1. _replace_missing           — replace empty strings and 'None' with NaN
+    2. _drop_columns              — remove uninformative, constant, or irrelevant columns
+    3. _convert_types             — cast numeric columns to float64 and date columns to datetime
+    4. _normalize_strings         — strip leading/trailing whitespace from string columns
+    5. _remove_duplicates         — drop duplicate rows
+    6. _calculate_sampling_rate   — derive INSTRUMENTAL_FREQUENCY_HZ from NDATA and DURATION_S
 
 Usage:
-    from src.cleaning_metadata import clean_metadata
+    from src.preprocessing.cleaning_metadata import clean_metadata
     df_meta_clean = clean_metadata(df_meta_raw)
 """
 
@@ -97,14 +97,26 @@ def _remove_duplicates(df):
     """Remove duplicate rows."""
     return df.drop_duplicates()
 
-def _calculate_sampling_rate(df):
+def _calculate_sampling_rate(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculate INSTRUMENTAL_FREQUENCY_HZ from NDATA and DURATION_S.
+    Derive INSTRUMENTAL_FREQUENCY_HZ from NDATA and DURATION_S where missing.
     
-    The sampling rate is computed as: frequency = n_samples / duration
-    This field is typically empty in the raw data but can be derived
-    from the number of samples and total duration.
+    Computes sampling rate as frequency = n_samples / duration for rows where
+    INSTRUMENTAL_FREQUENCY_HZ is NaN or empty. This field is typically absent
+    in raw ITACA headers but can be reconstructed from trace metadata.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Metadata dataframe with columns NDATA, DURATION_S, and optionally
+        INSTRUMENTAL_FREQUENCY_HZ.
+    
+    Returns
+    -------
+    pd.DataFrame
+        Input dataframe with INSTRUMENTAL_FREQUENCY_HZ populated where possible.
     """
+    
     # Check if column exists and is empty/missing
     if 'INSTRUMENTAL_FREQUENCY_HZ' in df.columns:
         # Replace empty strings with NaN (if not already done)
