@@ -13,12 +13,12 @@ from scipy.signal import resample
 from obspy import Stream, Trace
 from typing import Tuple, Optional, Dict, List
 
-def get_station_from_filename(filename):
+def get_station_from_filename(filename: str) -> str:
     """Extract station code from file name."""
     parts = filename.split('.')
     return parts[1] if len(parts) > 1 else filename
 
-def get_component_from_filename(filename):
+def get_component_from_filename(filename: str) -> str:
     """Extract component code from file name."""
     parts = filename.split('.')
     return parts[3] if len(parts) > 3 else filename
@@ -388,10 +388,55 @@ def merge_phasenet_picks_with_metadata(
     df_meta: pd.DataFrame
 ) -> pd.DataFrame:
     """
-    Merge PhaseNet onset picks with station metadata.
-    
-    Calculates origin_time directly from event and signal timestamps
-    in the metadata (same approach as AR-AIC workflow).
+    Merge PhaseNet onset picks with station metadata and calculate origin time.
+
+    Joins PhaseNet picks with station-level metadata and computes the earthquake
+    origin time in both sample and second coordinates using event timestamps
+    from the metadata (consistent with AR-AIC workflow).
+
+    Parameters
+    ----------
+    df_picks : pd.DataFrame
+        PhaseNet picks from apply_phasenet_to_signals()
+        Must have columns:
+        - station_code
+        - t_p_samples, t_s_samples
+        - t_p_seconds, t_s_seconds
+        - p_probability_max, s_probability_max
+        - components
+    df_meta : pd.DataFrame
+        Station metadata with columns:
+        - STATION_CODE
+        - EVENT_DATE (event origin timestamp)
+        - DATE_TIME_FIRST_SAMPLE (signal start timestamp)
+        - Theoretical arrivals: t_p_theo_*, t_s_theo_*
+        - Station coordinates, distances, etc.
+
+    Returns
+    -------
+    pd.DataFrame
+        Merged DataFrame with:
+        - All metadata columns
+        - Renamed PhaseNet picks: t_p_detected_samples, t_p_detected_seconds, etc.
+        - Computed origin time: origin_time_samples, origin_time_seconds
+        - Assumes 200 Hz sampling rate for origin_time_samples calculation
+
+    Notes
+    -----
+    Origin time calculation:
+        origin_time = EVENT_DATE - DATE_TIME_FIRST_SAMPLE
+        
+    This matches the approach used internally by add_theoretical_arrivals()
+    in the AR-AIC workflow, ensuring consistency between methods.
+
+    Only stations present in both DataFrames (inner join) are included
+    in the output.
+
+    Examples
+    --------
+    >>> df_picks = apply_phasenet_to_signals(df_signals, model, 'acceleration')
+    >>> df_merged = merge_phasenet_picks_with_metadata(df_picks, df_meta_stations)
+    >>> print(df_merged[['STATION_CODE', 't_p_detected_seconds', 'origin_time_seconds']])
     """
     
     # Rinomina colonne
