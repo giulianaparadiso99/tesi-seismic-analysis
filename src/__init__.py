@@ -26,7 +26,7 @@ __author__ = "Giuliana Paradiso"
 # Data I/O
 # ===============================================================================
 
-from .io.io import (
+from .io.loaders import (
     build_metadata,
     build_signals,
     build_dataframes,
