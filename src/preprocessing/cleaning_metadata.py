@@ -108,15 +108,14 @@ def _calculate_sampling_rate(df: pd.DataFrame) -> pd.DataFrame:
     Parameters
     ----------
     df : pd.DataFrame
-        Metadata dataframe with columns NDATA, DURATION_S, and optionally
-        INSTRUMENTAL_FREQUENCY_HZ.
+        Metadata dataframe with NDATA, DURATION_S, and optionally
+        INSTRUMENTAL_FREQUENCY_HZ columns.
     
     Returns
     -------
     pd.DataFrame
-        Input dataframe with INSTRUMENTAL_FREQUENCY_HZ populated where possible.
+        Dataframe with INSTRUMENTAL_FREQUENCY_HZ populated where possible.
     """
-    
     # Check if column exists and is empty/missing
     if 'INSTRUMENTAL_FREQUENCY_HZ' in df.columns:
         # Replace empty strings with NaN (if not already done)

@@ -25,7 +25,7 @@ to save figures as PDF files. Figures are displayed interactively and then
 closed to prevent memory accumulation.
 
 Usage:
-    from src.plots_metadata import plot_column_types_pie, plot_station_map
+    from src.visualization.plots_metadata import plot_column_types_pie, plot_station_map
     
     # Example: visualize column types
     plot_column_types_pie(df_meta_clean, output_dir='../figures/01_metadata')
@@ -35,7 +35,8 @@ Usage:
                      output_path='../figures/01_metadata/station_map.pdf')
 """
 
-import os
+from pathlib import Path
+from typing import Optional, List, Union
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -44,13 +45,50 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from adjustText import adjust_text
 from src.visualization.plot_settings import set_plot_style
+
 colors, colors1 = set_plot_style()
+
+# Default peak column for backward compatibility
+DEFAULT_PEAK_COLUMN = 'PGA_CM/S^2'
+
+
+# ===============================================================================================
+# ======================================= Helper functions ======================================
+# ===============================================================================================
+
+def _get_peak_labels(peak_column: str) -> tuple[str, str]:
+    """
+    Get full label and short label for peak ground motion column.
+    
+    Parameters
+    ----------
+    peak_column : str
+        Column name (e.g., 'PGA_CM/S^2', 'PGV_CM/S', 'PGD_CM')
+    
+    Returns
+    -------
+    tuple[str, str]
+        (full_label, short_label) e.g., ('PGA (cm/s²)', 'PGA')
+    """
+    if 'PGA' in peak_column:
+        return 'PGA (cm/s²)', 'PGA'
+    elif 'PGV' in peak_column:
+        return 'PGV (cm/s)', 'PGV'
+    elif 'PGD' in peak_column:
+        return 'PGD (cm)', 'PGD'
+    else:
+        return peak_column, peak_column.split('_')[0]
+
 
 # ===============================================================================================
 # ============================= Metadata — column types pie chart ================================
 # ===============================================================================================
  
-def plot_column_types_pie(df, output_dir=None, filename='column_types_distribution.pdf'):
+def plot_column_types_pie(
+    df: pd.DataFrame, 
+    output_dir: Optional[Union[str, Path]] = None, 
+    filename: str = 'column_types_distribution.pdf'
+) -> None:
     """
     Pie chart of column types distribution after preprocessing.
     
@@ -58,10 +96,10 @@ def plot_column_types_pie(df, output_dir=None, filename='column_types_distributi
     ----------
     df : pd.DataFrame
         Preprocessed metadata dataframe.
-    output_dir : str or Path or None
+    output_dir : str or Path, optional
         Directory to save the figure. If None, the figure is not saved.
-    filename : str
-        Name of the output file (default: 'column_types_distribution.pdf').
+    filename : str, default='column_types_distribution.pdf'
+        Name of the output file.
     """
     type_counts = df.dtypes.astype(str).value_counts()
     
@@ -83,10 +121,11 @@ def plot_column_types_pie(df, output_dir=None, filename='column_types_distributi
     plt.tight_layout()
     
     if output_dir is not None:
-        os.makedirs(output_dir, exist_ok=True)
-        path = os.path.join(output_dir, filename)
-        plt.savefig(path, bbox_inches='tight')
-        print(f"Saved: {path}")
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        save_path = output_path / filename
+        plt.savefig(save_path, bbox_inches='tight')
+        print(f"Saved: {save_path}")
     
     plt.show()
     plt.close()
@@ -96,18 +135,25 @@ def plot_column_types_pie(df, output_dir=None, filename='column_types_distributi
 # ========================= Metadata — numerical distributions ==================================
 # ===============================================================================================
  
-def plot_numerical_distributions(df, num_cols, output_dir=None, filename='numerical_distributions.pdf'):
+def plot_numerical_distributions(
+    df: pd.DataFrame, 
+    num_cols: List[str], 
+    output_dir: Optional[Union[str, Path]] = None, 
+    filename: str = 'numerical_distributions.pdf'
+) -> None:
     """
     Grid of histograms for the specified numerical columns.
     
     Parameters
     ----------
     df : pd.DataFrame
+        Preprocessed metadata dataframe.
     num_cols : list of str
         Numerical column names to plot.
-    output_dir : str or Path or None
-    filename : str
-        Name of the output file (default: 'numerical_distributions.pdf').
+    output_dir : str or Path, optional
+        Directory to save the figure.
+    filename : str, default='numerical_distributions.pdf'
+        Name of the output file.
     """
     ncols = 3
     nrows = int(np.ceil(len(num_cols) / ncols))
@@ -128,10 +174,11 @@ def plot_numerical_distributions(df, num_cols, output_dir=None, filename='numeri
     plt.tight_layout()
     
     if output_dir is not None:
-        os.makedirs(output_dir, exist_ok=True)
-        path = os.path.join(output_dir, filename)
-        plt.savefig(path, bbox_inches='tight')
-        print(f"Saved: {path}")
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        save_path = output_path / filename
+        plt.savefig(save_path, bbox_inches='tight')
+        print(f"Saved: {save_path}")
     
     plt.show()
     plt.close()
@@ -141,7 +188,12 @@ def plot_numerical_distributions(df, num_cols, output_dir=None, filename='numeri
 # ========================= Metadata — categorical distributions ================================
 # ===============================================================================================
  
-def plot_categorical_distributions(df, cat_cols, output_dir=None, prefix=''):
+def plot_categorical_distributions(
+    df: pd.DataFrame, 
+    cat_cols: List[str], 
+    output_dir: Optional[Union[str, Path]] = None, 
+    prefix: str = ''
+) -> None:
     """
     Bar charts for categorical columns. Columns with few short categories
     are plotted vertically (saved as *_few.pdf); columns with many or long
@@ -150,16 +202,22 @@ def plot_categorical_distributions(df, cat_cols, output_dir=None, prefix=''):
     Parameters
     ----------
     df : pd.DataFrame
+        Preprocessed metadata dataframe.
     cat_cols : list of str
-    output_dir : str or Path or None
+        Categorical column names to plot.
+    output_dir : str or Path, optional
+        Directory to save figures.
+    prefix : str, default=''
+        Prefix for output filenames (e.g., 'acc', 'vel', 'dis').
     """
     few_cats  = [c for c in cat_cols
                  if df[c].nunique() <= 8 and df[c].str.len().max() <= 10]
     many_cats = [c for c in cat_cols
                  if df[c].nunique() > 8  or  df[c].str.len().max() > 10]
  
-    if output_dir is not None:
-        os.makedirs(output_dir, exist_ok=True)
+    output_path = Path(output_dir) if output_dir is not None else None
+    if output_path is not None:
+        output_path.mkdir(parents=True, exist_ok=True)
  
     # --- few categories: vertical bars ---
     if few_cats:
@@ -178,11 +236,11 @@ def plot_categorical_distributions(df, cat_cols, output_dir=None, prefix=''):
                 axes[i].tick_params(axis='x', rotation=30)
         plt.suptitle('Categorical columns distributions', y=1.01)
         plt.tight_layout()
-        if output_dir is not None:
-            path = os.path.join(output_dir,
-                                f'categorical_distributions_few_{prefix}.pdf' if prefix else 'categorical_distributions_few.pdf')
-            plt.savefig(path, bbox_inches='tight')
-            print(f"Saved: {path}")
+        if output_path is not None:
+            filename = f'categorical_distributions_few_{prefix}.pdf' if prefix else 'categorical_distributions_few.pdf'
+            save_path = output_path / filename
+            plt.savefig(save_path, bbox_inches='tight')
+            print(f"Saved: {save_path}")
         plt.show()
         plt.close()
  
@@ -201,10 +259,11 @@ def plot_categorical_distributions(df, cat_cols, output_dir=None, prefix=''):
             axes[i].invert_yaxis()
         plt.suptitle('Categorical columns distributions', y=1.01)
         plt.tight_layout()
-        if output_dir is not None:
-            path = os.path.join(output_dir,
-                                f'categorical_distributions_many_{prefix}.pdf' if prefix else 'categorical_distributions_many.pdf')
-            print(f"Saved: {path}")
+        if output_path is not None:
+            filename = f'categorical_distributions_many_{prefix}.pdf' if prefix else 'categorical_distributions_many.pdf'
+            save_path = output_path / filename
+            plt.savefig(save_path, bbox_inches='tight')
+            print(f"Saved: {save_path}")
         plt.show()
         plt.close()
  
@@ -213,7 +272,11 @@ def plot_categorical_distributions(df, cat_cols, output_dir=None, prefix=''):
 # ============================== Metadata — correlation matrix ==================================
 # ===============================================================================================
  
-def plot_correlation_matrix(corr, title, output_path=None):
+def plot_correlation_matrix(
+    corr: pd.DataFrame, 
+    title: str, 
+    output_path: Optional[Union[str, Path]] = None
+) -> None:
     """
     Heatmap of a correlation (or correlation difference) matrix.
     Reused for: global matrix, per-component matrices, per-group matrices,
@@ -225,7 +288,7 @@ def plot_correlation_matrix(corr, title, output_path=None):
         Square matrix of correlation coefficients.
     title : str
         Plot title.
-    output_path : str or Path or None
+    output_path : str or Path, optional
         Full file path (including filename) to save the figure.
     """
     fig, ax = plt.subplots(figsize=(12, 10))
@@ -249,18 +312,25 @@ def plot_correlation_matrix(corr, title, output_path=None):
     plt.tight_layout()
  
     if output_path is not None:
-        os.makedirs(os.path.dirname(str(output_path)), exist_ok=True)
-        plt.savefig(output_path, bbox_inches='tight')
-        print(f"Saved: {output_path}")
+        save_path = Path(output_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, bbox_inches='tight')
+        print(f"Saved: {save_path}")
  
     plt.show()
     plt.close()
+ 
  
 # ===============================================================================================
 # ====================== Metadata — significant correlation differences =========================
 # ===============================================================================================
  
-def plot_significant_corr_diff(diff, significant_mask, title, output_path=None):
+def plot_significant_corr_diff(
+    diff: pd.DataFrame, 
+    significant_mask: pd.DataFrame, 
+    title: str, 
+    output_path: Optional[Union[str, Path]] = None
+) -> None:
     """
     Heatmap showing only statistically significant correlation differences
     (non-significant cells are masked).
@@ -269,10 +339,12 @@ def plot_significant_corr_diff(diff, significant_mask, title, output_path=None):
     ----------
     diff : pd.DataFrame
         Matrix of correlation differences (g1 - g2).
-    significant_mask : pd.DataFrame of bool
+    significant_mask : pd.DataFrame
         Boolean mask — True where the difference is significant (p < alpha).
     title : str
-    output_path : str or Path or None
+        Plot title.
+    output_path : str or Path, optional
+        Full file path to save the figure.
     """
     fig, ax = plt.subplots(figsize=(12, 10))
     sns.heatmap(
@@ -298,9 +370,10 @@ def plot_significant_corr_diff(diff, significant_mask, title, output_path=None):
     plt.tight_layout()
  
     if output_path is not None:
-        os.makedirs(os.path.dirname(str(output_path)), exist_ok=True)
-        plt.savefig(output_path, bbox_inches='tight')
-        print(f"Saved: {output_path}")
+        save_path = Path(output_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, bbox_inches='tight')
+        print(f"Saved: {save_path}")
  
     plt.show()
     plt.close()
@@ -310,19 +383,13 @@ def plot_significant_corr_diff(diff, significant_mask, title, output_path=None):
 # ================================= Metadata — station map ======================================
 # ===============================================================================================
 
-def _get_unit(peak_column):
-    """Get unit string from peak column name."""
-    if 'PGA' in peak_column:
-        return 'cm/s²'
-    elif 'PGV' in peak_column:
-        return 'cm/s'
-    elif 'PGD' in peak_column:
-        return 'cm'
-    else:
-        return ''
-
-
-def plot_station_map(df, event_lat, event_lon, output_path=None, peak_column='PGA_CM/S^2'):
+def plot_station_map(
+    df: pd.DataFrame, 
+    event_lat: float, 
+    event_lon: float, 
+    output_path: Optional[Union[str, Path]] = None, 
+    peak_column: str = DEFAULT_PEAK_COLUMN
+) -> None:
     """
     Map of seismic stations colored by peak ground motion, with epicenter and station labels.
     Uses Cartopy for vector-based high-quality output.
@@ -333,10 +400,13 @@ def plot_station_map(df, event_lat, event_lon, output_path=None, peak_column='PG
         Must contain STATION_LONGITUDE_DEGREE, STATION_LATITUDE_DEGREE,
         peak_column, STATION_CODE.
     event_lat : float
+        Epicenter latitude in degrees.
     event_lon : float
-    output_path : str or Path or None
-    peak_column : str
-        Column name for peak ground motion (default: 'PGA_CM/S^2').
+        Epicenter longitude in degrees.
+    output_path : str or Path, optional
+        Full file path to save the figure.
+    peak_column : str, default='PGA_CM/S^2'
+        Column name for peak ground motion.
         Use 'PGV_CM/S' for velocity, 'PGD_CM' for displacement.
     """
     # Check if peak column exists
@@ -415,20 +485,10 @@ def plot_station_map(df, event_lat, event_lon, output_path=None, peak_column='PG
         transform=ccrs.PlateCarree()
     )
     
-    # Colorbar
+    # Colorbar with appropriate label
+    peak_label, _ = _get_peak_labels(peak_column)
     cbar = plt.colorbar(scatter, ax=ax, orientation='vertical', pad=0.05, fraction=0.046, shrink=0.8)
-    
-    # Determine label based on column
-    if 'PGA' in peak_column:
-        unit_label = 'PGA (cm/s²)'
-    elif 'PGV' in peak_column:
-        unit_label = 'PGV (cm/s)'
-    elif 'PGD' in peak_column:
-        unit_label = 'PGD (cm)'
-    else:
-        unit_label = peak_column
-    
-    cbar.set_label(unit_label, fontsize=11)
+    cbar.set_label(peak_label, fontsize=11)
     
     ax.set_xlabel('Longitude', fontsize=11)
     ax.set_ylabel('Latitude', fontsize=11)
@@ -438,9 +498,10 @@ def plot_station_map(df, event_lat, event_lon, output_path=None, peak_column='PG
     plt.tight_layout()
     
     if output_path is not None:
-        os.makedirs(os.path.dirname(str(output_path)), exist_ok=True)
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {output_path}")
+        save_path = Path(output_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Saved: {save_path}")
     
     plt.show()
     plt.close()
@@ -450,7 +511,14 @@ def plot_station_map(df, event_lat, event_lon, output_path=None, peak_column='PG
 # ============================= Metadata — PGA and duration analysis =============================
 # ===============================================================================================
  
-def plot_pga_and_duration_by_component(df, components, comp_colors, output_dir=None, prefix='', peak_column='PGA_CM/S^2'):
+def plot_pga_and_duration_by_component(
+    df: pd.DataFrame, 
+    components: List[str], 
+    comp_colors: List, 
+    output_dir: Optional[Union[str, Path]] = None, 
+    prefix: str = '', 
+    peak_column: str = DEFAULT_PEAK_COLUMN
+) -> None:
     """
     Three plots: peak ground motion by component (boxplot), peak vs epicentral distance
     by component (scatter), and signal duration by component (boxplot).
@@ -460,32 +528,21 @@ def plot_pga_and_duration_by_component(df, components, comp_colors, output_dir=N
     df : pd.DataFrame
         Must contain COMPONENT, peak_column, EPICENTRAL_DISTANCE_KM, DURATION_S.
     components : list of str
-        e.g. ['E', 'N', 'Z']
+        Component names, e.g. ['E', 'N', 'Z'].
     comp_colors : list
         One color per component.
-    output_dir : str or Path or None
-    prefix : str
+    output_dir : str or Path, optional
+        Directory to save figures.
+    prefix : str, default=''
         Prefix for output filenames (e.g., 'acc', 'vel', 'dis').
-    peak_column : str
-        Column name for peak ground motion (default: 'PGA_CM/S^2').
-        Use 'PGV_CM/S' for velocity, 'PGD_CM' for displacement.
+    peak_column : str, default='PGA_CM/S^2'
+        Column name for peak ground motion.
     """
-    # Determine unit labels based on peak column
-    if 'PGA' in peak_column:
-        peak_label = 'PGA (cm/s²)'
-        peak_short = 'PGA'
-    elif 'PGV' in peak_column:
-        peak_label = 'PGV (cm/s)'
-        peak_short = 'PGV'
-    elif 'PGD' in peak_column:
-        peak_label = 'PGD (cm)'
-        peak_short = 'PGD'
-    else:
-        peak_label = peak_column
-        peak_short = peak_column.split('_')[0]
+    peak_label, peak_short = _get_peak_labels(peak_column)
     
-    if output_dir is not None:
-        os.makedirs(output_dir, exist_ok=True)
+    output_path = Path(output_dir) if output_dir is not None else None
+    if output_path is not None:
+        output_path.mkdir(parents=True, exist_ok=True)
     
     boxplot_kwargs = dict(
         patch_artist=True, widths=0.5,
@@ -508,11 +565,11 @@ def plot_pga_and_duration_by_component(df, components, comp_colors, output_dir=N
     ax.set_ylabel(peak_label)
     ax.set_title(f'{peak_short} by component')
     plt.tight_layout()
-    if output_dir is not None:
+    if output_path is not None:
         filename = f'pga_by_component_{prefix}.pdf' if prefix else 'pga_by_component.pdf'
-        path = os.path.join(output_dir, filename)
-        plt.savefig(path, bbox_inches='tight')
-        print(f"Saved: {path}")
+        save_path = output_path / filename
+        plt.savefig(save_path, bbox_inches='tight')
+        print(f"Saved: {save_path}")
     plt.show()
     plt.close()
     
@@ -528,11 +585,11 @@ def plot_pga_and_duration_by_component(df, components, comp_colors, output_dir=N
     ax.set_title(f'{peak_short} vs epicentral distance by component')
     ax.legend(title='Component')
     plt.tight_layout()
-    if output_dir is not None:
+    if output_path is not None:
         filename = f'pga_vs_distance_by_component_{prefix}.pdf' if prefix else 'pga_vs_distance_by_component.pdf'
-        path = os.path.join(output_dir, filename)
-        plt.savefig(path, bbox_inches='tight')
-        print(f"Saved: {path}")
+        save_path = output_path / filename
+        plt.savefig(save_path, bbox_inches='tight')
+        print(f"Saved: {save_path}")
     plt.show()
     plt.close()
     
@@ -548,19 +605,27 @@ def plot_pga_and_duration_by_component(df, components, comp_colors, output_dir=N
     ax.set_ylabel('Duration (s)')
     ax.set_title('Signal duration by component')
     plt.tight_layout()
-    if output_dir is not None:
+    if output_path is not None:
         filename = f'duration_by_component_{prefix}.pdf' if prefix else 'duration_by_component.pdf'
-        path = os.path.join(output_dir, filename)
-        plt.savefig(path, bbox_inches='tight')
-        print(f"Saved: {path}")
+        save_path = output_path / filename
+        plt.savefig(save_path, bbox_inches='tight')
+        print(f"Saved: {save_path}")
     plt.show()
     plt.close()
+ 
  
 # ===============================================================================================
 # ========================= Metadata — PGA correlation by distance group ========================
 # ===============================================================================================
  
-def plot_pga_correlation_by_group(df_pga_corr, groups, group_colors, output_dir=None, prefix='', peak_column='PGA_CM/S^2'):
+def plot_pga_correlation_by_group(
+    df_pga_corr: pd.DataFrame, 
+    groups: List[str], 
+    group_colors: List, 
+    output_dir: Optional[Union[str, Path]] = None, 
+    prefix: str = '', 
+    peak_column: str = DEFAULT_PEAK_COLUMN
+) -> None:
     """
     Grouped bar chart of peak ground motion correlation with all numerical variables,
     one bar group per distance group.
@@ -573,22 +638,17 @@ def plot_pga_correlation_by_group(df_pga_corr, groups, group_colors, output_dir=
         Typically built as:
             pd.DataFrame({g: corr_by_group[g] for g in groups})
     groups : list of str
+        Distance group names (e.g., ['Near', 'Mid', 'Far']).
     group_colors : list
-    output_dir : str or Path or None
-    prefix : str
+        One color per group.
+    output_dir : str or Path, optional
+        Directory to save the figure.
+    prefix : str, default=''
         Prefix for output filename (e.g., 'acc', 'vel', 'dis').
-    peak_column : str
-        Column name for peak ground motion (default: 'PGA_CM/S^2').
+    peak_column : str, default='PGA_CM/S^2'
+        Column name for peak ground motion.
     """
-    # Determine peak label
-    if 'PGA' in peak_column:
-        peak_short = 'PGA'
-    elif 'PGV' in peak_column:
-        peak_short = 'PGV'
-    elif 'PGD' in peak_column:
-        peak_short = 'PGD'
-    else:
-        peak_short = peak_column.split('_')[0]
+    _, peak_short = _get_peak_labels(peak_column)
     
     fig, ax = plt.subplots(figsize=(12, 5))
     x = range(len(df_pga_corr))
@@ -615,11 +675,12 @@ def plot_pga_correlation_by_group(df_pga_corr, groups, group_colors, output_dir=
     plt.tight_layout()
     
     if output_dir is not None:
-        os.makedirs(output_dir, exist_ok=True)
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
         filename = f'pga_correlation_by_distance_{prefix}.pdf' if prefix else 'pga_correlation_by_distance.pdf'
-        path = os.path.join(output_dir, filename)
-        plt.savefig(path, bbox_inches='tight')
-        print(f"Saved: {path}")
+        save_path = output_path / filename
+        plt.savefig(save_path, bbox_inches='tight')
+        print(f"Saved: {save_path}")
     
     plt.show()
     plt.close()
