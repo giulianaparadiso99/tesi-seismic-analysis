@@ -15,9 +15,10 @@ Geophysical Research Abstracts, 15, EGU2013-2658.
 """
 
 import sys
-from pathlib import Path
 import numpy as np
 import pandas as pd
+from pathlib import Path
+from typing import List, Tuple, Dict, Any, Optional
 
 # Add crust1 directory to path
 _current_file = Path(__file__).resolve()
@@ -52,7 +53,11 @@ except ImportError as e:
 # LEVEL 1: ATOMIC FUNCTIONS
 # ============================================================================
 
-def extract_crustal_velocities(crust_profile, hypo_depth_km, weighted=True):
+def extract_crustal_velocities(
+    crust_profile: Dict[str, List[float]], 
+    hypo_depth_km: float, 
+    weighted: bool = True
+) -> Tuple[float, float, List[str]]:
     """
     Extract average crustal velocities from CRUST1.0 profile.
     Automatically selects layers based on hypocenter depth to compute
@@ -205,10 +210,12 @@ def extract_crustal_velocities(crust_profile, hypo_depth_km, weighted=True):
     return vp, vs, traversed_layers
 
 
-def add_crustal_velocities(df_stations, 
-                          hypo_depth_km,
-                          lat_col='STATION_LATITUDE_DEGREE',
-                          lon_col='STATION_LONGITUDE_DEGREE'):
+def add_crustal_velocities(
+    df_stations: pd.DataFrame, 
+    hypo_depth_km: float,
+    lat_col: str = 'STATION_LATITUDE_DEGREE',
+    lon_col: str = 'STATION_LONGITUDE_DEGREE'
+) -> pd.DataFrame:
     """
     Add crustal velocity columns to station DataFrame.
     Queries CRUST1.0 for each station and adds:
@@ -290,8 +297,11 @@ def add_crustal_velocities(df_stations,
     
     return df_result
 
-def add_hypocentral_distance(df_stations, hypo_depth_km, 
-                            distance_col='EPICENTRAL_DISTANCE_KM'):
+def add_hypocentral_distance(
+    df_stations: pd.DataFrame, 
+    hypo_depth_km: float, 
+    distance_col: str = 'EPICENTRAL_DISTANCE_KM'
+) -> pd.DataFrame:
     """
     Add hypocentral distance column to station metadata.
     
@@ -358,10 +368,12 @@ def add_hypocentral_distance(df_stations, hypo_depth_km,
     
     return df_result
 
-def add_theoretical_arrivals(df_stations, 
-                            hypo_depth_km, 
-                            sampling_rate=200,
-                            distance_col='EPICENTRAL_DISTANCE_KM'):
+def add_theoretical_arrivals(
+    df_stations: pd.DataFrame, 
+    hypo_depth_km: float, 
+    sampling_rate: float = 200,
+    distance_col: str = 'EPICENTRAL_DISTANCE_KM'
+) -> pd.DataFrame:
     """
     Add theoretical P and S arrival time columns.
     
@@ -434,11 +446,13 @@ def add_theoretical_arrivals(df_stations,
     
     return df_result
 
-def calculate_search_windows(df_stations, 
-                            p_window_before=5.0, 
-                            p_window_after=5.0,
-                            s_window_before=7.0, 
-                            s_window_after=7.0):
+def calculate_search_windows(
+    df_stations: pd.DataFrame, 
+    p_window_before: float = 5.0, 
+    p_window_after: float = 5.0,
+    s_window_before: float = 7.0, 
+    s_window_after: float = 7.0
+) -> pd.DataFrame:
     """
     Calculate fixed-width search windows for P and S onset detection.
     
@@ -562,10 +576,12 @@ def calculate_search_windows(df_stations,
     
     return df_result
 
-def calculate_distance_thresholds(df_stations, 
-                                  distance_col='hypocentral_distance_km',
-                                  method='tertiles',
-                                  custom_quantiles=None):
+def calculate_distance_thresholds(
+    df_stations: pd.DataFrame, 
+    distance_col: str = 'hypocentral_distance_km',
+    method: str = 'tertiles',
+    custom_quantiles: Optional[List[float]] = None
+) -> List[float]:
     """
     Calculate distance thresholds for adaptive window sizing.
     
@@ -696,13 +712,15 @@ def calculate_distance_thresholds(df_stations,
     return thresholds
 
 
-def calculate_adaptive_windows(df_stations,
-                               distance_thresholds,
-                               sampling_rate=200,
-                               distance_col='hypocentral_distance_km',
-                               unit='samples',
-                               window_widths=None,
-                               gap=0.5):
+def calculate_adaptive_windows(
+    df_stations: pd.DataFrame,
+    distance_thresholds: List[float],
+    sampling_rate: float = 200,
+    distance_col: str = 'hypocentral_distance_km',
+    unit: str = 'samples',
+    window_widths: Optional[List[Tuple[float, float]]] = None,
+    gap: float = 0.5
+) -> pd.DataFrame:
     """
     Calculate adaptive search windows that scale with distance.
     
