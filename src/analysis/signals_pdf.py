@@ -61,7 +61,9 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from pathlib import Path
 from scipy import stats
+from typing import Optional, Union
 from src.visualization.plot_settings import set_plot_style
 colors = set_plot_style()
 
@@ -69,31 +71,99 @@ colors = set_plot_style()
 # ==================================== Gaussian fit analysis ====================================
 # ===============================================================================================
 
-def gaussian_fit_analysis(df_clean, signal_column='acceleration', signal_unit='cm/s²',
-                          bins=100, log_scale=False, normalized=True,
-                          output_dir='../figures/03_single_signal/03a_pdf_analysis/gaussian_fit',
-                          prefix=''):
+def gaussian_fit_analysis(
+    df_clean: pd.DataFrame, 
+    signal_column: str = 'acceleration', 
+    signal_unit: str = 'cm/s²',
+    bins: int = 100, 
+    log_scale: bool = False, 
+    normalized: bool = True,
+    output_dir: Union[str, Path] = '../figures/03_single_signal/03a_pdf_analysis/gaussian_fit',
+    prefix: str = ''
+) -> pd.DataFrame:
     """
-    Gaussian fit analysis for signal distributions.
-    
+    Test signal increments for Gaussian (normal) distribution.
+
+    Performs comprehensive Gaussianity assessment including Anderson-Darling
+    test, kurtosis/skewness computation, visual comparison with fitted Gaussian,
+    and Q-Q plots. Generates individual PDF plots per signal and summary
+    statistics across all signals.
+
     Parameters
     ----------
     df_clean : pd.DataFrame
-        Preprocessed signal data
-    signal_column : str
-        Name of the signal column
-    signal_unit : str
-        Unit label
-    bins : int
-        Number of histogram bins
-    log_scale : bool
-        Use log scale on y-axis
-    normalized : bool
-        Use normalized column
-    output_dir : str or Path
-        Output directory
-    prefix : str
-        Filename prefix
+        Preprocessed signal data with columns:
+        - 'file': signal identifier
+        - signal_column or f'{signal_column}_normalized'
+    signal_column : str, optional
+        Name of the signal column (default: 'acceleration')
+        Options: 'acceleration', 'velocity', 'displacement'
+    signal_unit : str, optional
+        Physical unit for axis labels (default: 'cm/s²')
+        Use 'cm/s' for velocity, 'cm' for displacement
+    bins : int, optional
+        Number of histogram bins (default: 100)
+    log_scale : bool, optional
+        Use logarithmic y-axis for PDF plot (default: False)
+        Useful for visualizing distribution tails
+    normalized : bool, optional
+        Use normalized (standardized) signal column (default: True)
+        If True, uses f'{signal_column}_normalized'
+    output_dir : str or Path, optional
+        Output directory for PDF files (default: '../figures/.../gaussian_fit')
+        Directory created automatically if needed
+    prefix : str, optional
+        Filename prefix for output files (default: '')
+        Example: 'acc' → 'acc_gaussian_fit_STATION_STREAM.pdf'
+
+    Returns
+    -------
+    pd.DataFrame
+        Summary statistics with columns:
+        - file, station, stream: identifiers
+        - mu, std: Gaussian fit parameters
+        - kurtosis: excess kurtosis (Fisher definition, 0 for Gaussian)
+        - skewness: distribution asymmetry (0 for Gaussian)
+        - ad_statistic: Anderson-Darling test statistic
+        - ad_critical_5pct: critical value at α=0.05
+        - non_gaussian: bool, True if null hypothesis rejected
+
+    Notes
+    -----
+    Anderson-Darling test:
+    - Null hypothesis: data follows Gaussian distribution
+    - Rejection (non_gaussian=True) indicates significant deviation
+    - More sensitive to tails than Kolmogorov-Smirnov test
+
+    Interpretation guide:
+    - Kurtosis = 0: Gaussian (mesokurtic)
+    - Kurtosis > 0: heavy tails (leptokurtic)
+    - Kurtosis < 0: light tails (platykurtic)
+    - Skewness = 0: symmetric
+    - Skewness ≠ 0: asymmetric distribution
+
+    Output files:
+    - Individual plots: {output_dir}/{prefix}_gaussian_fit_{station}_{stream}.pdf
+    - Summary plot: {output_dir}/{prefix}_gaussian_fit_summary.pdf
+
+    Examples
+    --------
+    >>> df_results = gaussian_fit_analysis(
+    ...     df_signals_clean,
+    ...     signal_column='acceleration',
+    ...     signal_unit='cm/s²',
+    ...     normalized=True,
+    ...     output_dir='../figures/pdf_analysis/gaussian',
+    ...     prefix='acc'
+    ... )
+    >>> 
+    >>> # Check Gaussianity
+    >>> n_non_gaussian = df_results['non_gaussian'].sum()
+    >>> print(f"{n_non_gaussian}/{len(df_results)} signals reject Gaussian hypothesis")
+    >>> 
+    >>> # Identify heavy-tailed signals
+    >>> heavy_tails = df_results[df_results['kurtosis'] > 3]
+    >>> print(heavy_tails[['station', 'stream', 'kurtosis']])
     """
     
     os.makedirs(output_dir, exist_ok=True)
@@ -264,29 +334,109 @@ def gaussian_fit_analysis(df_clean, signal_column='acceleration', signal_unit='c
 # ==================================== Heavy-tail assessment ====================================
 # ===============================================================================================
 
-def heavy_tail_assessment(df_clean, signal_column='acceleration', signal_unit='cm/s²',
-                         normalized=True, 
-                         output_dir='../figures/03_single_signal/03a_pdf_analysis/heavy_tail',
-                         prefix='', resume=False):
+def heavy_tail_assessment(
+    df_clean: pd.DataFrame, 
+    signal_column: str = 'acceleration', 
+    signal_unit: str = 'cm/s²',
+    normalized: bool = True, 
+    output_dir: Union[str, Path] = '../figures/03_single_signal/03a_pdf_analysis/heavy_tail',
+    prefix: str = '', 
+    resume: bool = False
+) -> pd.DataFrame:
     """
-    Heavy-tail assessment for signal distributions.
-    
+    Assess heavy-tailed behavior and power-law characteristics.
+
+    Compares signal distributions against Gaussian, Laplace, Student-t, and
+    Lévy stable distributions using likelihood-based model selection (AIC/BIC).
+    Estimates power-law tail exponents and generates diagnostic plots.
+
     Parameters
     ----------
     df_clean : pd.DataFrame
-        Preprocessed signal data
-    signal_column : str
-        Name of the signal column
-    signal_unit : str
-        Unit label
-    normalized : bool
-        Use normalized column
-    output_dir : str or Path
-        Output directory
-    prefix : str
-        Filename prefix
-    resume : bool
-        If True, resume from partial results if available
+        Preprocessed signal data with columns:
+        - 'file': signal identifier
+        - signal_column or f'{signal_column}_normalized'
+    signal_column : str, optional
+        Name of the signal column (default: 'acceleration')
+    signal_unit : str, optional
+        Physical unit for axis labels (default: 'cm/s²')
+    normalized : bool, optional
+        Use normalized signal column (default: True)
+    output_dir : str or Path, optional
+        Output directory for PDF files (default: '../figures/.../heavy_tail')
+    prefix : str, optional
+        Filename prefix for output files (default: '')
+    resume : bool, optional
+        Resume from partial results if available (default: False)
+        Useful for long computations that may be interrupted
+        Loads '*_heavy_tail_results_partial.parquet' if found
+
+    Returns
+    -------
+    pd.DataFrame
+        Tail characterization with columns:
+        - file, station, stream: identifiers
+        - aic_gaussian, aic_laplace, aic_student_t, aic_levy_stable: AIC values
+        - bic_*: BIC values for model comparison
+        - best_fit_aic: best model by Akaike Information Criterion
+        - student_t_df: degrees of freedom (lower → heavier tails)
+        - levy_alpha: stability parameter (α ∈ (0,2], α=2 is Gaussian)
+        - levy_beta: skewness parameter (β ∈ [-1,1])
+        - power_law_exp: Hill estimator for tail exponent
+
+    Notes
+    -----
+    Distribution models:
+    - **Gaussian**: exp(-x²/2σ²) — exponential tails, finite moments
+    - **Laplace**: exp(-|x|/b) — exponential tails, sharper peak than Gaussian
+    - **Student-t**: polynomial tails ~ x^(-ν-1), ν=df
+    - **Lévy stable**: power-law tails ~ x^(-α-1), includes Gaussian (α=2)
+
+    Model selection:
+    - AIC = 2k - 2log(L): penalizes model complexity
+    - BIC = k·log(n) - 2log(L): stronger complexity penalty
+    - Lower AIC/BIC indicates better fit
+
+    Power-law tail exponent (Hill estimator):
+    - Estimated from upper 10% of |signal| distribution
+    - α < 2: infinite variance (heavy tails)
+    - α < 3: infinite third moment
+    - α ≈ 1.5-2: typical for seismic coda and turbulence
+
+    Computational notes:
+    - Lévy stable fit uses MLE on subsample (max 5000 points) for speed
+    - Progress saved incrementally in partial results file
+    - Use resume=True to continue interrupted computations
+
+    Output files:
+    - Individual plots: {output_dir}/{prefix}_heavy_tail_{station}_{stream}.pdf
+    - Summary plot: {output_dir}/{prefix}_heavy_tail_summary.pdf
+    - Partial results: ../data/processed/03a_pdf_analysis/{prefix}_heavy_tail_results_partial.parquet
+
+    Examples
+    --------
+    >>> df_tail = heavy_tail_assessment(
+    ...     df_signals_clean,
+    ...     signal_column='velocity',
+    ...     normalized=True,
+    ...     output_dir='../figures/pdf_analysis/tails',
+    ...     prefix='vel',
+    ...     resume=False
+    ... )
+    >>> 
+    >>> # Check best-fit distributions
+    >>> print(df_tail['best_fit_aic'].value_counts())
+    >>> 
+    >>> # Identify signals with heavy tails (α < 2)
+    >>> heavy = df_tail[df_tail['power_law_exp'] < 2.0]
+    >>> print(heavy[['station', 'stream', 'power_law_exp', 'best_fit_aic']])
+    >>> 
+    >>> # Compare tail heaviness: Student-t vs Lévy
+    >>> import matplotlib.pyplot as plt
+    >>> plt.scatter(df_tail['student_t_df'], df_tail['levy_alpha'])
+    >>> plt.xlabel('Student-t df (lower = heavier)')
+    >>> plt.ylabel('Lévy α (lower = heavier)')
+    >>> plt.show()
     """
     
     os.makedirs(output_dir, exist_ok=True)

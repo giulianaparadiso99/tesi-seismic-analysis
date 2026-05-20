@@ -69,10 +69,10 @@ Usage:
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import warnings
 from scipy import stats
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-import warnings
 
 def prepare_window_data(
     windowed_signals: Dict,
