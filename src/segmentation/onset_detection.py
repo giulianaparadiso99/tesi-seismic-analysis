@@ -1,5 +1,3 @@
-# src/segmentation/onset_detection.py
-
 """
 Onset detection using AR-AIC method.
 
@@ -19,12 +17,18 @@ from obspy.signal.trigger import ar_pick
 from scipy.signal import hilbert
 from scipy.ndimage import uniform_filter1d
 from scipy.stats import pearsonr
+from typing import Dict, Any, Optional, Union
 
-def detect_onsets_arpick(signals_dict, df_meta_stations,
-                         sampling_rate=200,
-                         unit='samples',
-                         p_window_before=5, p_window_after=5,
-                         s_window_before=7, s_window_after=7):
+def detect_onsets_arpick(
+    signals_dict: Dict[str, Dict[str, np.ndarray]], 
+    df_meta_stations: pd.DataFrame,
+    sampling_rate: float = 200,
+    unit: str = 'samples',
+    p_window_before: float = 5, 
+    p_window_after: float = 5,
+    s_window_before: float = 7, 
+    s_window_after: float = 7
+) -> pd.DataFrame:
     """
     Detect P and S onsets using AR-AIC with theoretical search windows.
     
@@ -381,10 +385,17 @@ def detect_onsets_arpick(signals_dict, df_meta_stations,
     
     return df_meta_stations
 
-def detect_coda_start(signal, t_s_detected, t_p_detected=None, origin_time=None,
-                     sampling_rate=200, method='rautian',
-                     unit='samples',
-                     threshold_arias=0.95, threshold_envelope=0.3):
+def detect_coda_start(
+    signal: np.ndarray, 
+    t_s_detected: Union[int, float], 
+    t_p_detected: Optional[Union[int, float]] = None, 
+    origin_time: Optional[Union[int, float]] = None,
+    sampling_rate: float = 200, 
+    method: str = 'rautian',
+    unit: str = 'samples',
+    threshold_arias: float = 0.95, 
+    threshold_envelope: float = 0.3
+) -> Dict[str, Any]:
     """
     Detect coda onset using multiple methods from seismological literature.
     
@@ -756,10 +767,16 @@ def detect_coda_start(signal, t_s_detected, t_p_detected=None, origin_time=None,
     }
 
 
-def detect_coda_start_all_methods(signal, t_s_detected, t_p_detected=None, origin_time=None,
-                                  sampling_rate=200, unit='samples',
-                                  threshold_arias=0.95,
-                                  threshold_envelope=0.3):
+def detect_coda_start_all_methods(
+    signal: np.ndarray, 
+    t_s_detected: Union[int, float], 
+    t_p_detected: Optional[Union[int, float]] = None, 
+    origin_time: Optional[Union[int, float]] = None,
+    sampling_rate: float = 200, 
+    unit: str = 'samples',
+    threshold_arias: float = 0.95,
+    threshold_envelope: float = 0.3
+) -> Dict[str, Dict[str, Any]]:
     """
     Apply all coda detection methods and return results for comparison.
     
@@ -829,11 +846,14 @@ def detect_coda_start_all_methods(signal, t_s_detected, t_p_detected=None, origi
     
     return results
 
-def add_coda_onsets_to_dataframe(df_full, signals_dict,
-                                 threshold_arias=0.95,
-                                 threshold_envelope=0.3,
-                                 sampling_rate=200,
-                                 unit='samples'):
+def add_coda_onsets_to_dataframe(
+    df_full: pd.DataFrame, 
+    signals_dict: Dict[str, Dict[str, np.ndarray]],
+    threshold_arias: float = 0.95,
+    threshold_envelope: float = 0.3,
+    sampling_rate: float = 200,
+    unit: str = 'samples'
+) -> pd.DataFrame:
     """
     Populate coda onset columns in df_full with dual representation.
     
@@ -1081,19 +1101,76 @@ def add_coda_onsets_to_dataframe(df_full, signals_dict,
     
     return df_full
 
-def compute_coda_method_statistics(df_onsets_full, distance_bins=None, unit='seconds'):
+def compute_coda_method_statistics(
+    df_onsets_full: pd.DataFrame, 
+    distance_bins: Optional[List[Tuple[float, float]]] = None, 
+    unit: str = 'seconds'
+) -> Dict[str, Any]:
     """
-    Compute comprehensive statistics for coda onset method comparison.
-    
-    ...
-    
-    Parameters
-    ----------
-    ...
-    unit : {'samples', 'seconds'}, optional
-        Which representation to use for statistics (default: 'seconds')
-        Statistics are always computed in seconds as they represent physical times
-    """
+Compute comprehensive statistics for coda onset method comparison.
+
+Calculates pairwise correlations, Bland-Altman agreement metrics, error
+statistics (RMSE, MAE), and distance-stratified analysis for all three
+coda detection methods (Rautian, Arias, Envelope).
+
+Parameters
+----------
+df_onsets_full : pd.DataFrame
+    Component-level DataFrame with columns:
+    - STATION_CODE, COMPONENT
+    - EPICENTRAL_DISTANCE_KM
+    - t_coda_<method>_samples, t_coda_<method>_seconds (or t_coda_<method>)
+    Methods: rautian, arias, envelope
+distance_bins : list of tuple, optional
+    Distance bins for stratified analysis (default: [(0, 50), (50, 100), (100, 200)])
+    Each tuple: (bin_min_km, bin_max_km)
+unit : {'samples', 'seconds'}, optional
+    Which representation to use for statistics (default: 'seconds')
+    Note: Statistics are always computed in seconds as they represent physical times
+
+Returns
+-------
+dict
+    Dictionary with keys:
+    - 'data': Raw arrays for all methods and metadata
+    - 'pairwise': Pairwise comparison statistics for each method pair
+        - 'diff', 'mean': Arrays of differences and means
+        - 'mean_diff', 'std_diff': Bias and scatter
+        - 'limits_of_agreement': Bland-Altman LoA (lower, upper)
+        - 'correlation', 'p_value': Pearson correlation
+        - 'rmse', 'mae': Error metrics
+        - 'slope', 'intercept': Linear fit parameters
+        - 'n': Sample size
+    - 'by_distance': Stratified statistics per distance bin
+        - For each method pair: list of bin statistics
+    - 'summary': Dataset-level summary (n_components, n_stations, distance_range)
+
+Notes
+-----
+Method pairs analyzed:
+- Rautian vs Arias
+- Rautian vs Envelope  
+- Arias vs Envelope
+
+Statistics include:
+- Bland-Altman limits of agreement (±1.96 SD)
+- Pearson correlation coefficients
+- RMSE (Root Mean Square Error)
+- MAE (Mean Absolute Error)
+- Distance-stratified bias and correlation
+
+References
+----------
+Bland, J. M., & Altman, D. G. (1986). "Statistical methods for assessing
+    agreement between two methods of clinical measurement." The Lancet,
+    327(8476), 307-310.
+
+Examples
+--------
+>>> stats = compute_coda_method_statistics(df_onsets_full)
+>>> print(f"Rautian-Arias correlation: {stats['pairwise']['rautian_arias']['correlation']:.3f}")
+>>> print(f"Mean bias: {stats['pairwise']['rautian_arias']['mean_diff']:.2f}s")
+"""
     
     # Default distance bins
     if distance_bins is None:
