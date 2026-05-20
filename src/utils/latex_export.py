@@ -2,15 +2,24 @@
 latex_export.py
 ---------------
 Utility functions for exporting analysis results to LaTeX format.
-Each function takes a pandas DataFrame and returns a string containing
-the LaTeX row data for a longtable environment.
+Each function takes a pandas DataFrame and returns a LaTeX table string,
+optionally saving it to a file.
 
-Usage in notebook:
-    from src.latex_export import heavy_tail_to_latex
-    latex_rows = heavy_tail_to_latex(df_heavy_tail_results)
+Functions are organized by analysis stage:
+    - Metadata tables: metadata_table_to_latex, constant_fields_to_latex
+    - Preprocessing checks: preprocess_checks_to_latex
+    - Correlation analysis: corr_diff_to_latex
+    - Phase detection: onset_detection_to_latex, coda_onset_comparison_to_latex
+    - Heavy-tail analysis: heavy_tail_to_latex
+
+Usage:
+    from src.utils.latex_export import metadata_table_to_latex
+    latex_str = metadata_table_to_latex(df_meta, output_path='tables/metadata.tex')
 """
 
 from pathlib import Path
+from typing import Optional, List, Tuple, Union
+import pandas as pd
 
 # ===============================================================================================
 # ======================================= Helpers ===============================================
@@ -25,10 +34,12 @@ def _format_aic(val):
     Parameters
     ----------
     val : float
+        AIC value to format.
 
     Returns
     -------
     str
+        LaTeX-formatted AIC string.
     """
     if val < 0:
         return f"$-${abs(val):,.2f}"
@@ -44,11 +55,12 @@ def _best_fit_label(label):
     Parameters
     ----------
     label : str
-        One of 'Levy-stable', 'Student-t', 'Gaussian', 'Laplace'
+        One of 'Levy-stable', 'Student-t', 'Gaussian', 'Laplace'.
 
     Returns
     -------
     str
+        LaTeX-formatted model name.
     """
     mapping = {
         "Levy-stable": r"L\'evy-stable",
@@ -58,14 +70,46 @@ def _best_fit_label(label):
     }
     return mapping.get(label, label)
 
+def _escape_latex(text: Union[str, int, float]) -> str:
+    """
+    Escape special LaTeX characters in text.
+    
+    Parameters
+    ----------
+    text : str, int, or float
+        Text to escape.
+    
+    Returns
+    -------
+    str
+        Escaped text safe for LaTeX.
+    """
+    if not isinstance(text, str):
+        text = str(text)
+    replacements = {
+        '&': r'\&',
+        '%': r'\%',
+        '$': r'\$',
+        '#': r'\#',
+        '_': r'\_',
+        '{': r'\{',
+        '}': r'\}',
+        '~': r'\textasciitilde{}',
+        '^': r'\textasciicircum{}',
+    }
+    for char, replacement in replacements.items():
+        text = text.replace(char, replacement)
+    return text
+
 # ===============================================================================================
 # ========================== Correlation differences table ======================================
 # ===============================================================================================
 
-def corr_diff_to_latex(df, output_path=None):
+def corr_diff_to_latex(df: pd.DataFrame, 
+                       output_path: Optional[Union[str, Path]] = None) -> str:
     """
     Generate a LaTeX table from the significant correlation differences
-    DataFrame produced by the Fisher z-test analysis in Notebook 1.
+    DataFrame produced by the Fisher z-test analysis.
 
     The output is a self-contained table environment (not a longtable,
     since the number of significant pairs is typically small) ready to
@@ -80,12 +124,13 @@ def corr_diff_to_latex(df, output_path=None):
             'Variable 2' : str   — second metadata variable
             'Corr. diff.': float — difference in correlation coefficients
             'p-value'    : float — p-value from the Fisher z-test
-    output_path : str or None
+    output_path : str or Path, optional
         If provided, the LaTeX string is also saved to this path.
 
     Returns
     -------
-    str : complete LaTeX table environment as a string
+    str
+        Complete LaTeX table environment as a string.
     """
     rows = []
     for _, row in df.iterrows():
@@ -122,23 +167,29 @@ def corr_diff_to_latex(df, output_path=None):
 # ========================== Preprocessing quality checks table =================================
 # ===============================================================================================
 
-def preprocess_checks_to_latex(rows, output_path=None):
+def preprocess_checks_to_latex(rows: List[Tuple[str, str, str, str, str]], 
+                                output_path: Optional[Union[str, Path]] = None,
+                                col1_label: str = 'PDF Analysis',
+                                col2_label: str = 'Moment Scaling') -> str:
     """
-    Generate a LaTeX table from the post-preprocessing quality check results
-    produced in Notebook 2.
+    Generate a LaTeX table from post-preprocessing quality check results.
 
     Parameters
     ----------
-    rows : list of list of str
-        Each inner list contains five string elements corresponding to the
-        table columns: Check, Single, Aggregated, Expected, Pass.
-        Example row: ['Files retained', '66 / 66', '48 / 66', '--', '--']
-    output_path : str or None
-        If provided, the LaTeX string is also saved to this path.
+    rows : list of tuple of str
+        Each tuple contains five elements: (Check, Pipeline1, Pipeline2, Expected, Pass).
+        Example: ('Files retained', '66 / 66', '66 / 66', '—', '—')
+    output_path : str or Path, optional
+        If provided, save LaTeX string to this path.
+    col1_label : str, default='PDF Analysis'
+        Label for the first pipeline column.
+    col2_label : str, default='Moment Scaling'
+        Label for the second pipeline column.
 
     Returns
     -------
-    str : complete LaTeX table environment as a string
+    str
+        Complete LaTeX table environment as a string.
     """
     body = "\n".join(" & ".join(row) + r" \\" for row in rows)
 
@@ -147,20 +198,21 @@ def preprocess_checks_to_latex(rows, output_path=None):
         r"\centering" + "\n"
         r"\begin{tabular}{lllll}" + "\n"
         r"\toprule" + "\n"
-        r"\textbf{Check} & \textbf{Single} & \textbf{Aggregated} & "
+        rf"\textbf{{Check}} & \textbf{{{col1_label}}} & \textbf{{{col2_label}}} & "
         r"\textbf{Expected} & \textbf{Pass} \\" + "\n"
         r"\midrule" + "\n"
         + body + "\n"
         + r"\bottomrule" + "\n"
         r"\end{tabular}" + "\n"
-        r"\caption{Post-preprocessing quality checks for the single signal "
-        r"and aggregated pipelines.}" + "\n"
+        r"\caption{Post-preprocessing quality checks for the two preprocessing pipelines.}" + "\n"
         r"\label{tab:postcheck}" + "\n"
         r"\end{table}"
     )
 
     if output_path is not None:
-        with open(output_path, 'w') as f:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
             f.write(latex_str)
         print(f"Saved to: {output_path}")
 
@@ -170,7 +222,8 @@ def preprocess_checks_to_latex(rows, output_path=None):
 # ========================== Metadata header table ==============================================
 # ===============================================================================================
 
-def metadata_table_to_latex(df_meta, output_path=None):
+def metadata_table_to_latex(df_meta: pd.DataFrame, 
+                           output_path: Optional[Union[str, Path]] = None) -> str:
     """
     Generate a LaTeX longtable describing metadata fields, their meaning,
     and whether they are constant across files.
@@ -179,12 +232,13 @@ def metadata_table_to_latex(df_meta, output_path=None):
     ----------
     df_meta : pd.DataFrame
         Metadata DataFrame (one row per record).
-    output_path : str or None
+    output_path : str or Path, optional
         If provided, the LaTeX string is also saved to this path.
 
     Returns
     -------
-    str : complete LaTeX longtable environment
+    str
+        Complete LaTeX longtable environment.
     """ 
     descriptions = {
         'file': 'File name',
@@ -242,7 +296,6 @@ def metadata_table_to_latex(df_meta, output_path=None):
         'DATABASE_VERSION': 'Database version',
         'HEADER_FORMAT': 'Header format version',
         'DATA_TYPE': 'Data type',
-        'DATA_LICENSE': 'Data license',
         'PROCESSING': 'Processing information',
         'DATA_TIMESTAMP_YYYYMMDD_HHMMSS': 'Data timestamp',
         'DATA_LICENSE': 'Data license',
@@ -311,7 +364,9 @@ def metadata_table_to_latex(df_meta, output_path=None):
     return latex_str
 
 
-def constant_fields_to_latex(df_meta, constant_cols, output_path=None):
+def constant_fields_to_latex(df_meta: pd.DataFrame, 
+                             constant_cols: List[str], 
+                             output_path: Optional[Union[str, Path]] = None) -> str:
     """
     Generate a LaTeX longtable showing constant metadata fields and their values.
     
@@ -329,25 +384,6 @@ def constant_fields_to_latex(df_meta, constant_cols, output_path=None):
     str
         Complete LaTeX longtable environment as a string.
     """
-    
-    def _escape_latex(text):
-        """Escape special LaTeX characters in text."""
-        if not isinstance(text, str):
-            text = str(text)
-        replacements = {
-            '&': r'\&',
-            '%': r'\%',
-            '$': r'\$',
-            '#': r'\#',
-            '_': r'\_',
-            '{': r'\{',
-            '}': r'\}',
-            '~': r'\textasciitilde{}',
-            '^': r'\textasciicircum{}',
-        }
-        for char, replacement in replacements.items():
-            text = text.replace(char, replacement)
-        return text
     
     # Build rows
     rows = []
@@ -415,7 +451,7 @@ def constant_fields_to_latex(df_meta, constant_cols, output_path=None):
 # ========================== Heavy-tail assessment table ========================================
 # ===============================================================================================
 
-def heavy_tail_to_latex(df, output_path=None):
+def heavy_tail_to_latex(df: pd.DataFrame, output_path: Optional[Union[str, Path]] = None) -> str:
     """
     Generate the row data for a LaTeX longtable from the heavy-tail
     assessment results DataFrame.
@@ -436,12 +472,13 @@ def heavy_tail_to_latex(df, output_path=None):
             best_fit_aic    : str  — winning model label
             student_t_df    : float — Student-t degrees of freedom (nu)
             power_law_exp   : float — Hill estimator power-law exponent
-    output_path : str or None
+    output_path : str or Path, optional
         If provided, the LaTeX string is also saved to this path.
 
     Returns
     -------
-    str : LaTeX row data as a single string
+    str
+        LaTeX row data as a single string.
     """
     lines = []
     current_station = None
@@ -475,8 +512,11 @@ def heavy_tail_to_latex(df, output_path=None):
 
     return latex_str
 
-def onset_detection_to_latex(df_onsets_full, coda_method='rautian', 
-                             output_path=None, caption=None, label=None):
+def onset_detection_to_latex(df_onsets_full: pd.DataFrame, 
+                             coda_method: str = 'rautian', 
+                             output_path: Optional[Union[str, Path]] = None, 
+                             caption: Optional[str] = None, 
+                             label: Optional[str] = None) -> str:
     """
     Convert onset detection results to LaTeX table format.
     
@@ -495,20 +535,19 @@ def onset_detection_to_latex(df_onsets_full, coda_method='rautian',
         - t_s_theo, t_s_detected, s_residual
         - t_coda_rautian, t_coda_arias, t_coda_envelope
         - s_duration_rautian, s_duration_arias, s_duration_envelope
-    coda_method : str, optional
-        Which coda method to display: 'rautian', 'arias', or 'envelope'
-        (default: 'rautian')
+    coda_method : str, default='rautian'
+        Which coda method to display: 'rautian', 'arias', or 'envelope'.
     output_path : str or Path, optional
-        If provided, save LaTeX code to this file
+        If provided, save LaTeX code to this file.
     caption : str, optional
-        Table caption (default: auto-generated)
+        Table caption (default: auto-generated).
     label : str, optional
-        LaTeX label for cross-referencing (default: 'tab:onset_detection')
+        LaTeX label for cross-referencing (default: 'tab:onset_detection').
     
     Returns
     -------
-    latex_str : str
-        LaTeX longtable code
+    str
+        LaTeX longtable code.
     
     Examples
     --------
@@ -525,7 +564,6 @@ def onset_detection_to_latex(df_onsets_full, coda_method='rautian',
     ...     output_path='tables/onset_detection_arias.tex'
     ... )
     """
-    
     # Validate coda_method
     valid_methods = ['rautian', 'arias', 'envelope']
     if coda_method not in valid_methods:
@@ -697,7 +735,8 @@ def onset_detection_to_latex(df_onsets_full, coda_method='rautian',
     
     return latex_str
 
-def coda_onset_comparison_to_latex(df_onsets_full, output_path=None):
+def coda_onset_comparison_to_latex(df_onsets_full: pd.DataFrame, 
+                                   output_path: Optional[Union[str, Path]] = None) -> str:
     """
     Generate LaTeX longtable with coda onset times for all methods.
     
@@ -718,12 +757,12 @@ def coda_onset_comparison_to_latex(df_onsets_full, output_path=None):
         - s_duration_arias
         - s_duration_envelope
     output_path : str or Path, optional
-        If provided, save LaTeX code to this file
+        If provided, save LaTeX code to this file.
     
     Returns
     -------
     str
-        LaTeX longtable code
+        LaTeX longtable code.
     
     Examples
     --------
