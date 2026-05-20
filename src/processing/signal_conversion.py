@@ -1,16 +1,28 @@
 """
-Signal conversion utilities for event segmentation pipeline.
+Signal conversion utilities for seismic analysis pipeline.
 
-Functions to convert long-format signal DataFrame to nested dictionary
-structure optimized for onset detection and moment scaling analysis.
+Provides functions to:
+    - Add temporal information to signals (add_time_columns)
+    - Convert long-format DataFrames to nested dictionaries (convert_signals_to_dict)
+    - Extract station/component codes from filenames
+    - Validate signal dictionary structure (validate_signals_dict)
+    - Expand station-level onset data to component-level (expand_to_component_level)
+
+The nested dictionary format {station: {component: array, 'time': array}} is
+optimized for onset detection and phase picking algorithms.
 """
 
 import numpy as np
 import pandas as pd
+import numpy.typing as npt
+from typing import Dict, Tuple, Any
 
-def add_time_columns(df_signals, df_metadata, 
-                     time_col='DATE_TIME_FIRST_SAMPLE',
-                     sampling_interval_col='SAMPLING_INTERVAL_S'):
+def add_time_columns(
+    df_signals: pd.DataFrame, 
+    df_metadata: pd.DataFrame, 
+    time_col: str = 'DATE_TIME_FIRST_SAMPLE',
+    sampling_interval_col: str = 'SAMPLING_INTERVAL_S'
+) -> pd.DataFrame:
     """
     Add relative and absolute time columns to signals DataFrame.
     
@@ -24,10 +36,10 @@ def add_time_columns(df_signals, df_metadata,
         Preprocessed signals with columns ['file', 'sample', '<signal_column>']
     df_metadata : pd.DataFrame
         Station metadata with time information per file
-    time_col : str, optional
-        Column name for first sample timestamp (default: 'DATE_TIME_FIRST_SAMPLE')
-    sampling_interval_col : str, optional
-        Column name for sampling interval (default: 'SAMPLING_INTERVAL_S')
+    time_col : str, default='DATE_TIME_FIRST_SAMPLE'
+        Column name for first sample timestamp
+    sampling_interval_col : str, default='SAMPLING_INTERVAL_S'
+        Column name for sampling interval
     
     Returns
     -------
@@ -87,7 +99,7 @@ def add_time_columns(df_signals, df_metadata,
     
     return df
 
-def get_station_from_filename(filename):
+def get_station_from_filename(filename: str) -> str:
     """
     Extract station code from file name.
     
@@ -98,7 +110,7 @@ def get_station_from_filename(filename):
         
     Returns
     -------
-    station : str
+    str
         Station code (e.g., 'SURF')
         
     Examples
@@ -111,7 +123,7 @@ def get_station_from_filename(filename):
     parts = filename.split('.')
     return parts[1] if len(parts) > 1 else filename
 
-def get_component_from_filename(filename):
+def get_component_from_filename(filename: str) -> str:
     """
     Extract component code from file name.
     
@@ -122,7 +134,7 @@ def get_component_from_filename(filename):
         
     Returns
     -------
-    component : str
+    str
         Component code (e.g., 'HNE', 'HNN', 'HNZ')
         
     Examples
@@ -135,7 +147,10 @@ def get_component_from_filename(filename):
     parts = filename.split('.')
     return parts[3] if len(parts) > 3 else filename
 
-def convert_signals_to_dict(df_signals, signal_column='acceleration'):
+def convert_signals_to_dict(
+    df_signals: pd.DataFrame, 
+    signal_column: str = 'acceleration'
+) -> Dict[str, Dict[str, npt.NDArray[np.float64]]]:
     """
     Convert long-format signals DataFrame to nested dictionary.
     
@@ -151,7 +166,7 @@ def convert_signals_to_dict(df_signals, signal_column='acceleration'):
         
     Returns
     -------
-    signals_dict : dict
+    dict
         Nested dictionary structure:
         {
             'SURF': {
@@ -225,7 +240,12 @@ def convert_signals_to_dict(df_signals, signal_column='acceleration'):
     
     return signals_dict
 
-def get_signal_for_station(df_signals, station_code, component='HNE', signal_column='acceleration'):
+def get_signal_for_station(
+    df_signals: pd.DataFrame, 
+    station_code: str, 
+    component: str = 'HNE', 
+    signal_column: str = 'acceleration'
+) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """
     Extract signal arrays for specific station and component.
     
@@ -277,7 +297,7 @@ def get_signal_for_station(df_signals, station_code, component='HNE', signal_col
     return time, signal
 
 
-def validate_signals_dict(signals_dict):
+def validate_signals_dict(signals_dict: Dict[str, Dict[str, npt.NDArray[np.float64]]]) -> Dict[str, Any]:
     """
     Validate signals dictionary structure.
     
@@ -293,7 +313,7 @@ def validate_signals_dict(signals_dict):
         
     Returns
     -------
-    report : dict
+    dict
         Validation report with keys:
         - 'valid': bool, True if all checks pass
         - 'n_stations': int, number of stations
@@ -385,7 +405,10 @@ def validate_signals_dict(signals_dict):
     
     return report
 
-def expand_to_component_level(df_meta_stations, df_meta_clean):
+def expand_to_component_level(
+    df_meta_stations: pd.DataFrame, 
+    df_meta_clean: pd.DataFrame
+) -> pd.DataFrame:
     """
     Expand station-level onset data to component-level.
     
@@ -399,7 +422,7 @@ def expand_to_component_level(df_meta_stations, df_meta_clean):
         Station-level data (22 rows) with columns:
         - STATION_CODE
         - vp_crust, vs_crust
-        - origin_time
+        - origin_time_seconds, origin_time_samples
         - t_p_theo, t_s_theo
         - t_p_detected, t_s_detected
         - p_residual, s_residual
@@ -421,6 +444,7 @@ def expand_to_component_level(df_meta_stations, df_meta_clean):
         Component-level DataFrame with columns:
         - All columns from df_meta_clean
         - All station-level columns from df_meta_stations (replicated)
+        - COMPONENT (renamed from STREAM)
         - t_coda_rautian, t_coda_arias, t_coda_envelope (initialized as NaN)
         - s_duration_rautian, s_duration_arias, s_duration_envelope (initialized as NaN)
     
@@ -444,8 +468,8 @@ def expand_to_component_level(df_meta_stations, df_meta_clean):
     >>> print(df_onsets_full.shape)  # (66, ~25)
     >>> 
     >>> # Verify P/S are replicated
-    >>> acer = df_onsets_full[df_onsets_full['STATION_CODE'] == 'ACER']
-    >>> print(acer[['COMPONENT', 't_p_detected', 't_s_detected']])
+    >>> surf = df_onsets_full[df_onsets_full['STATION_CODE'] == 'SURF']
+    >>> print(surf[['COMPONENT', 't_p_detected', 't_s_detected']])
     #   COMPONENT  t_p_detected  t_s_detected
     #   HNE        12.34         20.67
     #   HNN        12.34         20.67
@@ -477,9 +501,7 @@ def expand_to_component_level(df_meta_stations, df_meta_clean):
     if 'STREAM' in df_full.columns:
         df_full = df_full.rename(columns={'STREAM': 'COMPONENT'})
     
-    # origin_time should already be in df_meta_stations (from add_theoretical_arrivals)
-    # Verify it exists
-    # Check for origin_time (with or without suffix)
+   # Verify origin_time exists (should be added by add_theoretical_arrivals)
     if 'origin_time' not in df_full.columns and 'origin_time_seconds' not in df_full.columns:
         print("Warning: origin_time not found in df_meta_stations.")
         print("Calculating origin_time now (should have been added by add_theoretical_arrivals)")
@@ -487,7 +509,15 @@ def expand_to_component_level(df_meta_stations, df_meta_clean):
         first_sample_datetime = pd.to_datetime(df_full['DATE_TIME_FIRST_SAMPLE'])
         df_full['origin_time'] = (event_datetime - first_sample_datetime).dt.total_seconds()
         df_full['origin_time_seconds'] = df_full['origin_time']
-        df_full['origin_time_samples'] = (df_full['origin_time'] * 200).astype(int)
+        
+        # Calculate samples using actual sampling rate from metadata
+        if 'INSTRUMENTAL_FREQUENCY_HZ' in df_full.columns:
+            sampling_rate = df_full['INSTRUMENTAL_FREQUENCY_HZ'].iloc[0]
+            df_full['origin_time_samples'] = (df_full['origin_time'] * sampling_rate).astype(int)
+        else:
+            print("  Warning: INSTRUMENTAL_FREQUENCY_HZ not found, assuming 200 Hz")
+            df_full['origin_time_samples'] = (df_full['origin_time'] * 200).astype(int)
+            
     elif 'origin_time_seconds' in df_full.columns and 'origin_time' not in df_full.columns:
         # Create legacy alias
         df_full['origin_time'] = df_full['origin_time_seconds']
