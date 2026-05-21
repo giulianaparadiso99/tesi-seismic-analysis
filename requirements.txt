@@ -1,10 +1,27 @@
-pandas
-numpy
-matplotlib
-seaborn
-jupyter
-scipy
-contextily
-adjustText
-pyarrow
-obspy
+# Core scientific computing
+pandas>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+contextily>=1.3.0
+adjustText>=0.8.0
+
+# Data storage
+pyarrow>=12.0.0  # for parquet
+
+# Seismology
+obspy>=1.4.0
+
+# Machine learning (PhaseNet)
+seisbench>=0.4.0
+torch>=2.0.0
+
+# Jupyter
+jupyter>=1.0.0
+notebook>=7.0.0  # or jupyterlab>=4.0.0
+
+# Optional but recommended
+typing-extensions>=4.5.0  # for Python <3.9
