@@ -5,21 +5,29 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tesi-seismic-analysis"
 version = "1.0.0"
-description = "Moment scaling analysis of seismic ground motion from the 2016 Central Italy earthquake"
+description = "Statistical modeling and scaling analysis of seismic acceleration signals"
 authors = [
-    {name = "Giuliana Paradiso"}
+    {name = "Giuliana Paradiso", email = "s319688@studenti.polito.it"}
 ]
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.8"
-keywords = ["seismology", "moment-scaling", "multifractal", "ground-motion", "earthquake"]
-
+requires-python = ">=3.9"
+keywords = [
+    "seismology",
+    "moment-scaling",
+    "multifractal",
+    "ground-motion",
+    "earthquake",
+    "phase-detection",
+    "anomalous-diffusion",
+    "heavy-tails"
+]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Intended Audience :: Science/Research",
@@ -28,19 +36,49 @@ classifiers = [
 ]
 
 dependencies = [
-    "numpy>=1.20.0",
-    "pandas>=1.3.0",
-    "matplotlib>=3.4.0",
-    "scipy>=1.7.0",
-    "contextily>=1.2.0",
-    "adjustText>=0.7.3",
+    # Core scientific computing
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "scipy>=1.10.0",
+    
+    # Visualization
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "contextily>=1.3.0",
+    "adjustText>=0.8.0",
+    
+    # Data storage
+    "pyarrow>=12.0.0",
+    
+    # Seismology
+    "obspy>=1.4.0",
+    
+    # Machine learning (PhaseNet)
+    "seisbench>=0.4.0",
+    "torch>=2.0.0",
+    
+    # Type hints (for Python <3.9 compatibility)
+    "typing-extensions>=4.5.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "jupyter>=1.0.0",
-    "ipython>=7.0.0",
-    "notebook>=6.4.0",
+    "ipython>=8.0.0",
+    "notebook>=7.0.0",
+    "jupyterlab>=4.0.0",
+]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+lint = [
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]
+all = [
+    "tesi-seismic-analysis[dev,test,lint]",
 ]
 
 [project.urls]
@@ -52,3 +90,29 @@ Documentation = "https://github.com/giulianaparadiso99/tesi-seismic-analysis/blo
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.setuptools.package-data]
+src = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+    \.git
+  | \.venv
+  | build
+  | dist
+  | data
+  | figures
+)/
+'''
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "-v --strict-markers"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
