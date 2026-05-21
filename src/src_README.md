@@ -1,394 +1,322 @@
 # Source Code
 
-Python modules for seismic signal processing, analysis, and visualization.
+Python modules for seismic signal processing, phase detection, statistical analysis, and visualization.
 
 ---
 
-## Module Organization
+## Module Structure
 
-The source code is organized into four functional categories:
-
-### 1. Data I/O & Preprocessing
-**`io.py`** - Load raw seismic data from .ASC archive  
-**`cleaning_metadata.py`** - Clean and preprocess metadata  
-**`cleaning_signals.py`** - Preprocess acceleration time series
-
-### 2. Statistical Analysis
-**`signals_pdf.py`** - Probability density function analysis  
-**`signals_scaling.py`** - Moment scaling and multifractal analysis  
-**`signals_autocorrelation.py`** - Temporal correlation analysis (work in progress)
-
-### 3. Visualization
-**`plots_metadata.py`** - Metadata visualization (maps, distributions, correlations)  
-**`plots_signals.py`** - Signal visualization (time series, distributions, diagnostics)  
-**`plot_settings.py`** - Global matplotlib style configuration
-
-### 4. Export Utilities
-**`latex_export.py`** - Export analysis results to LaTeX tables
+```
+src/
+├── preprocessing/          # Data loading and cleaning
+│   ├── io.py
+│   ├── cleaning_metadata.py
+│   └── cleaning_signals.py
+│
+├── segmentation/          # Phase detection and windowing
+│   ├── search_windows.py
+│   ├── ar_pick.py
+│   ├── phasenet_utils.py
+│   ├── window_segmentation.py
+│   └── window_validation.py
+│
+├── analysis/              # Statistical analysis
+│   ├── signals_pdf.py
+│   ├── signals_scaling_temporal.py
+│   └── signals_scaling_spatial_ensemble.py
+│
+├── visualization/         # Plotting functions
+│   ├── plot_settings.py
+│   ├── plots_metadata.py
+│   ├── plots_signals.py
+│   ├── plots_segmentation.py
+│   └── plot_moment_scaling.py
+│
+└── utils/                 # Export utilities
+    └── latex_export.py
+```
 
 ---
 
-## Module Documentation
+## Module Overview
 
-Each module contains detailed docstrings at the file level and for individual functions. Below is a brief overview of each module's purpose and main functions.
+### Preprocessing
+Load raw data from ITACA .ASC archive and apply cleaning pipelines for metadata and signals.
+
+### Segmentation
+Detect seismic phase onsets (P-wave, S-wave, coda) using AR-AIC or PhaseNet, compute adaptive search windows based on CRUST1.0 velocity model, segment signals into four temporal windows, and validate detection quality.
+
+### Analysis
+Characterize probability distributions (Gaussian fit, heavy tails, power-law exponents), compute moment scaling exponents ζ(q) for anomalous diffusion analysis (both time-averaged and spatial ensemble methods), and perform sensitivity analysis for phase pick uncertainty.
+
+### Visualization
+Generate publication-quality figures following project-wide style conventions, including metadata exploration, signal preprocessing validation, phase detection diagnostics, and moment scaling curves.
+
+### Utilities
+Export analysis results to LaTeX table format for thesis integration.
 
 ---
 
-### Data I/O & Preprocessing
+## Quick Reference
 
-#### `io.py`
-Load seismic waveforms and metadata from the .ASC archive.
+### Import Patterns
 
-**Main functions:**
-- `build_metadata(zip_path)` - Extract metadata from .ASC headers
-- `build_accelerations(zip_path)` - Extract acceleration time series
-- `build_dataframes(zip_path)` - Load both metadata and accelerations
-
-**Usage:**
 ```python
-from src.io import build_dataframes
+# Preprocessing
+from src.preprocessing import build_dataframes, clean_metadata, preprocess_signals
 
+# Segmentation
+from src.segmentation import (
+    add_crustal_velocities,
+    detect_onsets_arpick,
+    segment_all_signals,
+    quality_control_all_stations
+)
+
+# Analysis
+from src.analysis import (
+    gaussian_fit_analysis,
+    heavy_tail_assessment,
+    analyze_all_windows,
+    save_results_parquet
+)
+
+# Visualization
+from src.visualization import (
+    set_plot_style,
+    plot_station_map,
+    plot_single_signal_with_windows,
+    plot_scaling_exponents
+)
+```
+
+---
+
+## Example Workflows
+
+### Phase Detection and Windowing
+
+```python
+# Load and preprocess
 df_meta, df_acc = build_dataframes('../data/raw/query.zip')
+df_meta = clean_metadata(df_meta)
+df_acc = preprocess_signals(df_acc, normalize=False)
+
+# Build signals dictionary
+signals_dict = {}
+for file in df_acc['file'].unique():
+    signal = df_acc[df_acc['file'] == file]['acceleration'].values
+    signals_dict[file] = signal
+
+# Add theoretical arrivals
+df_stations = add_crustal_velocities(df_meta, hypo_depth_km=10.4)
+df_stations = add_theoretical_arrivals(df_stations, hypo_depth_km=10.4)
+
+# Detect onsets
+df_stations = detect_onsets_arpick(signals_dict, df_stations)
+df_full = add_coda_onsets_to_dataframe(df_stations, signals_dict)
+
+# Segment into windows
+windowed = segment_all_signals(signals_dict, df_full, coda_method='rautian')
+
+# Quality control
+qc = quality_control_all_stations(windowed, df_full, df_stations,
+                                   peak_column='PGA_CM/S^2',
+                                   time_peak_column='TIME_PGA_S')
 ```
 
 ---
 
-#### `cleaning_metadata.py`
-Five-step preprocessing pipeline for metadata.
+### Moment Scaling Analysis
 
-**Pipeline steps:**
-1. Replace missing values (empty strings → NaN)
-2. Drop uninformative columns
-3. Convert data types (numeric, datetime)
-4. Normalize strings (strip whitespace)
-5. Remove duplicates
-
-**Usage:**
 ```python
-from src.cleaning_metadata import clean_metadata
+# Spatial ensemble averaging
+results = analyze_all_windows(
+    windowed,
+    tau_min=0.01,
+    tau_max_fraction=0.5,
+    q_values=np.arange(0.5, 5.5, 0.25),
+    sampling_rate=200.0
+)
 
-df_meta_clean = clean_metadata(df_meta_raw)
+# Save and visualize
+save_results_parquet(results, output_dir='../data/processed/ensemble_spatial')
+plot_scaling_curves(results, output_dir='../figures/scaling')
+plot_scaling_exponents(results, output_dir='../figures/scaling')
 ```
 
 ---
 
-#### `cleaning_signals.py`
-Flexible preprocessing for acceleration signals with independent control over each step.
+### PDF Analysis
 
-**Main function:**
-- `preprocess_signals()` - Configurable pipeline with three optional steps:
-  - Length filtering (retain long signals for moment scaling)
-  - Baseline correction (remove per-signal mean)
-  - Normalization (standardize to unit variance)
-
-**Critical choice:** Normalization ON for PDF analysis, OFF for moment scaling.
-
-**Usage:**
 ```python
-from src.cleaning_signals import preprocess_signals
+# Preprocess with normalization
+df_clean = preprocess_signals(df_acc, normalize=True)
 
-# PDF analysis: normalize
-df_pdf = preprocess_signals(df_acc_raw,
-                             filter_length=False,
-                             baseline_correction=True,
-                             normalize=True)
-
-# Moment scaling: preserve physical units
-df_scaling = preprocess_signals(df_acc_raw,
-                                 filter_length=True,
-                                 baseline_correction=True,
-                                 normalize=False)
-```
-
----
-
-### Statistical Analysis
-
-#### `signals_pdf.py`
-Assess statistical distributions of seismic increments.
-
-**Main functions:**
-- `gaussian_fit_analysis()` - Test for Gaussianity (Anderson-Darling, kurtosis, skewness)
-- `heavy_tail_analysis()` - Characterize heavy tails (Lévy-stable, Student-t, power-law)
-
-**Outputs:** Individual plots per signal + summary aggregations
-
-**Usage:**
-```python
-from src.signals_pdf import gaussian_fit_analysis, heavy_tail_analysis
-
-# Gaussian fit with normality tests
+# Gaussian fit analysis
 df_gaussian = gaussian_fit_analysis(
-    df_acc_clean,
-    bins=100,
+    df_clean,
+    signal_column='acceleration',
     normalized=True,
-    output_dir='../figures/03_single_signal/03a_pdf_analysis/gaussian_fit'
+    output_dir='../figures/pdf_analysis/gaussian'
 )
 
 # Heavy tail assessment
-df_tail = heavy_tail_analysis(
-    df_acc_clean,
+df_tail = heavy_tail_assessment(
+    df_clean,
+    signal_column='acceleration',
     normalized=True,
-    output_dir='../figures/03_single_signal/03a_pdf_analysis/heavy_tail'
+    output_dir='../figures/pdf_analysis/heavy_tail'
 )
-```
-
----
-
-#### `signals_scaling.py`
-Multifractal moment scaling analysis.
-
-**Main functions:**
-- `integrate_to_velocity()`, `integrate_to_displacement()` - Process integration
-- `compute_increments()` - Calculate Δx(τ, t₀) for multiple time lags
-- `compute_moments_from_increments()` - Compute M_q(τ) = ⟨|Δx|^q⟩
-- `compute_scaling_exponents()` - Fit ζ(q) from M_q(τ) ~ τ^ζ(q)
-- `test_scaling_linearity()` - Test if ζ(q) is linear in q
-- `fit_piecewise_scaling()` - Detect breakpoints in ζ(q)
-
-**Usage:**
-```python
-from src.signals_scaling import (
-    integrate_to_displacement,
-    compute_increments,
-    compute_moments_from_increments,
-    compute_scaling_exponents
-)
-
-# Integration
-df_disp = integrate_to_displacement(df_acc, method='trapz')
-
-# Increments
-df_inc = compute_increments(df_disp, tau_values=[1, 2, 5, 10, 20])
-
-# Moments
-df_mom = compute_moments_from_increments(df_inc, q_values=[0.5, 1, 2, 3, 4, 5])
-
-# Scaling exponents
-df_zeta = compute_scaling_exponents(df_mom)
-```
-
----
-
-#### `signals_autocorrelation.py`
-Temporal correlation analysis (module under development).
-
----
-
-### Visualization
-
-#### `plots_metadata.py`
-Visualization suite for metadata exploration.
-
-**Main functions:**
-- `plot_column_types_pie()` - Data type distribution
-- `plot_numerical_distributions()` - Histograms for numeric variables
-- `plot_categorical_distributions()` - Bar charts for categorical variables
-- `plot_correlation_matrix()` - Heatmap of correlations
-- `plot_station_map()` - Geographic map with PGA overlay
-- `plot_pga_and_duration_by_component()` - Component-wise analysis
-
-**Usage:**
-```python
-from src.plots_metadata import plot_station_map
-
-plot_station_map(
-    df_meta_clean,
-    event_lat=42.8,
-    event_lon=13.1,
-    output_path='../figures/01_metadata/station_map.pdf'
-)
-```
-
----
-
-#### `plots_signals.py`
-Visualization for signal preprocessing and validation.
-
-**Main functions:**
-- `plot_signal_length_distribution()` - Sample count histogram
-- `plot_example_signals()` - Representative time series per component
-- `plot_acceleration_distributions()` - Global and per-component distributions
-- `plot_postcheck_pdf()` - Validation for PDF analysis pipeline
-- `plot_postcheck_moment_scaling()` - Validation for moment scaling pipeline
-- `plot_increments_histograms_dual_view()` - Dual-view increment distributions
-
-**Usage:**
-```python
-from src.plots_signals import plot_postcheck_pdf
-
-plot_postcheck_pdf(
-    df_acc_raw,
-    df_acc_clean,
-    output_dir='../figures/02_signals'
-)
-```
-
----
-
-#### `plot_settings.py`
-Global matplotlib style configuration.
-
-**Function:**
-- `set_plot_style()` - Apply project-wide rcParams and return color palette
-
-**Usage:**
-```python
-from src.plot_settings import set_plot_style
-
-colors = set_plot_style()
-# colors[0-3] for HNE/HNN/HNZ components or distance groups
-```
-
----
-
-### Export Utilities
-
-#### `latex_export.py`
-Export analysis results to LaTeX table format.
-
-**Main functions:**
-- `corr_diff_to_latex()` - Correlation difference table
-- `preprocess_checks_to_latex()` - Quality check summary table
-- `heavy_tail_to_latex()` - Heavy tail assessment longtable rows
-
-**Usage:**
-```python
-from src.latex_export import heavy_tail_to_latex
-
-latex_rows = heavy_tail_to_latex(
-    df_heavy_tail,
-    output_path='../data/processed/latex_tables/heavy_tail_table.tex'
-)
-```
-
----
-
-## Quick Start Examples
-
-### Complete PDF Analysis Workflow
-```python
-# 1. Load data
-from src.io import build_dataframes
-df_meta, df_acc = build_dataframes('../data/raw/query.zip')
-
-# 2. Clean metadata
-from src.cleaning_metadata import clean_metadata
-df_meta_clean = clean_metadata(df_meta)
-
-# 3. Preprocess signals (with normalization)
-from src.cleaning_signals import preprocess_signals
-df_acc_clean = preprocess_signals(df_acc, normalize=True)
-
-# 4. Analyze distributions
-from src.signals_pdf import gaussian_fit_analysis
-df_gaussian = gaussian_fit_analysis(df_acc_clean, normalized=True)
-```
-
----
-
-### Complete Moment Scaling Workflow
-```python
-# 1. Load and preprocess (WITHOUT normalization)
-from src.io import build_accelerations
-from src.cleaning_signals import preprocess_signals
-
-df_acc_raw = build_accelerations('../data/raw/query.zip')
-df_acc = preprocess_signals(df_acc_raw, filter_length=True, normalize=False)
-
-# 2. Compute increments and moments
-from src.signals_scaling import compute_increments, compute_moments_from_increments
-
-df_inc = compute_increments(df_acc, tau_values=range(1, 101))
-df_mom = compute_moments_from_increments(df_inc, q_values=[0.5, 1, 2, 3, 4, 5])
-
-# 3. Extract scaling exponents
-from src.signals_scaling import compute_scaling_exponents
-df_zeta = compute_scaling_exponents(df_mom)
-```
-
----
-
-## Data Flow
-
-```
-Raw .ASC files (query.zip)
-    ↓
-[io.py] Load data
-    ↓
-df_meta_raw + df_acc_raw
-    ↓
-[cleaning_metadata.py + cleaning_signals.py] Preprocess
-    ↓
-df_meta_clean + df_acc_clean
-    ↓
-    ├─→ [signals_pdf.py] PDF analysis → figures + tables
-    ├─→ [signals_scaling.py] Moment scaling → exponents + plots
-    └─→ [signals_autocorrelation.py] Autocorrelation → correlation functions
-```
-
----
-
-## Visualization Workflow
-
-```
-Preprocessed data
-    ↓
-[plot_settings.py] Apply global style
-    ↓
-    ├─→ [plots_metadata.py] Metadata figures
-    └─→ [plots_signals.py] Signal figures
-         ↓
-    PDF files in ../figures/
 ```
 
 ---
 
 ## Documentation Standards
 
-All modules follow these documentation conventions:
+All modules follow consistent documentation conventions:
 
-1. **File-level docstring** - Module purpose, organization, usage examples
-2. **Function docstrings** - Parameters, returns, examples (NumPy style)
-3. **Type hints** - Where applicable
-4. **Inline comments** - For complex logic only
+**Module-level docstrings:**
+- Purpose and scope
+- List of functions organized by category
+- Technical details and implementation notes
+- Usage examples
+- References
 
----
+**Function docstrings (NumPy style):**
+- Brief description
+- Parameters with types and defaults
+- Returns with type
+- Notes section for technical details
+- Examples section with executable code
 
-## Development Guidelines
+**Type hints:**
+- All function parameters
+- All return types
+- Use `Union[str, Path]` for path parameters
+- Use `Optional[...]` for nullable parameters
 
-### Code Style
-- Follow PEP 8
-- Use descriptive variable names
-- Keep functions focused (single responsibility)
-- Avoid hardcoded paths (use parameters)
-
-### Testing
-Run notebooks in order to verify module functionality:
-1. `01_metadata.ipynb` → tests io.py, cleaning_metadata.py, plots_metadata.py
-2. `02_signals.ipynb` → tests cleaning_signals.py, plots_signals.py
-3. `03a_pdf_analysis.ipynb` → tests signals_pdf.py
-4. `03b_moment_scaling.ipynb` → tests signals_scaling.py
-
----
-
-## Dependencies
-
-See `requirements.txt` in project root for complete list.
-
-**Core dependencies:**
-- numpy, pandas - Data manipulation
-- matplotlib, seaborn - Visualization
-- scipy - Statistical functions
-- contextily - Basemap tiles for geographic plots
+**Dual representation:**
+- Temporal data stored in both samples and seconds
+- Primary computation in sample domain (avoids rounding)
+- Seconds for output and visualization
+- Column naming: `*_samples`, `*_seconds`
+- Legacy columns point to preferred unit
 
 ---
 
-## Questions?
+## Coding Conventions
 
-For detailed documentation, see individual module docstrings:
+### File Operations
 ```python
-import src.signals_scaling
-help(src.signals_scaling)
-help(src.signals_scaling.compute_scaling_exponents)
+from pathlib import Path
+
+# Always use Path objects
+output_path = Path(output_path)
+if output_path.suffix == '':
+    output_path = output_path.with_suffix('.pdf')
+output_path.parent.mkdir(parents=True, exist_ok=True)
 ```
+
+### Parameter Patterns
+```python
+# Single output file → full path
+def plot_function(..., output_path: Optional[Union[str, Path]] = None):
+    
+# Multiple output files → directory only
+def analysis_function(..., output_dir: Union[str, Path] = '../figures/...'):
+```
+
+### Column Naming
+```python
+# Detected onsets
+'t_p_detected_samples', 't_p_detected_seconds'
+'t_s_detected_samples', 't_s_detected_seconds'
+
+# Theoretical arrivals
+'t_p_theo_samples', 't_p_theo_seconds'
+'t_s_theo_samples', 't_s_theo_seconds'
+
+# Window boundaries
+'p_window_start_samples', 'p_window_start_seconds'
+'p_window_end_samples', 'p_window_end_seconds'
+
+# Legacy (backward compatibility)
+'t_p_detected' → points to 't_p_detected_seconds'
+```
+
+---
+
+## Key Dependencies
+
+```python
+# Core scientific computing
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+# Seismology
+from obspy.signal.trigger import ar_pick
+import seisbench.models as sbm
+
+# Visualization
+import matplotlib.pyplot as plt
+from src.visualization.plot_settings import set_plot_style
+
+# File operations
+from pathlib import Path
+```
+
+---
+
+## Module-Specific Notes
+
+### `preprocessing/cleaning_signals.py`
+**Critical choice:** `normalize=True` for PDF analysis, `normalize=False` for moment scaling (preserves physical units and variance structure).
+
+### `segmentation/search_windows.py`
+Uses CRUST1.0 model from `data/Crust1.0/model/`. Adaptive windows scale with epicentral distance to account for accumulated velocity model errors.
+
+### `segmentation/ar_pick.py`
+Four coda detection methods: Rautian (theoretical, 2×t_S), Arias (D5-95), Envelope (amplitude threshold), Median (robust combination). Rautian is recommended for consistency.
+
+### `segmentation/window_segmentation.py`
+Four non-overlapping windows: pre-event (noise reference), P-wave (first arrival to S), S-wave (S to coda), coda (scattered waves). Each window stored with dual representation (samples + seconds).
+
+### `analysis/signals_scaling_spatial_ensemble.py`
+**Tau generation:** Logarithmic spacing computed directly in sample domain, then converted to seconds only for output. Avoids rounding artifacts from seconds → samples → seconds conversion.
+
+### `visualization/plot_settings.py`
+Sets global matplotlib rcParams. Call `set_plot_style()` at the start of each notebook/script to ensure consistent styling across all figures.
+
+---
+
+## Getting Help
+
+View module documentation:
+```python
+import src.segmentation
+help(src.segmentation)
+```
+
+View function documentation:
+```python
+from src.segmentation import detect_onsets_arpick
+help(detect_onsets_arpick)
+```
+
+View submodule documentation:
+```python
+from src.segmentation import ar_pick
+help(ar_pick)
+```
+
+---
+
+## Development Workflow
+
+1. **Before modifying code:** Read module docstring and relevant function docstrings
+2. **Test changes:** Run corresponding notebook (see main project README for notebook order)
+3. **Update docstrings:** If changing function behavior or adding parameters
+4. **Follow conventions:** Use type hints, dual representation, Path objects, consistent naming
+5. **Avoid duplication:** Create small, reusable functions instead of copy-pasting logic
