@@ -83,7 +83,7 @@ def prepare_window_data(
 ) -> Tuple[List[np.ndarray], List[np.ndarray], float, int]:
     """
     Extract signal and time arrays for a specific seismic window across all stations.
-    
+
     Parameters
     ----------
     windowed_signals : dict
@@ -91,6 +91,11 @@ def prepare_window_data(
         {station: {component: {window_name: {'signal': array, 'time': array, ...}}}}
     window_name : str
         Window to extract: 'pre_event', 'p_wave', 's_wave', 'coda'
+    signal_field : str, optional
+        Key to extract signal from window_data dict (default: 'signal')
+        Use 'signal' for raw data or custom field name if available
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200.0)
     exclude_components : list of str, optional
         Component codes to exclude (e.g., ['HNZ', 'HGZ'] for vertical)
         If None, includes all components
@@ -591,9 +596,6 @@ def analyze_all_windows(
                 n_excluded = len(exclude_components)
                 print(f"  Excluded {n_excluded} component type(s): {exclude_components}")
             
-            if exclude_components:
-                n_excluded = len(exclude_components)
-                print(f"  Excluded {n_excluded} component type(s): {exclude_components}")
 
             tau = ensemble_results['tau']
             n_signals = ensemble_results['n_signals']
@@ -625,17 +627,22 @@ def save_results_parquet(
 ) -> None:
     """
     Save ensemble scaling results in parquet format.
-    
+
     Creates two types of files:
     1. Summary file: scaling exponents for all windows
     2. Moments files: detailed moment data per window
-    
+
     Parameters
     ----------
     results : dict
         Output from analyze_all_windows()
     output_dir : str or Path
         Directory to save parquet files
+
+    Returns
+    -------
+    None
+        Files are saved to disk; function returns nothing
         
     Output Files
     ------------
