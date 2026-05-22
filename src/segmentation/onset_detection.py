@@ -81,7 +81,7 @@ from obspy.signal.trigger import ar_pick
 from scipy.signal import hilbert
 from scipy.ndimage import uniform_filter1d
 from scipy.stats import pearsonr
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List, Tuple
 
 def detect_onsets_arpick(
     signals_dict: Dict[str, Dict[str, np.ndarray]], 

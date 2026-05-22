@@ -26,7 +26,7 @@ __author__ = "Giuliana Paradiso"
 # Data I/O
 # ===============================================================================
 
-from .io.loaders import (
+from .io.io import (
     build_metadata,
     build_signals,
     build_dataframes,
@@ -203,9 +203,7 @@ from .visualization.plots_segmentation import (
 
 from .visualization.plots_moment_scaling import (
     plot_scaling_curves,
-    plot_scaling_exponents,
-    plot_single_scaling_exponents,
-    plot_single_scaling_curves
+    plot_scaling_exponents
 )
 
 # ===============================================================================

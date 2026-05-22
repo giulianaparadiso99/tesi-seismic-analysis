@@ -421,7 +421,12 @@ def run_sensitivity_analysis(
                     continue
                 
                 zeta_perturbed = results_perturbed[window]['scaling']['zeta']
-                zeta_baseline = baseline_zeta[window]
+                if isinstance(baseline_zeta, pd.DataFrame):
+                    # Se baseline_zeta è un DataFrame
+                    zeta_baseline = baseline_zeta[baseline_zeta['window'] == window]['zeta'].values
+                else:
+                    # Se è già un dict corretto
+                    zeta_baseline = baseline_zeta[window]
                 
                 metrics = compute_sensitivity_metrics(
                     zeta_baseline,
