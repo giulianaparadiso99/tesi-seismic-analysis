@@ -1,222 +1,329 @@
-# Seismic acceleration analysis
+# Statistical Modeling and Scaling Analysis of Seismic Acceleration Signals
 
-This repository contains the code used for the analysis of ground motion recordings in my master's thesis at Politecnico di Torino.
-
-The project investigates **strong anomalous diffusion** in seismic displacement signals by analyzing accelerometric data from a single earthquake event recorded by 22 stations along the Italy-France border.
-
-Following the theoretical framework of Vollmer et al. (2024), the analysis characterizes the scaling behavior of statistical moments to detect signatures of anomalous transport processes in earthquake ground motion. Key findings include:
-- Evidence of **nonlinear moment scaling** in seismic displacement
-- Detection of **two-regime structure** with distinct scaling exponents
-- Heavy-tailed distributions in acceleration signals (Lévy stable, Student-t)
-- Strong dependence on event window selection (pre-event noise vs. seismic signal)
-
-The project performs comprehensive statistical analysis on both metadata and acceleration time series, exploring the relationship between seismic signal properties, event characteristics, and station location.
+This repository contains the complete analysis pipeline for my master's thesis at Politecnico di Torino, investigating **statistical properties and moment scaling behavior** of seismic signals from a single regional earthquake event.
 
 ---
 
-## Project Structure
+## Research Overview
+
+The project characterizes seismic ground motion signals through statistical and scaling analysis to detect signatures of **anomalous diffusion** and **out-of-equilibrium dynamics** in earthquake recordings.
+
+### Key Research Questions
+
+1. Do seismic signals exhibit **heavy-tailed distributions** compatible with Lévy stable or Student-t models?
+2. Does the **moment scaling spectrum** ζ(q) deviate from normal diffusion expectations?
+3. Is there evidence of **multifractality** (nonlinear ζ(q)) in seismic coda?
+4. How robust are scaling exponents to **phase picker choice** (AR-AIC vs. PhaseNet)?
+5. How sensitive are results to **coda window definition**?
+
+### Methodological Framework
+
+**Moment scaling analysis** (Beck & Cohen 2003; Vollmer et al. 2024):
+
+$$M_q(\tau) = \langle |\Delta x(\tau)|^q \rangle \sim \tau^{\zeta(q)}$$
+
+where:
+- Δx(τ) = signal increment at time lag τ
+- ζ(q) = scaling exponent (quantifies diffusion regime)
+- **Normal diffusion:** ζ(q) = q/2 (linear)
+- **Anomalous diffusion:** ζ(q) ≠ q/2 (sublinear or superlinear)
+- **Multifractal:** ζ(q) nonlinear (intermittency, heavy tails)
+
+### Dataset
+
+**Event:** Mw 3.8 earthquake on 2024-12-09 near Italy-France border (Parco Naturale Regionale del Queyras)
+- Depth: 10.4 km
+- Stations: 22 accelerometric stations (ITACA database)
+- Components: 3 per station (HNE, HNN, HNZ) → 66 independent traces
+- Sampling rate: 200 Hz
+- Distance range: 4.8 - 109.5 km (hypocentral: 11.4 - 110.0 km)
+
+**Supervisors:**
+- Prof. Lamberto Rondoni (Politecnico di Torino)
+- Dr. Matteo Colangeli (University of L'Aquila)
+- Dr. Federica Di Michele (INGV Milan)
+
+---
+
+## Repository Structure
+
 ```
 tesi-seismic-analysis/
 │
-├── data/
-│   ├── raw/
-│   │   └── query.zip
-│   └── processed/
+├── data/                    # Raw and processed data
+│   ├── raw/                # ITACA database files (not in repo)
+│   ├── processed/          # Generated outputs from notebooks
+│   └── README.md          # Data directory structure and formats
 │
-├── notebooks/
-│   ├── 01_metadata_preprocessing_exploration.ipynb
-│   ├── 02_seismic_signals_preprocessing_exploration.ipynb
-│   ├── 03a_pdf_analysis.ipynb
-│   ├── 03b_moment_scaling.ipynb
-│   ├── 03c_autocorrelation.ipynb
-│   ├── 04a_pdf_aggregated_analysis.ipynb
-│   ├── 04b_moment_scaling_aggregated.ipynb
-│   ├── 04c_autocorrelation_aggregated.ipynb
-│   ├── 05a_pdf_distance_groups.ipynb
-│   ├── 05b_moment_scaling_distance_groups.ipynb
-│   └── 05c_autocorrelation_distance_groups.ipynb
+├── notebooks/              # Jupyter analysis notebooks
+│   ├── 01a_metadata.ipynb               # Metadata preprocessing
+│   ├── 01b_signals.ipynb                # Signal preprocessing
+│   ├── 02_pdf_analysis.ipynb            # PDF fitting
+│   ├── 03a_phase_identification_ar_pick.ipynb     # AR-AIC phase detection
+│   ├── 03b_phase_identification_phasenet.ipynb    # PhaseNet phase detection
+│   ├── 04a_moment_scaling_spatial.ipynb           # Moment scaling analysis ★
+│   └── README.md          # Notebook execution guide
 │
-├── src/
-│   ├── __init__.py
-│   ├── io.py
-│   ├── cleaning_metadata.py
-│   ├── cleaning_signals.py
-│   ├── plot_settings.py
-│   ├── metadata.py
-│   ├── signals.py
-│   ├── signals_scaling.py
-│   ├── signals_autocorrelation.py
-│   ├── signals_pdf.py
-│   ├── latex_export.py
-│   └── plots.py
+├── src/                    # Python modules
+│   ├── preprocessing/     # Baseline correction, integration
+│   ├── segmentation/      # Phase detection, windowing
+│   ├── analysis/          # Moment scaling, PDF fitting
+│   ├── visualization/     # Plotting functions
+│   ├── utils/             # LaTeX export, helpers
+│   └── README.md          # Module documentation
 │
-├── figures/
-│   ├── 01_metadata/
-│   ├── 02_signals/
-│   ├── 03_single_signal/
-│   ├── 04_aggregated/
-│   └── 05_distance_groups/
+├── figures/                # Generated plots (organized by notebook)
+│   └── README.md          # Figure catalog
 │
-├── pyproject.toml
-├── requirements.txt
-├── README.md
-└── .gitignore
+├── docs/                   # Documentation
+│   └── references.md      # Bibliography
+│
+├── requirements.txt        # Python dependencies
+├── environment.yml         # Conda environment
+├── pyproject.toml          # Package configuration
+└── README.md               # This file
 ```
+
+**Detailed documentation:** See README files in each subdirectory for complete information on data formats, notebook workflows, module APIs, and figure organization.
 
 ---
 
-## Installation
+## Quick Start
 
-Clone the repository:
+### Installation
+
 ```bash
+# Clone repository
 git clone https://github.com/giulianaparadiso99/tesi-seismic-analysis.git
 cd tesi-seismic-analysis
-```
 
-Install the required Python libraries:
-```bash
+# Install dependencies
 pip install -r requirements.txt
+
+# Or use conda
+conda env create -f environment.yml
+conda activate tesi-seismic
 ```
 
-Install the project in editable mode:
+### Minimal Analysis Pipeline
+
+Run notebooks in sequence (single signal type):
+
 ```bash
-pip install -e .
+jupyter notebook notebooks/01a_metadata.ipynb          # Clean metadata
+jupyter notebook notebooks/01b_signals.ipynb           # Preprocess signals
+jupyter notebook notebooks/03a_phase_identification_ar_pick.ipynb  # Detect phases
+jupyter notebook notebooks/04a_moment_scaling_spatial.ipynb        # Compute ζ(q)
 ```
+
+Set `DATA_TYPE = 'acceleration'` in each notebook configuration cell.
+
+**Complete documentation:** See [`notebooks/README.md`](notebooks/README.md) for full pipeline details, execution times, and troubleshooting.
 
 ---
 
-## Data
+## Key Features
 
-The dataset is not included in the repository due to size constraints.
+### Multi-Signal Analysis
+- **Acceleration:** High-frequency content, spikes
+- **Velocity:** Intermediate smoothness
+- **Displacement:** Long-period motions
 
-Place the data archive in the following location:
-```
-data/raw/query.zip
-```
+All three kinematic quantities analyzed to compare scaling behavior.
 
-The raw dataset should contain the .ASC files used in the analysis.
+### Dual Phase Picker Comparison
+- **AR-AIC (Leonard & Kennett 1999):** Traditional method, velocity-model-guided
+- **PhaseNet (Zhu & Beroza 2019):** Deep learning (INSTANCE pre-trained)
+
+Both methods processed to assess robustness of scaling exponents to window definition.
+
+### Multiple Coda Detection Methods
+- **Rautian (1978):** Theoretical, t_coda = 2·t_S - t_0
+- **Arias D5-95:** Energy-based (95% cumulative Arias Intensity)
+- **Envelope decay:** Amplitude-based (25% threshold)
+- **Median:** Robust combination
+
+Four methods compared to quantify sensitivity of ζ(q) to coda onset timing.
+
+### Spatial Ensemble Averaging
+- N = 66 independent traces (22 stations × 3 components)
+- Ensemble-averaged moments: robust estimation, reduced fluctuations
+- Components treated as independent realizations (justified by different wave polarizations)
 
 ---
 
-## Usage
+## Analysis Workflow
 
-The analysis is performed through Jupyter notebooks.
+**Complete workflow:** See ASCII diagram in [`notebooks/README.md`](notebooks/README.md)
 
-Start Jupyter:
-```bash
-jupyter notebook
+```
+Data Preparation → Statistical Characterization → Phase Detection → Moment Scaling
+     (01a/01b)            (02)                      (03a/03b)           (04a)
 ```
 
-Then open the notebooks in the `notebooks/` directory in order:
+**Core analysis:** `04a_moment_scaling_spatial.ipynb`
+- Input: Windowed signals from phase detection
+- Output: Scaling exponents ζ(q) for all windows, signal types, and coda methods
+- Total runs: 3 signal types × 2 pickers × 4 coda methods = **24 complete analyses**
 
-### 1. Preprocessing and exploration
-- `01_metadata_preprocessing_exploration.ipynb` — metadata loading, preprocessing and exploration
-- `02_seismic_signals_preprocessing_exploration.ipynb` — signal loading, preprocessing and exploration
+---
 
-### 2. Single signal analysis
-- `03a_pdf_analysis.ipynb` — probability density function analysis and heavy-tail assessment
-- `03b_moment_scaling.ipynb` — moment scaling analysis following Vollmer et al. (2024) framework
-- `03c_autocorrelation.ipynb` — displacement autocorrelation analysis
+## Main Outputs
 
-### 3. Aggregated analysis
-- `04a_pdf_aggregated_analysis.ipynb` — PDF comparison across distance groups
-- `04b_moment_scaling_aggregated.ipynb` — moment scaling comparison across distance groups
-- `04c_autocorrelation_aggregated.ipynb` — autocorrelation comparison across distance groups
+### Data Products
+Generated and saved in `data/processed/`:
+- Cleaned metadata (Parquet)
+- Preprocessed signals (Parquet)
+- PDF fit results (Parquet)
+- Phase onset times and windowed signals (Parquet/Pickle)
+- **Moment scaling exponents ζ(q)** (Parquet) — primary research output
 
-Example code snippet:
+**Format specifications:** See [`data/README.md`](data/README.md)
+
+### Figures
+Publication-quality plots in `figures/`:
+- Metadata exploration (station maps, distance distributions)
+- Signal preprocessing diagnostics
+- PDF fits and heavy-tail assessment
+- Phase detection validation
+- **Moment scaling curves and ζ(q) spectra** — key thesis figures
+
+**Figure catalog:** See [`figures/README.md`](figures/README.md) for complete list (~1000-1500 PDFs generated)
+
+---
+
+## Code Organization
+
+### Module Structure
+
 ```python
-from src.io import build_metadata, build_accelerations
-
-df_meta = build_metadata("../data/raw/query.zip")
-df_acc = build_accelerations("../data/raw/query.zip")
+# Import example
+from src import (
+    add_crustal_velocities,        # preprocessing
+    detect_onsets_arpick,          # segmentation
+    analyze_all_windows,           # analysis (core)
+    plot_scaling_exponents         # visualization
+)
 ```
+
+**Detailed API:** See [`src/README.md`](src/README.md) for function documentation, examples, and coding conventions.
+
+### Key Modules
+- **`src/segmentation/`** — Phase detection (AR-AIC, PhaseNet), window segmentation
+- **`src/analysis/`** — Moment scaling computation, PDF fitting
+- **`src/visualization/`** — Consistent plotting across all notebooks
+
+All modules follow:
+- Type hints (Python 3.9+)
+- NumPy-style docstrings
+- Dual representation (samples + seconds) for time values
 
 ---
 
-## Key Analyses
+## Technical Details
 
-### Moment Scaling Analysis
-The moment scaling analysis investigates signatures of anomalous diffusion in seismic displacement signals, following the theoretical framework of Vollmer et al. (2024).
+### Dependencies
+- **Python:** 3.9, 3.10, 3.11, 3.12 (tested)
+- **Core:** pandas, numpy, scipy, matplotlib
+- **Seismology:** obspy (AR-AIC), seisbench (PhaseNet)
+- **Format:** pyarrow (Parquet I/O)
 
-**Key features:**
-- Analysis of acceleration, velocity, and displacement processes
-- Computation of q-th order moments: `M_q(τ) = ⟨|Δx(τ)|^q⟩`
-- Estimation of scaling exponents `ζ(q)` from `M_q(τ) ~ τ^ζ(q)`
-- Detection of strong anomalous diffusion via piecewise linear scaling spectrum
-- Comparison between full signal and event window (post-onset)
+**Full list:** See `requirements.txt` or `environment.yml`
 
-**Main functions:** `signals_scaling.py`
-- `compute_moment_scaling_disp()` — compute moments of displacement increments
-- `compute_scaling_exponents()` — estimate scaling exponents ζ(q)
-- `test_scaling_linearity()` — test for nonlinearity in ζ(q)
-- `fit_piecewise_scaling()` — detect two-regime structure
+### Hardware Requirements
+- **Minimum:** 8GB RAM
+- **Recommended:** 16GB RAM (for `04a_moment_scaling_spatial.ipynb`)
+- **GPU:** Optional, accelerates PhaseNet inference (~2× speedup)
 
-### PDF Analysis
-Statistical characterization of acceleration distributions:
-- Gaussian fit and Anderson-Darling normality test
-- Heavy-tail assessment (Gaussian, Laplace, Student-t, Lévy stable)
-- Hill estimator for power-law tail exponent
+### Execution Times
+- **Full pipeline (single signal type):** ~30-40 minutes
+- **Core scaling analysis (04a):** ~15-20 minutes
+- **Complete matrix (24 runs):** ~6-8 hours
 
-**Main functions:** `signals_pdf.py`
-
-### Autocorrelation Analysis
-Time-domain correlation analysis of displacement signals.
-
-**Main functions:** `signals_autocorrelation.py`
+**Detailed benchmarks:** See [`notebooks/README.md`](notebooks/README.md)
 
 ---
 
-## Output
+## Key References
 
-Generated figures are saved in:
-```
-figures/
-├── 01_metadata/
-├── 02_signals/
-├── 03_single_signal/
-│   ├── pdf/
-│   ├── scaling/
-│   └── autocorrelation/
-└── 04_aggregated/
-```
+### Theoretical Framework
+- **Beck, C., & Cohen, E. G. D.** (2003). Superstatistics. *Physica A*, 322, 267-275.
+- **Vollmer, J., et al.** (2024). Moment scaling functions of long-range correlated time series. *Physical Review E*, 109(3), 034117.
 
-Processed datasets are stored in:
-```
-data/processed/
-```
+### Phase Detection
+- **Leonard, M., & Kennett, B. L. N.** (1999). Multi-component autoregressive techniques. *Physics of the Earth and Planetary Interiors*, 113(1-4), 247-263.
+- **Zhu, W., & Beroza, G. C.** (2019). PhaseNet: a deep-neural-network-based seismic arrival-time picking method. *Geophysical Journal International*, 216(1), 261-273.
+
+### Coda Analysis
+- **Rautian, T. G., & Khalturin, V. I.** (1978). The use of the coda for determination of the earthquake source spectrum. *BSSA*, 68(4), 923-948.
+
+**Complete bibliography:** See [`docs/references.md`](docs/references.md)
 
 ---
 
-## Requirements
+## Results Summary
 
-Main Python libraries used in the project:
-- `pandas` — data manipulation
-- `numpy` — numerical computing
-- `matplotlib` — plotting
-- `seaborn` — statistical visualization
-- `scipy` — scientific computing
-- `jupyter` — interactive notebooks
-- `contextily` — basemap tiles
-- `adjustText` — label placement
-- `pyarrow` — parquet file format
+**Note:** Final results to be completed after thesis defense. Preliminary findings:
 
----
+### PDF Analysis (Acceleration)
+- **Pre-event:** Gaussian noise (instrumental)
+- **S-wave/Coda:** Heavy-tailed distributions (Lévy stable, Student-t)
+- **Tail exponent:** α ~ 1.5-2.0 (power-law regime)
 
-## References
+### Moment Scaling (Preliminary)
+- **Pre-event:** ζ(q) ≈ q/2 (normal diffusion baseline)
+- **P/S-wave:** ζ(q) > q/2 (superdiffusion)
+- **Coda:** ζ(q) nonlinear (multifractal signature)
+- **Robustness:** Δζ(q) ~ 0.05-0.10 across coda methods
 
-The moment scaling analysis is based on:
-
-Vollmer, J., et al. (2024). "Framework for strong anomalous diffusion." *Physical Review E*.
+### Phase Picker Comparison
+- **AR-AIC vs. PhaseNet:** Systematic offset ~3-5 seconds (PhaseNet earlier)
+- **Impact on ζ(q):** Under investigation
 
 ---
 
-## Author
+## Repository Status
 
-**Giuliana Paradiso**  
-Politecnico di Torino
+**Current version:** Analysis pipeline complete, thesis in preparation (May 2026)
+
+**Submitted abstract:** Entropy 2026 conference (Barcelona)
+- Session: Non-Equilibrium Systems and Entropy Production / Statistical Physics and Stochastic Processes
+
+---
+
+## Contributing
+
+This is a thesis project repository. If you find issues or have suggestions:
+1. Open an issue with detailed description
+2. Include error messages, traceback, and system info
+3. Specify which notebook and configuration (`DATA_TYPE`, `PICKING_METHOD`)
 
 ---
 
 ## License
 
-This project is licensed under the MIT License.
+MIT License — See LICENSE file for details.
+
+---
+
+## Contact
+
+**Giuliana Paradiso**  
+Master's Student in Mathematical Engineering  
+Politecnico di Torino  
+📧 s319688@studenti.polito.it  
+🔗 GitHub: [giulianaparadiso99](https://github.com/giulianaparadiso99)
+
+---
+
+## Acknowledgments
+
+- **ITACA database** (INGV) for providing accelerometric data
+- **Politecnico di Torino** Department of Mathematical Sciences
+- **SeisBench** project for PhaseNet implementation
+- **ObsPy** community for seismic analysis tools
+
+---
+
+**Last updated:** May 2026  
+**Repository version:** 1.0 (standardized pipeline)
