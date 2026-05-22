@@ -206,6 +206,15 @@ from .visualization.plots_moment_scaling import (
     plot_scaling_exponents
 )
 
+from visualization.plots_sensitivity import (
+    plot_rmse_heatmap_by_coda,
+    plot_zeta_confidence_by_coda,
+    plot_rmse_heatmap_by_picking,
+    plot_rmse_heatmap_by_datatype,
+    load_sensitivity_results,
+    load_baseline_results
+)
+
 # ===============================================================================
 # Export Utilities
 # ===============================================================================
@@ -297,6 +306,12 @@ __all__ = [
     'plot_onset_distribution',
     'plot_increments_histograms_dual_view',
     'plot_ergodicity_test',
+    'plot_rmse_heatmap_by_coda',
+    'plot_zeta_confidence_by_coda',
+    'plot_rmse_heatmap_by_picking',
+    'plot_rmse_heatmap_by_datatype',
+    'load_sensitivity_results',
+    'load_baseline_results',
     
     # Export
     'corr_diff_to_latex',

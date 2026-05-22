@@ -58,6 +58,16 @@ from .plots_moment_scaling import (
     plot_scaling_exponents,
 )
 
+from .plots_sensitivity import (
+    plot_rmse_heatmap_by_coda,
+    plot_zeta_confidence_by_coda,
+    plot_rmse_heatmap_by_picking,
+    plot_rmse_heatmap_by_datatype,
+    load_sensitivity_results,
+    load_baseline_results
+
+)
+
 __all__ = [
     # Settings
     'set_plot_style',
@@ -101,4 +111,13 @@ __all__ = [
     # Moment scaling plots
     'plot_scaling_curves',
     'plot_scaling_exponents',
+
+    # Sensitivity analysis plots
+    'plot_rmse_heatmap_by_coda',
+    'plot_zeta_confidence_by_coda',
+    'plot_rmse_heatmap_by_picking',
+    'plot_rmse_heatmap_by_datatype',
+    'load_sensitivity_results',
+    'load_baseline_results'
+    
 ]

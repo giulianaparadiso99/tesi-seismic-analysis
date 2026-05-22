@@ -1,13 +1,12 @@
 """
 Visualization functions for sensitivity analysis results.
 
-This module provides three types of comparative plots:
-- Type A: Compare coda detection methods
+This module provides comparative plots for sensitivity analysis:
+- Type A: Compare coda detection methods (within one data type)
 - Type B: Compare picking methods (AR-AIC vs PhaseNet)
 - Type C: Compare data types (acceleration, velocity, displacement)
 
-Each plot type has multiple visualization functions (heatmaps, scatter plots, etc.)
-organized in a 2×2 or 1×N subplot layout.
+Each function works with results from run_sensitivity_analysis().
 """
 
 import numpy as np
@@ -16,7 +15,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from src.visualization.plot_settings import set_plot_style
 import logging
 
 logger = logging.getLogger(__name__)
@@ -26,9 +24,25 @@ logger = logging.getLogger(__name__)
 # HELPER FUNCTIONS
 # ==============================================================================
 
+def _get_window_labels() -> List[str]:
+    """Return standardized window labels for plots."""
+    return ['Pre-event', 'P-wave', 'S-wave', 'Coda']
+
+
+def _get_scenario_labels() -> Dict[str, str]:
+    """Return mapping from scenario codes to display labels."""
+    return {
+        'noise_small': 'Noise σ=0.2s',
+        'noise_medium': 'Noise σ=0.5s',
+        'noise_large': 'Noise σ=1.0s',
+        'bias_early': 'Bias -0.5s',
+        'bias_late': 'Bias +0.5s',
+        'monte_carlo': 'Monte Carlo'
+    }
+
+
 def _extract_metrics_for_scenario(
     results: Dict,
-    data_type: str,
     coda_method: str,
     scenario: str,
     metric: str = 'rmse'
@@ -39,9 +53,8 @@ def _extract_metrics_for_scenario(
     Parameters
     ----------
     results : dict
-        Sensitivity results dictionary
-    data_type : str
-        Data type (acceleration, velocity, displacement)
+        Results from run_sensitivity_analysis()
+        Structure: {coda_method: {scenario: {window: data}}}
     coda_method : str
         Coda detection method
     scenario : str
@@ -57,19 +70,30 @@ def _extract_metrics_for_scenario(
     
     window_metrics = {}
     
+    if coda_method not in results:
+        return window_metrics
+    
+    if scenario not in results[coda_method]:
+        return window_metrics
+    
+    scenario_data = results[coda_method][scenario]
+    
     for window in ['pre_event', 'p_wave', 's_wave', 'coda']:
-        scenario_data = results[data_type][coda_method][scenario]
-        
-        if window in scenario_data and scenario_data[window] is not None:
-            if 'metrics' in scenario_data[window]:
-                # Monte Carlo case
-                metrics = scenario_data[window]['metrics']
-            else:
-                # Regular scenario case
-                metrics = scenario_data[window]
+        if window in scenario_data:
+            window_data = scenario_data[window]
             
-            if metric in metrics:
-                window_metrics[window] = metrics[metric]
+            # Handle regular scenarios (direct metrics dict)
+            if isinstance(window_data, dict):
+                if 'metrics' in window_data:
+                    # Monte Carlo case
+                    metrics = window_data['metrics']
+                    if metric in metrics:
+                        window_metrics[window] = metrics[metric]
+                elif metric in window_data:
+                    # Regular scenario case
+                    window_metrics[window] = window_data[metric]
+                else:
+                    window_metrics[window] = np.nan
             else:
                 window_metrics[window] = np.nan
         else:
@@ -78,26 +102,8 @@ def _extract_metrics_for_scenario(
     return window_metrics
 
 
-def _get_window_labels() -> List[str]:
-    """Return standardized window labels for plots."""
-    return ['Pre-event', 'P-wave', 'S-wave', 'Coda']
-
-
-def _get_scenario_labels() -> Dict[str, str]:
-    """Return mapping from scenario codes to display labels."""
-    return {
-        'noise_small': 'Noise σ=0.2s',
-        'noise_medium': 'Noise σ=0.5s',
-        'noise_large': 'Noise σ=1.0s',
-        'bias_early': 'Bias -0.5s',
-        'bias_late': 'Bias +0.5s',
-        'distance_dependent': 'Distance-dep.',
-        'monte_carlo': 'Monte Carlo'
-    }
-
-
 # ==============================================================================
-# TYPE A: COMPARE CODA METHODS
+# TYPE A: COMPARE CODA METHODS (WITHIN ONE DATA TYPE)
 # ==============================================================================
 
 def plot_rmse_heatmap_by_coda(
@@ -105,7 +111,8 @@ def plot_rmse_heatmap_by_coda(
     data_type: str,
     picking_method: str,
     save_dir: Path,
-    scenarios: Optional[List[str]] = None
+    scenarios: Optional[List[str]] = None,
+    figsize: Tuple[float, float] = (12, 10)
 ) -> None:
     """
     Plot RMSE heatmap comparing coda detection methods.
@@ -116,30 +123,31 @@ def plot_rmse_heatmap_by_coda(
     Parameters
     ----------
     results : dict
-        Sensitivity results
+        Results from run_sensitivity_analysis()
+        Structure: {coda_method: {scenario: {window: metrics}}}
     data_type : str
-        Data type (acceleration, velocity, displacement)
+        Data type name (for title and filename)
     picking_method : str
-        Picking method (ar_pick or phasenet)
+        Picking method name (for title and filename)
     save_dir : Path
         Output directory for figure
     scenarios : list of str, optional
         List of scenarios to include. If None, use all except monte_carlo
+    figsize : tuple, optional
+        Figure size (width, height)
     """
-    
-    colors, colors1 = set_plot_style()
     
     if scenarios is None:
         scenarios = ['noise_small', 'noise_medium', 'noise_large', 
-                    'bias_early', 'bias_late', 'distance_dependent']
+                    'bias_early', 'bias_late']
     
-    coda_methods = ['rautian', 'arias', 'envelope', 'median']
+    coda_methods = list(results.keys())
     windows = ['pre_event', 'p_wave', 's_wave', 'coda']
     
     scenario_labels = _get_scenario_labels()
     window_labels = _get_window_labels()
     
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
     fig.suptitle(f'RMSE Sensitivity - {data_type.capitalize()} ({picking_method})', 
                  fontsize=14, fontweight='bold')
     
@@ -153,7 +161,7 @@ def plot_rmse_heatmap_by_coda(
         
         for i, scenario in enumerate(scenarios):
             metrics = _extract_metrics_for_scenario(
-                results, data_type, coda_method, scenario, metric='rmse'
+                results, coda_method, scenario, metric='rmse'
             )
             for j, window in enumerate(windows):
                 heatmap_data[i, j] = metrics.get(window, np.nan)
@@ -189,101 +197,14 @@ def plot_rmse_heatmap_by_coda(
     logger.info(f"Saved: {output_file}")
 
 
-def plot_scatter_by_coda(
-    results: Dict,
-    baseline_results: Dict,
-    data_type: str,
-    picking_method: str,
-    scenario: str,
-    save_dir: Path
-) -> None:
-    """
-    Plot scatter comparison of baseline vs perturbed ζ(q) for coda methods.
-    
-    Creates a 2×2 figure with one subplot per coda method.
-    Each scatter shows baseline ζ (x) vs perturbed ζ (y) with ideal y=x line.
-    
-    Parameters
-    ----------
-    results : dict
-        Sensitivity results
-    baseline_results : dict
-        Baseline ζ(q) values
-    data_type : str
-        Data type
-    picking_method : str
-        Picking method
-    scenario : str
-        Perturbation scenario to plot
-    save_dir : Path
-        Output directory
-    """
-    
-    colors, colors1 = set_plot_style()
-    
-    coda_methods = ['rautian', 'arias', 'envelope', 'median']
-    windows = ['pre_event', 'p_wave', 's_wave', 'coda']
-    window_labels = _get_window_labels()
-    window_colors = colors[:4]
-    
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle(f'ζ(q) Comparison - {data_type.capitalize()} ({picking_method}) - {scenario}',
-                 fontsize=14, fontweight='bold')
-    
-    axes = axes.flatten()
-    
-    for idx, coda_method in enumerate(coda_methods):
-        ax = axes[idx]
-        
-        # Plot each window
-        for window, label, color in zip(windows, window_labels, window_colors):
-            
-            # Get baseline ζ
-            baseline_key = f"{data_type}_{coda_method}"
-            if baseline_key in baseline_results:
-                df_baseline = baseline_results[baseline_key]
-                zeta_baseline = df_baseline[df_baseline['window'] == window]['zeta'].values
-            else:
-                continue
-            
-            # Get perturbed ζ
-            scenario_data = results[data_type][coda_method][scenario]
-            if window not in scenario_data or scenario_data[window] is None:
-                continue
-            
-            # Extract zeta from results (stored during analysis)
-            # Note: this requires storing zeta arrays in results, not just metrics
-            # For now, skip if not available
-            # TODO: store zeta arrays in sensitivity results
-            
-            pass  # Placeholder - needs zeta arrays in results
-        
-        # Ideal line y=x
-        ax.plot([0, 1], [0, 1], 'k--', alpha=0.3, label='Ideal')
-        
-        ax.set_xlabel('ζ baseline')
-        ax.set_ylabel('ζ perturbed')
-        ax.set_title(f'{coda_method.capitalize()}', fontweight='bold')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    
-    save_dir.mkdir(parents=True, exist_ok=True)
-    output_file = save_dir / f'scatter_{data_type}_{picking_method}_{scenario}.pdf'
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    logger.info(f"Saved: {output_file}")
-
-
 def plot_zeta_confidence_by_coda(
     results: Dict,
     baseline_results: Dict,
     data_type: str,
     picking_method: str,
     q_values: np.ndarray,
-    save_dir: Path
+    save_dir: Path,
+    figsize: Tuple[float, float] = (14, 10)
 ) -> None:
     """
     Plot ζ(q) curves with Monte Carlo confidence bands for coda methods.
@@ -294,27 +215,30 @@ def plot_zeta_confidence_by_coda(
     Parameters
     ----------
     results : dict
-        Sensitivity results (must include monte_carlo scenario)
+        Results from run_sensitivity_analysis() (must include monte_carlo)
+        Structure: {coda_method: {scenario: {window: {statistics: {...}, metrics: {...}}}}}
     baseline_results : dict
-        Baseline ζ(q) values
+        Baseline ζ(q) DataFrames {coda_method: df_summary}
     data_type : str
-        Data type
+        Data type name
     picking_method : str
-        Picking method
+        Picking method name
     q_values : np.ndarray
         Moment orders
     save_dir : Path
         Output directory
+    figsize : tuple, optional
+        Figure size
     """
     
-    colors, colors1 = set_plot_style()
-    
-    coda_methods = ['rautian', 'arias', 'envelope', 'median']
+    coda_methods = list(results.keys())
     windows = ['pre_event', 'p_wave', 's_wave', 'coda']
     window_labels = _get_window_labels()
-    window_colors = colors[:4]
     
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    # Define colors for each window
+    window_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+    
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
     fig.suptitle(f'ζ(q) with Monte Carlo Confidence - {data_type.capitalize()} ({picking_method})',
                  fontsize=14, fontweight='bold')
     
@@ -323,42 +247,63 @@ def plot_zeta_confidence_by_coda(
     for idx, coda_method in enumerate(coda_methods):
         ax = axes[idx]
         
+        # Check if we have baseline results for this coda method
+        if coda_method not in baseline_results:
+            ax.text(0.5, 0.5, 'No baseline data', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'{coda_method.capitalize()}', fontweight='bold')
+            continue
+        
+        df_baseline = baseline_results[coda_method]
+        
         for window, label, color in zip(windows, window_labels, window_colors):
             
-            # Get baseline
-            baseline_key = f"{data_type}_{coda_method}"
-            if baseline_key not in baseline_results:
+            # Get baseline ζ(q)
+            baseline_window = df_baseline[df_baseline['window'] == window].sort_values('q')
+            
+            if len(baseline_window) == 0:
                 continue
             
-            df_baseline = baseline_results[baseline_key]
-            zeta_baseline = df_baseline[df_baseline['window'] == window]['zeta'].values
-            
-            if len(zeta_baseline) == 0:
-                continue
+            zeta_baseline = baseline_window['zeta'].values
+            q_baseline = baseline_window['q'].values
             
             # Get Monte Carlo statistics
-            mc_data = results[data_type][coda_method]['monte_carlo']
-            if window not in mc_data or mc_data[window] is None:
+            if 'monte_carlo' not in results[coda_method]:
                 continue
             
-            if 'statistics' not in mc_data[window]:
+            mc_data = results[coda_method]['monte_carlo']
+            
+            if window not in mc_data:
                 continue
             
-            stats = mc_data[window]['statistics']
+            window_data = mc_data[window]
+            
+            if 'statistics' not in window_data:
+                continue
+            
+            stats = window_data['statistics']
             
             # Plot baseline
-            ax.plot(q_values, zeta_baseline, '-o', color=color, label=label, 
-                   linewidth=2, markersize=4)
+            ax.plot(q_baseline, zeta_baseline, '-o', color=color, label=label, 
+                   linewidth=2, markersize=4, zorder=3)
             
             # Plot confidence band
             if 'p05' in stats and 'p95' in stats:
-                ax.fill_between(q_values, stats['p05'], stats['p95'],
-                               color=color, alpha=0.2)
+                # Ensure same length
+                n_points = min(len(q_baseline), len(stats['p05']))
+                ax.fill_between(
+                    q_baseline[:n_points], 
+                    stats['p05'][:n_points], 
+                    stats['p95'][:n_points],
+                    color=color, 
+                    alpha=0.2,
+                    zorder=1
+                )
         
-        ax.set_xlabel('Moment order q')
-        ax.set_ylabel('Scaling exponent ζ(q)')
+        ax.set_xlabel('Moment order q', fontsize=11)
+        ax.set_ylabel('Scaling exponent ζ(q)', fontsize=11)
         ax.set_title(f'{coda_method.capitalize()}', fontweight='bold')
-        ax.legend()
+        ax.legend(fontsize=9)
         ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
@@ -371,126 +316,17 @@ def plot_zeta_confidence_by_coda(
     logger.info(f"Saved: {output_file}")
 
 
-def plot_error_distributions_by_coda(
-    results: Dict,
-    data_type: str,
-    picking_method: str,
-    save_dir: Path
-) -> None:
-    """
-    Plot distributions of Δζ errors from Monte Carlo for coda methods.
-    
-    Creates a 2×2 figure with violin plots showing error distributions
-    for each window across all q values.
-    
-    Parameters
-    ----------
-    results : dict
-        Sensitivity results (must include monte_carlo scenario)
-    data_type : str
-        Data type
-    picking_method : str
-        Picking method
-    save_dir : Path
-        Output directory
-    """
-    
-    colors, colors1 = set_plot_style()
-    
-    # TODO: Implement violin/box plot of Δζ distributions
-    # Requires storing individual MC run results, not just statistics
-    
-    logger.warning("plot_error_distributions_by_coda: Not yet implemented")
-    pass
-
-
-def plot_metrics_barplot_by_coda(
-    results: Dict,
-    data_type: str,
-    picking_method: str,
-    metric: str,
-    save_dir: Path
-) -> None:
-    """
-    Plot bar chart comparing metric values across scenarios for coda methods.
-    
-    Creates a 2×2 figure with grouped bar charts.
-    
-    Parameters
-    ----------
-    results : dict
-        Sensitivity results
-    data_type : str
-        Data type
-    picking_method : str
-        Picking method
-    metric : str
-        Metric to plot (rmse, mae, correlation)
-    save_dir : Path
-        Output directory
-    """
-    
-    colors, colors1 = set_plot_style()
-    
-    coda_methods = ['rautian', 'arias', 'envelope', 'median']
-    scenarios = ['noise_small', 'noise_medium', 'noise_large', 
-                'bias_early', 'bias_late', 'distance_dependent']
-    windows = ['pre_event', 'p_wave', 's_wave', 'coda']
-    window_labels = _get_window_labels()
-    scenario_labels = _get_scenario_labels()
-    
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    fig.suptitle(f'{metric.upper()} Comparison - {data_type.capitalize()} ({picking_method})',
-                 fontsize=14, fontweight='bold')
-    
-    axes = axes.flatten()
-    
-    x = np.arange(len(scenarios))
-    width = 0.2
-    
-    for idx, coda_method in enumerate(coda_methods):
-        ax = axes[idx]
-        
-        for i, window in enumerate(windows):
-            values = []
-            for scenario in scenarios:
-                metrics = _extract_metrics_for_scenario(
-                    results, data_type, coda_method, scenario, metric=metric
-                )
-                values.append(metrics.get(window, 0))
-            
-            offset = width * (i - 1.5)
-            ax.bar(x + offset, values, width, label=window_labels[i])
-        
-        ax.set_xlabel('Perturbation scenario')
-        ax.set_ylabel(metric.upper())
-        ax.set_title(f'{coda_method.capitalize()}', fontweight='bold')
-        ax.set_xticks(x)
-        ax.set_xticklabels([scenario_labels.get(s, s) for s in scenarios], 
-                          rotation=45, ha='right')
-        ax.legend()
-        ax.grid(True, alpha=0.3, axis='y')
-    
-    plt.tight_layout()
-    
-    save_dir.mkdir(parents=True, exist_ok=True)
-    output_file = save_dir / f'{metric}_barplot_{data_type}_{picking_method}.pdf'
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    logger.info(f"Saved: {output_file}")
-
-
 # ==============================================================================
 # TYPE B: COMPARE PICKING METHODS
 # ==============================================================================
 
 def plot_rmse_heatmap_by_picking(
-    results: Dict,
+    results_dict: Dict[str, Dict],
     data_type: str,
     coda_method: str,
     save_dir: Path,
-    scenarios: Optional[List[str]] = None
+    scenarios: Optional[List[str]] = None,
+    figsize: Tuple[float, float] = (14, 6)
 ) -> None:
     """
     Plot RMSE heatmap comparing picking methods (AR-AIC vs PhaseNet).
@@ -499,43 +335,46 @@ def plot_rmse_heatmap_by_picking(
     
     Parameters
     ----------
-    results : dict
-        Sensitivity results
+    results_dict : dict
+        Dictionary with structure: {picking_method: results}
+        where results = output from run_sensitivity_analysis()
     data_type : str
-        Data type
+        Data type name
     coda_method : str
-        Coda detection method
+        Coda detection method to compare
     save_dir : Path
         Output directory
     scenarios : list of str, optional
         Scenarios to include
+    figsize : tuple, optional
+        Figure size
     """
-    
-    colors, colors1 = set_plot_style()
     
     if scenarios is None:
         scenarios = ['noise_small', 'noise_medium', 'noise_large', 
-                    'bias_early', 'bias_late', 'distance_dependent']
+                    'bias_early', 'bias_late']
     
-    picking_methods = ['ar_pick', 'phasenet']
+    picking_methods = list(results_dict.keys())
     windows = ['pre_event', 'p_wave', 's_wave', 'coda']
     
     scenario_labels = _get_scenario_labels()
     window_labels = _get_window_labels()
     
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    fig, axes = plt.subplots(1, 2, figsize=figsize)
     fig.suptitle(f'RMSE Sensitivity - {data_type.capitalize()} ({coda_method})',
                  fontsize=14, fontweight='bold')
     
     for idx, picking_method in enumerate(picking_methods):
         ax = axes[idx]
         
+        results = results_dict[picking_method]
+        
         # Build heatmap data
         heatmap_data = np.zeros((len(scenarios), len(windows)))
         
         for i, scenario in enumerate(scenarios):
             metrics = _extract_metrics_for_scenario(
-                results, data_type, coda_method, scenario, metric='rmse'
+                results, coda_method, scenario, metric='rmse'
             )
             for j, window in enumerate(windows):
                 heatmap_data[i, j] = metrics.get(window, np.nan)
@@ -563,7 +402,7 @@ def plot_rmse_heatmap_by_picking(
     plt.tight_layout()
     
     save_dir.mkdir(parents=True, exist_ok=True)
-    output_file = save_dir / f'rmse_heatmap_{data_type}_{coda_method}.pdf'
+    output_file = save_dir / f'rmse_heatmap_{data_type}_{coda_method}_picking_comparison.pdf'
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
@@ -575,11 +414,12 @@ def plot_rmse_heatmap_by_picking(
 # ==============================================================================
 
 def plot_rmse_heatmap_by_datatype(
-    results: Dict,
+    results_dict: Dict[str, Dict],
     picking_method: str,
     coda_method: str,
     save_dir: Path,
-    scenarios: Optional[List[str]] = None
+    scenarios: Optional[List[str]] = None,
+    figsize: Tuple[float, float] = (16, 6)
 ) -> None:
     """
     Plot RMSE heatmap comparing data types (acceleration, velocity, displacement).
@@ -588,42 +428,46 @@ def plot_rmse_heatmap_by_datatype(
     
     Parameters
     ----------
-    results : dict
-        Sensitivity results
+    results_dict : dict
+        Dictionary with structure: {data_type: results}
+        where results = output from run_sensitivity_analysis()
     picking_method : str
-        Picking method
+        Picking method name (for title)
     coda_method : str
-        Coda detection method
+        Coda detection method to compare
     save_dir : Path
         Output directory
     scenarios : list of str, optional
         Scenarios to include
+    figsize : tuple, optional
+        Figure size
     """
-    colors, colors1 = set_plot_style()
     
     if scenarios is None:
         scenarios = ['noise_small', 'noise_medium', 'noise_large', 
-                    'bias_early', 'bias_late', 'distance_dependent']
+                    'bias_early', 'bias_late']
     
-    data_types = ['acceleration', 'velocity', 'displacement']
+    data_types = list(results_dict.keys())
     windows = ['pre_event', 'p_wave', 's_wave', 'coda']
     
     scenario_labels = _get_scenario_labels()
     window_labels = _get_window_labels()
     
-    fig, axes = plt.subplots(1, 3, figsize=(16, 6))
+    fig, axes = plt.subplots(1, 3, figsize=figsize)
     fig.suptitle(f'RMSE Sensitivity - {picking_method.replace("_", "-").upper()} ({coda_method})',
                  fontsize=14, fontweight='bold')
     
     for idx, data_type in enumerate(data_types):
         ax = axes[idx]
         
+        results = results_dict[data_type]
+        
         # Build heatmap data
         heatmap_data = np.zeros((len(scenarios), len(windows)))
         
         for i, scenario in enumerate(scenarios):
             metrics = _extract_metrics_for_scenario(
-                results, data_type, coda_method, scenario, metric='rmse'
+                results, coda_method, scenario, metric='rmse'
             )
             for j, window in enumerate(windows):
                 heatmap_data[i, j] = metrics.get(window, np.nan)
@@ -651,7 +495,7 @@ def plot_rmse_heatmap_by_datatype(
     plt.tight_layout()
     
     save_dir.mkdir(parents=True, exist_ok=True)
-    output_file = save_dir / f'rmse_heatmap_{picking_method}_{coda_method}.pdf'
+    output_file = save_dir / f'rmse_heatmap_{picking_method}_{coda_method}_datatype_comparison.pdf'
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close()
     
@@ -659,172 +503,82 @@ def plot_rmse_heatmap_by_datatype(
 
 
 # ==============================================================================
-# AGGREGATED PLOTS (NOT TYPE-SPECIFIC)
+# HELPER FUNCTIONS FOR LOADING RESULTS
 # ==============================================================================
 
-def plot_aggregated_sensitivity_matrix(
-    results: Dict,
-    metric: str,
-    save_dir: Path
-) -> None:
+def load_sensitivity_results(
+    base_dir: Path,
+    data_type: str,
+    picking_method: str
+) -> Dict:
     """
-    Plot aggregated sensitivity matrix across all combinations.
-    
-    Rows: data_type × coda_method combinations
-    Columns: perturbation scenarios
-    Color: metric value averaged across all windows
+    Load sensitivity results from pickle file.
     
     Parameters
     ----------
+    base_dir : Path
+        Base directory containing processed data
+    data_type : str
+        Data type (acceleration, velocity, displacement)
+    picking_method : str
+        Picking method (ar_pick, phasenet)
+        
+    Returns
+    -------
     results : dict
-        Sensitivity results
-    metric : str
-        Metric to aggregate (rmse, mae, correlation)
-    save_dir : Path
-        Output directory
+        Results dictionary with structure from run_sensitivity_analysis()
     """
+    import pickle
     
-    colors, colors1 = set_plot_style()
+    results_dir = base_dir / '05_sensitivity_analysis' / picking_method / data_type
     
-    data_types = list(results.keys())
-    scenarios = ['noise_small', 'noise_medium', 'noise_large', 
-                'bias_early', 'bias_late', 'distance_dependent']
+    # Try to load complete results
+    results = {}
     
-    # Get all coda methods from first data type
-    coda_methods = list(results[data_types[0]].keys())
+    # Look for method-specific pickle files
+    for pkl_file in results_dir.glob(f'{data_type}_*_complete.pkl'):
+        coda_method = pkl_file.stem.split('_')[1]
+        
+        with open(pkl_file, 'rb') as f:
+            results[coda_method] = pickle.load(f)
     
-    # Build row labels
-    row_labels = []
-    for dt in data_types:
-        for cm in coda_methods:
-            row_labels.append(f"{dt[:3]}-{cm[:3]}")
+    if len(results) == 0:
+        raise FileNotFoundError(f"No results found in {results_dir}")
     
-    # Build matrix
-    n_rows = len(data_types) * len(coda_methods)
-    n_cols = len(scenarios)
-    matrix = np.zeros((n_rows, n_cols))
-    
-    row_idx = 0
-    for data_type in data_types:
-        for coda_method in coda_methods:
-            for col_idx, scenario in enumerate(scenarios):
-                # Average metric across all windows
-                metrics = _extract_metrics_for_scenario(
-                    results, data_type, coda_method, scenario, metric=metric
-                )
-                values = [v for v in metrics.values() if not np.isnan(v)]
-                matrix[row_idx, col_idx] = np.mean(values) if len(values) > 0 else np.nan
-            
-            row_idx += 1
-    
-    # Plot
-    fig, ax = plt.subplots(figsize=(10, 12))
-    
-    scenario_labels = _get_scenario_labels()
-    
-    sns.heatmap(
-        matrix,
-        ax=ax,
-        cmap='YlOrRd',
-        annot=True,
-        fmt='.3f',
-        cbar_kws={'label': f'{metric.upper()} (mean across windows)'},
-        xticklabels=[scenario_labels.get(s, s) for s in scenarios],
-        yticklabels=row_labels,
-        linewidths=0.5,
-        linecolor='gray'
-    )
-    
-    ax.set_title(f'Aggregated {metric.upper()} Sensitivity Matrix', 
-                fontsize=14, fontweight='bold')
-    ax.set_xlabel('Perturbation Scenario', fontsize=12)
-    ax.set_ylabel('Data Type - Coda Method', fontsize=12)
-    
-    plt.tight_layout()
-    
-    save_dir.mkdir(parents=True, exist_ok=True)
-    output_file = save_dir / f'aggregated_{metric}_matrix.pdf'
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    logger.info(f"Saved: {output_file}")
+    return results
 
 
-# ==============================================================================
-# WRAPPER FUNCTION
-# ==============================================================================
-
-def generate_all_sensitivity_plots(
-    results: Dict,
-    baseline_results: Dict,
-    q_values: np.ndarray,
-    save_dir: Path,
-    plot_types: List[str] = ['A', 'B', 'C'],
-    picking_methods: List[str] = ['ar_pick', 'phasenet']
-) -> None:
+def load_baseline_results(
+    base_dir: Path,
+    data_type: str,
+    picking_method: str
+) -> Dict[str, pd.DataFrame]:
     """
-    Generate all sensitivity analysis plots.
+    Load baseline moment scaling results.
     
     Parameters
     ----------
-    results : dict
-        Sensitivity results with structure:
-        {data_type: {coda_method: {scenario: {window: metrics}}}}
+    base_dir : Path
+        Base directory containing processed data
+    data_type : str
+        Data type
+    picking_method : str
+        Picking method
+        
+    Returns
+    -------
     baseline_results : dict
-        Baseline ζ(q) results
-    q_values : np.ndarray
-        Moment orders
-    save_dir : Path
-        Output directory for figures
-    plot_types : list of str
-        Which plot types to generate: 'A', 'B', 'C', 'aggregated'
-    picking_methods : list of str
-        Picking methods available in results
+        {coda_method: df_summary}
     """
     
-    logger.info("Starting sensitivity plot generation...")
+    baseline_dir = base_dir / '04a_moment_scaling_spatial' / picking_method / data_type
     
-    data_types = ['acceleration', 'velocity', 'displacement']
-    coda_methods = ['rautian', 'arias', 'envelope', 'median']
+    baseline_results = {}
     
-    # Type A: Compare coda methods
-    if 'A' in plot_types:
-        logger.info("Generating Type A plots (compare coda methods)...")
-        type_a_dir = save_dir / 'type_A'
+    for coda_method in ['rautian', 'arias', 'envelope', 'median']:
+        summary_file = baseline_dir / coda_method / 'ensemble_spatial_summary.parquet'
         
-        for data_type in data_types:
-            for picking_method in picking_methods:
-                plot_rmse_heatmap_by_coda(results, data_type, picking_method, type_a_dir)
-                plot_zeta_confidence_by_coda(results, baseline_results, data_type, 
-                                            picking_method, q_values, type_a_dir)
-                plot_metrics_barplot_by_coda(results, data_type, picking_method, 
-                                            'rmse', type_a_dir)
+        if summary_file.exists():
+            baseline_results[coda_method] = pd.read_parquet(summary_file)
     
-    # Type B: Compare picking methods
-    if 'B' in plot_types:
-        logger.info("Generating Type B plots (compare picking methods)...")
-        type_b_dir = save_dir / 'type_B'
-        
-        for data_type in data_types:
-            for coda_method in coda_methods:
-                plot_rmse_heatmap_by_picking(results, data_type, coda_method, type_b_dir)
-    
-    # Type C: Compare data types
-    if 'C' in plot_types:
-        logger.info("Generating Type C plots (compare data types)...")
-        type_c_dir = save_dir / 'type_C'
-        
-        for picking_method in picking_methods:
-            for coda_method in coda_methods:
-                plot_rmse_heatmap_by_datatype(results, picking_method, coda_method, type_c_dir)
-    
-    # Aggregated plots
-    if 'aggregated' in plot_types:
-        logger.info("Generating aggregated plots...")
-        agg_dir = save_dir / 'aggregated'
-        
-        plot_aggregated_sensitivity_matrix(results, 'rmse', agg_dir)
-        plot_aggregated_sensitivity_matrix(results, 'mae', agg_dir)
-        plot_aggregated_sensitivity_matrix(results, 'correlation', agg_dir)
-    
-    logger.info("All sensitivity plots generated successfully")
+    return baseline_results
