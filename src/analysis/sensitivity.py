@@ -413,25 +413,51 @@ def run_sensitivity_analysis(
             # Compute metrics for each window
             window_metrics = {}
             for window in ['pre_event', 'p_wave', 's_wave', 'coda']:
-                
-                if baseline_zeta[window] is None:
-                    continue
-                
-                if window not in results_perturbed or results_perturbed[window] is None:
-                    continue
-                
-                zeta_perturbed = results_perturbed[window]['scaling']['zeta']
-                if isinstance(baseline_zeta, pd.DataFrame):
-                    # Se baseline_zeta è un DataFrame
-                    zeta_baseline = baseline_zeta[baseline_zeta['window'] == window]['zeta'].values
+                # Estrai zeta_perturbed
+                if isinstance(results_perturbed[window]['scaling'], dict):
+                    zeta_perturbed = results_perturbed[window]['scaling']['zeta']
+                elif isinstance(results_perturbed[window]['scaling'], pd.DataFrame):
+                    perturbed_df = results_perturbed[window]['scaling']
+                    perturbed_df = perturbed_df.sort_values('q')
+                    zeta_perturbed = perturbed_df['zeta'].values
                 else:
-                    # Se è già un dict corretto
-                    zeta_baseline = baseline_zeta[window]
+                    print(f"ERROR: Unexpected format for results_perturbed[{window}]['scaling']")
+                    continue
+                
+                # Estrai zeta_baseline
+                if isinstance(baseline_zeta, pd.DataFrame):
+                    baseline_window_data = baseline_zeta[baseline_zeta['window'] == window].copy()
+                    baseline_window_data = baseline_window_data.sort_values('q')
+                    zeta_baseline = baseline_window_data['zeta'].values
+                elif isinstance(baseline_zeta, dict) and window in baseline_zeta:
+                    if isinstance(baseline_zeta[window], dict):
+                        zeta_baseline = baseline_zeta[window]['zeta']
+                    else:
+                        zeta_baseline = baseline_zeta[window]
+                else:
+                    print(f"ERROR: Cannot extract baseline for window {window}")
+                    print(f"  baseline_zeta type: {type(baseline_zeta)}")
+                    continue
+                
+                # Verifica che siano array
+                if not isinstance(zeta_baseline, np.ndarray):
+                    print(f"ERROR: zeta_baseline is not array for {window}: {type(zeta_baseline)}")
+                    continue
+                if not isinstance(zeta_perturbed, np.ndarray):
+                    print(f"ERROR: zeta_perturbed is not array for {window}: {type(zeta_perturbed)}")
+                    continue
+                
+                # Verifica lunghezza
+                if len(zeta_baseline) != len(zeta_perturbed):
+                    print(f"  WARNING: Length mismatch for {window}: baseline={len(zeta_baseline)}, perturbed={len(zeta_perturbed)}")
+                    min_len = min(len(zeta_baseline), len(zeta_perturbed))
+                    zeta_baseline = zeta_baseline[:min_len]
+                    zeta_perturbed = zeta_perturbed[:min_len]
                 
                 metrics = compute_sensitivity_metrics(
                     zeta_baseline,
                     zeta_perturbed,
-                    config['Q_VALUES']
+                    config['Q_VALUES'][:len(zeta_baseline)]
                 )
                 
                 window_metrics[window] = metrics
@@ -441,8 +467,8 @@ def run_sensitivity_analysis(
                     'scenario': scenario_name,
                     'window': window,
                     'rmse': metrics['rmse'],
-                    'mae': metrics['mae'],
-                    'correlation': metrics['correlation'],
+                    'mean_deviation': metrics['mean_deviation'],
+                    'std_deviation': metrics['std_deviation'],
                     'max_deviation': metrics['max_deviation']
                 })
             
