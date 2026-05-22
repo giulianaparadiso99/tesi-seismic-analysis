@@ -316,6 +316,8 @@ def run_sensitivity_analysis(
         {coda_method: {scenario: {window: metrics}}}
     """
     
+    # Import save function
+    from src.analysis.signals_scaling_spatial import save_results_parquet
     
     logger = logging.getLogger(__name__)
     
@@ -343,15 +345,8 @@ def run_sensitivity_analysis(
         print(f"\n[{data_type.upper()}] Processing: {coda_method}")
         print(f"{'-'*80}")
         
-        # Extract baseline zeta
-        baseline_zeta = {}
-        for window in ['pre_event', 'p_wave', 's_wave', 'coda']:
-            try:
-                baseline_zeta[window] = baseline_results[coda_method][
-                    baseline_results[coda_method]['window'] == window
-                ]['zeta'].values[0]
-            except:
-                baseline_zeta[window] = None
+        # Load baseline summary for this coda method
+        baseline_df = baseline_results[coda_method]
         
         # Perturbation scenarios
         scenario_summary = []
@@ -410,50 +405,36 @@ def run_sensitivity_analysis(
                 logger.warning(f"{data_type}/{coda_method}/{scenario_name}: analysis failed - {e}")
                 continue
             
+            # Save perturbed results (same format as baseline)
+            scenario_output_dir = output_dir / coda_method / scenario_name
+            save_results_parquet(results_perturbed, output_dir=scenario_output_dir)
+            
+            # Reload perturbed summary (same format as baseline)
+            perturbed_df = pd.read_parquet(
+                scenario_output_dir / 'ensemble_spatial_summary.parquet'
+            )
+            
             # Compute metrics for each window
             window_metrics = {}
             for window in ['pre_event', 'p_wave', 's_wave', 'coda']:
-                # Estrai zeta_perturbed
-                if isinstance(results_perturbed[window]['scaling'], dict):
-                    zeta_perturbed = results_perturbed[window]['scaling']['zeta']
-                elif isinstance(results_perturbed[window]['scaling'], pd.DataFrame):
-                    perturbed_df = results_perturbed[window]['scaling']
-                    perturbed_df = perturbed_df.sort_values('q')
-                    zeta_perturbed = perturbed_df['zeta'].values
-                else:
-                    print(f"ERROR: Unexpected format for results_perturbed[{window}]['scaling']")
-                    continue
                 
-                # Estrai zeta_baseline
-                if isinstance(baseline_zeta, pd.DataFrame):
-                    baseline_window_data = baseline_zeta[baseline_zeta['window'] == window].copy()
-                    baseline_window_data = baseline_window_data.sort_values('q')
-                    zeta_baseline = baseline_window_data['zeta'].values
-                elif isinstance(baseline_zeta, dict) and window in baseline_zeta:
-                    if isinstance(baseline_zeta[window], dict):
-                        zeta_baseline = baseline_zeta[window]['zeta']
-                    else:
-                        zeta_baseline = baseline_zeta[window]
-                else:
-                    print(f"ERROR: Cannot extract baseline for window {window}")
-                    print(f"  baseline_zeta type: {type(baseline_zeta)}")
-                    continue
+                # Extract baseline zeta for this window
+                baseline_window = baseline_df[baseline_df['window'] == window].sort_values('q')
+                zeta_baseline = baseline_window['zeta'].values
                 
-                # Verifica che siano array
-                if not isinstance(zeta_baseline, np.ndarray):
-                    print(f"ERROR: zeta_baseline is not array for {window}: {type(zeta_baseline)}")
-                    continue
-                if not isinstance(zeta_perturbed, np.ndarray):
-                    print(f"ERROR: zeta_perturbed is not array for {window}: {type(zeta_perturbed)}")
-                    continue
+                # Extract perturbed zeta for this window
+                perturbed_window = perturbed_df[perturbed_df['window'] == window].sort_values('q')
+                zeta_perturbed = perturbed_window['zeta'].values
                 
-                # Verifica lunghezza
+                # Check length consistency
                 if len(zeta_baseline) != len(zeta_perturbed):
-                    print(f"  WARNING: Length mismatch for {window}: baseline={len(zeta_baseline)}, perturbed={len(zeta_perturbed)}")
+                    if verbose:
+                        print(f"  WARNING: Length mismatch for {window}: baseline={len(zeta_baseline)}, perturbed={len(zeta_perturbed)}")
                     min_len = min(len(zeta_baseline), len(zeta_perturbed))
                     zeta_baseline = zeta_baseline[:min_len]
                     zeta_perturbed = zeta_perturbed[:min_len]
                 
+                # Compute metrics
                 metrics = compute_sensitivity_metrics(
                     zeta_baseline,
                     zeta_perturbed,
@@ -467,8 +448,8 @@ def run_sensitivity_analysis(
                     'scenario': scenario_name,
                     'window': window,
                     'rmse': metrics['rmse'],
-                    'mean_deviation': metrics['mean_deviation'],
-                    'std_deviation': metrics['std_deviation'],
+                    'mae': metrics['mae'],
+                    'correlation': metrics['correlation'],
                     'max_deviation': metrics['max_deviation']
                 })
             
@@ -525,10 +506,20 @@ def run_sensitivity_analysis(
             except Exception as e:
                 continue
             
-            # Store zeta
+            # Save MC results
+            mc_output_dir = output_dir / coda_method / f'monte_carlo_run_{mc_run:03d}'
+            save_results_parquet(results_mc, output_dir=mc_output_dir)
+            
+            # Reload MC summary
+            mc_df = pd.read_parquet(
+                mc_output_dir / 'ensemble_spatial_summary.parquet'
+            )
+            
+            # Store zeta for each window
             for window in ['pre_event', 'p_wave', 's_wave', 'coda']:
-                if window in results_mc and results_mc[window] is not None:
-                    mc_zeta[window].append(results_mc[window]['scaling']['zeta'])
+                mc_window = mc_df[mc_df['window'] == window].sort_values('q')
+                if len(mc_window) > 0:
+                    mc_zeta[window].append(mc_window['zeta'].values)
             
             n_successful += 1
         
@@ -541,28 +532,32 @@ def run_sensitivity_analysis(
             
             mc_stats = compute_monte_carlo_statistics(mc_zeta[window], config['Q_VALUES'])
             
-            if baseline_zeta[window] is not None:
-                metrics = compute_sensitivity_metrics(
-                    baseline_zeta[window],
-                    mc_stats['mean'],
-                    config['Q_VALUES']
-                )
-                
-                mc_results[window] = {
-                    'statistics': mc_stats,
-                    'metrics': metrics,
-                    'n_successful_runs': len(mc_zeta[window])
-                }
-                
-                scenario_summary.append({
-                    'coda_method': coda_method,
-                    'scenario': 'monte_carlo',
-                    'window': window,
-                    'rmse': metrics['rmse'],
-                    'mae': metrics['mae'],
-                    'correlation': metrics['correlation'],
-                    'max_deviation': metrics['max_deviation']
-                })
+            # Extract baseline zeta for this window
+            baseline_window = baseline_df[baseline_df['window'] == window].sort_values('q')
+            zeta_baseline = baseline_window['zeta'].values
+            
+            # Compute metrics
+            metrics = compute_sensitivity_metrics(
+                zeta_baseline,
+                mc_stats['mean'],
+                config['Q_VALUES'][:len(zeta_baseline)]
+            )
+            
+            mc_results[window] = {
+                'statistics': mc_stats,
+                'metrics': metrics,
+                'n_successful_runs': len(mc_zeta[window])
+            }
+            
+            scenario_summary.append({
+                'coda_method': coda_method,
+                'scenario': 'monte_carlo',
+                'window': window,
+                'rmse': metrics['rmse'],
+                'mae': metrics['mae'],
+                'correlation': metrics['correlation'],
+                'max_deviation': metrics['max_deviation']
+            })
         
         results[coda_method]['monte_carlo'] = mc_results
         
