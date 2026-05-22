@@ -506,25 +506,18 @@ def run_sensitivity_analysis(
             except Exception as e:
                 continue
             
-            # Save MC results
-            mc_output_dir = output_dir / coda_method / f'monte_carlo_run_{mc_run:03d}'
-            save_results_parquet(results_mc, output_dir=mc_output_dir)
-            
-            # Reload MC summary
-            mc_df = pd.read_parquet(
-                mc_output_dir / 'ensemble_spatial_summary.parquet'
-            )
-            
-            # Store zeta for each window
+            # Store zeta in memory (no saving individual runs)
             for window in ['pre_event', 'p_wave', 's_wave', 'coda']:
-                mc_window = mc_df[mc_df['window'] == window].sort_values('q')
-                if len(mc_window) > 0:
-                    mc_zeta[window].append(mc_window['zeta'].values)
+                if window in results_mc and results_mc[window] is not None:
+                    zeta_array = results_mc[window]['scaling']['zeta']
+                    mc_zeta[window].append(zeta_array)
             
             n_successful += 1
         
-        # Compute MC statistics
+        # Compute MC statistics and save only aggregated results
         mc_results = {}
+        mc_summary_rows = []
+        
         for window in ['pre_event', 'p_wave', 's_wave', 'coda']:
             
             if len(mc_zeta[window]) == 0:
@@ -558,8 +551,30 @@ def run_sensitivity_analysis(
                 'correlation': metrics['correlation'],
                 'max_deviation': metrics['max_deviation']
             })
+            
+            # Prepare rows for MC summary DataFrame
+            for i, q_val in enumerate(config['Q_VALUES']):
+                mc_summary_rows.append({
+                    'window': window,
+                    'q': q_val,
+                    'zeta_mean': mc_stats['mean'][i],
+                    'zeta_std': mc_stats['std'][i],
+                    'zeta_median': mc_stats['median'][i],
+                    'zeta_p05': mc_stats['p05'][i],
+                    'zeta_p95': mc_stats['p95'][i],
+                    'n_runs': len(mc_zeta[window])
+                })
         
         results[coda_method]['monte_carlo'] = mc_results
+        
+        # Save only aggregated MC statistics
+        if len(mc_summary_rows) > 0:
+            mc_summary_df = pd.DataFrame(mc_summary_rows)
+            mc_output_file = output_dir / coda_method / 'monte_carlo_aggregated.parquet'
+            mc_output_file.parent.mkdir(parents=True, exist_ok=True)
+            mc_summary_df.to_parquet(mc_output_file, index=False)
+            if verbose:
+                print(f"\n    Saved MC aggregated stats: {mc_output_file}")
         
         print(f"OK ({n_successful}/{config['N_MONTE_CARLO']} successful)")
         
