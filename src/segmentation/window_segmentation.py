@@ -297,7 +297,8 @@ def segment_all_signals(
     sampling_rate: float = 200,
     unit: Literal['samples', 'seconds'] = 'samples',
     coda_method: Literal['rautian', 'arias', 'envelope'] = 'rautian',
-    pre_p_duration: Union[int, float, Literal['full']] = 5.0
+    pre_p_duration: Union[int, float, Literal['full']] = 5.0,
+    verbose: bool = True
 ) -> Dict[str, Dict[str, Dict[str, Dict[str, np.ndarray]]]]:
     """
     Segment all signals in dictionary into temporal windows.
@@ -325,6 +326,8 @@ def segment_all_signals(
         - If unit='samples': int (number of samples), default: 5.0 → 1000 samples @ 200Hz
         - If unit='seconds': float (seconds), default: 5.0
         - If 'full': use all available signal from recording start
+    verbose : bool, optional
+        If True, print detailed progress
         
     Returns
     -------
@@ -408,8 +411,9 @@ def segment_all_signals(
     
     # Check unit consistency
     if onset_unit != coda_unit:
-        print(f"Warning: onset columns in {onset_unit}, coda columns in {coda_unit}. "
-              f"Will convert internally.")
+        if verbose:
+            print(f"Warning: onset columns in {onset_unit}, coda columns in {coda_unit}. "
+                f"Will convert internally.")
     
     # Use onset_unit as working unit (since onsets are more fundamental)
     working_unit = onset_unit
@@ -418,7 +422,8 @@ def segment_all_signals(
     if working_unit == 'samples' and isinstance(pre_p_duration, float) and pre_p_duration != 'full':
         # User probably gave seconds, convert to samples
         pre_p_duration = int(np.round(pre_p_duration * sampling_rate))
-        print(f"Note: Converted pre_p_duration to {pre_p_duration} samples @ {sampling_rate}Hz")
+        if verbose:
+            print(f"Note: Converted pre_p_duration to {pre_p_duration} samples @ {sampling_rate}Hz")
     
     windowed_signals = {}
     n_skipped_no_data = 0
@@ -475,10 +480,13 @@ def segment_all_signals(
                     pre_p_duration=pre_p_duration
                 )
                 
+                if verbose:
+                    print(f"Successfully segmented {station}-{component}")
                 windowed_signals[station][component] = windows
                 
             except (ValueError, TypeError) as e:
-                print(f"Error segmenting {station}-{component}: {e}")
+                if verbose:
+                    print(f"Error segmenting {station}-{component}: {e}")
                 n_skipped_error += 1
                 continue
     
@@ -500,40 +508,41 @@ def segment_all_signals(
         pre_durations_sec = np.array(pre_durations_sec)
         pre_durations_samp = np.array(pre_durations_samp)
         
-        print(f"\n{'='*70}")
-        print("SIGNAL SEGMENTATION SUMMARY")
-        print(f"{'='*70}")
-        print(f"Successfully segmented: {n_total} signals from {n_stations} stations")
-        print(f"Skipped (no onset data): {n_skipped_no_data}")
-        print(f"Skipped (missing values): {n_skipped_missing}")
-        print(f"Skipped (errors): {n_skipped_error}")
-        print(f"\nCoda detection method: {coda_method}")
-        print(f"Working unit: {working_unit}")
-        print(f"Sampling rate: {sampling_rate} Hz")
-        print(f"Pre-event strategy: {pre_p_duration}")
+        if verbose:
+            print(f"\n{'='*70}")
+            print("SIGNAL SEGMENTATION SUMMARY")
+            print(f"{'='*70}")
+            print(f"Successfully segmented: {n_total} signals from {n_stations} stations")
+            print(f"Skipped (no onset data): {n_skipped_no_data}")
+            print(f"Skipped (missing values): {n_skipped_missing}")
+            print(f"Skipped (errors): {n_skipped_error}")
+            print(f"\nCoda detection method: {coda_method}")
+            print(f"Working unit: {working_unit}")
+            print(f"Sampling rate: {sampling_rate} Hz")
+            print(f"Pre-event strategy: {pre_p_duration}")
         
-        if pre_p_duration == 'full':
-            print(f"\nPre-event window durations (variable):")
-            print(f"  Min:    {np.min(pre_durations_sec):.2f}s ({np.min(pre_durations_samp)} samp)")
-            print(f"  Max:    {np.max(pre_durations_sec):.2f}s ({np.max(pre_durations_samp)} samp)")
-            print(f"  Mean:   {np.mean(pre_durations_sec):.2f}s ({np.mean(pre_durations_samp):.0f} samp)")
-            print(f"  Median: {np.median(pre_durations_sec):.2f}s ({np.median(pre_durations_samp):.0f} samp)")
-            print(f"  Std:    {np.std(pre_durations_sec):.2f}s ({np.std(pre_durations_samp):.0f} samp)")
-        else:
-            if working_unit == 'samples':
-                target_str = f"{pre_p_duration} samples ({pre_p_duration/sampling_rate:.2f}s)"
+            if pre_p_duration == 'full':
+                print(f"\nPre-event window durations (variable):")
+                print(f"  Min:    {np.min(pre_durations_sec):.2f}s ({np.min(pre_durations_samp)} samp)")
+                print(f"  Max:    {np.max(pre_durations_sec):.2f}s ({np.max(pre_durations_samp)} samp)")
+                print(f"  Mean:   {np.mean(pre_durations_sec):.2f}s ({np.mean(pre_durations_samp):.0f} samp)")
+                print(f"  Median: {np.median(pre_durations_sec):.2f}s ({np.median(pre_durations_samp):.0f} samp)")
+                print(f"  Std:    {np.std(pre_durations_sec):.2f}s ({np.std(pre_durations_samp):.0f} samp)")
             else:
-                target_str = f"{pre_p_duration:.2f}s ({int(pre_p_duration*sampling_rate)} samp)"
+                if working_unit == 'samples':
+                    target_str = f"{pre_p_duration} samples ({pre_p_duration/sampling_rate:.2f}s)"
+                else:
+                    target_str = f"{pre_p_duration:.2f}s ({int(pre_p_duration*sampling_rate)} samp)"
+                
+                print(f"\nPre-event window durations:")
+                print(f"  Target: {target_str}")
+                print(f"  Actual mean: {np.mean(pre_durations_sec):.2f}s ({np.mean(pre_durations_samp):.0f} samp)")
+                print(f"  Actual range: [{np.min(pre_durations_sec):.2f}, {np.max(pre_durations_sec):.2f}]s")
+                if np.min(pre_durations_samp) < (pre_p_duration if working_unit == 'samples' else pre_p_duration * sampling_rate):
+                    n_short = np.sum(pre_durations_samp < (pre_p_duration if working_unit == 'samples' else pre_p_duration * sampling_rate))
+                    print(f"  Note: {n_short} signals have shorter pre-event (P arrives early)")
             
-            print(f"\nPre-event window durations:")
-            print(f"  Target: {target_str}")
-            print(f"  Actual mean: {np.mean(pre_durations_sec):.2f}s ({np.mean(pre_durations_samp):.0f} samp)")
-            print(f"  Actual range: [{np.min(pre_durations_sec):.2f}, {np.max(pre_durations_sec):.2f}]s")
-            if np.min(pre_durations_samp) < (pre_p_duration if working_unit == 'samples' else pre_p_duration * sampling_rate):
-                n_short = np.sum(pre_durations_samp < (pre_p_duration if working_unit == 'samples' else pre_p_duration * sampling_rate))
-                print(f"  Note: {n_short} signals have shorter pre-event (P arrives early)")
-        
-        print(f"{'='*70}")
+            print(f"{'='*70}")
     
     return windowed_signals
 

@@ -380,7 +380,8 @@ def run_sensitivity_analysis(
                 windowed_perturbed = segment_function(
                     signals_dict,
                     df_perturbed,
-                    coda_method=coda_method
+                    coda_method=coda_method,
+                    verbose=False
                 )
             except Exception as e:
                 if verbose:
@@ -397,7 +398,8 @@ def run_sensitivity_analysis(
                     n_tau=None,
                     q_values=config['Q_VALUES'],
                     sampling_rate=config['SAMPLING_RATE'],
-                    fit_range=None
+                    fit_range=None,
+                    verbose=False
                 )
             except Exception as e:
                 if verbose:
@@ -487,7 +489,8 @@ def run_sensitivity_analysis(
                 windowed_mc = segment_function(
                     signals_dict,
                     df_mc,
-                    coda_method=coda_method
+                    coda_method=coda_method,
+                    verbose=False
                 )
             except Exception as e:
                 continue
@@ -501,7 +504,8 @@ def run_sensitivity_analysis(
                     n_tau=None,
                     q_values=config['Q_VALUES'],
                     sampling_rate=config['SAMPLING_RATE'],
-                    fit_range=None
+                    fit_range=None,
+                    verbose=False
                 )
             except Exception as e:
                 continue

@@ -490,7 +490,8 @@ def analyze_all_windows(
     q_values: np.ndarray = None,
     sampling_rate: float = 200.0,
     fit_range: Optional[Tuple[float, float]] = None,
-    exclude_components: Optional[List[str]] = None
+    exclude_components: Optional[List[str]] = None,
+    verbose: bool = True
 ) -> Dict:
     """
     Analyze all four seismic windows with spatial ensemble averaging.
@@ -517,8 +518,8 @@ def analyze_all_windows(
         (tau_min_fit, tau_max_fit) for scaling exponent extraction
     exclude_components : list of str, optional
         Component codes to exclude from ensemble
-        
-    Returns
+    verbose : bool, optional
+        If True, print detailed progress
     -------
     results : dict
         {
@@ -549,23 +550,28 @@ def analyze_all_windows(
     windows = ['pre_event', 'p_wave', 's_wave', 'coda']
     results = {}
     
-    print("="*80)
-    print("ENSEMBLE SPATIAL SCALING ANALYSIS")
-    print("="*80)
-    print(f"tau_min: {tau_min:.3f} s (fixed for all windows)")
-    if tau_max_fraction is None:
-        print("tau_max_fraction: None (use full window duration)")
-    else:
-        print(f"tau_max_fraction: {tau_max_fraction:.1%} of shortest window duration")
-    print(f"q_values: {len(q_values)} values from {q_values.min():.2f} to {q_values.max():.2f}")
-    print(f"sampling_rate: {sampling_rate:.1f} Hz")
-    if fit_range is not None:
+    if verbose:
+        print("="*80)
+        print("ENSEMBLE SPATIAL SCALING ANALYSIS")
+        print("="*80)
+        print(f"tau_min: {tau_min:.3f} s (fixed for all windows)")
+    if verbose:
+        if tau_max_fraction is None:
+            print("tau_max_fraction: None (use full window duration)")
+        else:
+            print(f"tau_max_fraction: {tau_max_fraction:.1%} of shortest window duration")
+    if verbose:
+        print(f"q_values: {len(q_values)} values from {q_values.min():.2f} to {q_values.max():.2f}")
+        print(f"sampling_rate: {sampling_rate:.1f} Hz")
+    if fit_range is not None and verbose:
         print(f"fit_range: [{fit_range[0]:.3f}, {fit_range[1]:.3f}] s")
-    print("="*80)
+    if verbose:
+        print("="*80)
     
     for window_name in windows:
-        print(f"\nProcessing window: {window_name.upper()}")
-        print("-"*80)
+        if verbose:
+            print(f"\nProcessing window: {window_name.upper()}")
+            print("-"*80)
         
         try:
             ensemble_results = compute_spatial_ensemble(
@@ -594,7 +600,8 @@ def analyze_all_windows(
 
             if exclude_components:
                 n_excluded = len(exclude_components)
-                print(f"  Excluded {n_excluded} component type(s): {exclude_components}")
+                if verbose:
+                    print(f"  Excluded {n_excluded} component type(s): {exclude_components}")
             
 
             tau = ensemble_results['tau']
@@ -602,21 +609,23 @@ def analyze_all_windows(
             zeta = scaling_results['zeta']
             r_squared = scaling_results['r_squared']
 
-            print(f"Ensemble size: {n_signals} signals")
-            print(f"Tau range: [{tau.min():.4f}, {tau.max():.4f}] s")
-            print(f"Number of tau points: {len(tau)}")
-            print(f"Mean ζ(q): {np.nanmean(zeta):.4f} ± {np.nanstd(zeta):.4f}")
-            print(f"Mean R²: {np.nanmean(r_squared):.4f}")
-            print(f"ζ(q=1): {zeta[np.argmin(np.abs(q_values - 1.0))]:.4f}")
-            print(f"ζ(q=2): {zeta[np.argmin(np.abs(q_values - 2.0))]:.4f}")
+            if verbose:
+                print(f"Ensemble size: {n_signals} signals")
+                print(f"Tau range: [{tau.min():.4f}, {tau.max():.4f}] s")
+                print(f"Number of tau points: {len(tau)}")
+                print(f"Mean ζ(q): {np.nanmean(zeta):.4f} ± {np.nanstd(zeta):.4f}")
+                print(f"Mean R²: {np.nanmean(r_squared):.4f}")
+                print(f"ζ(q=1): {zeta[np.argmin(np.abs(q_values - 1.0))]:.4f}")
+                print(f"ζ(q=2): {zeta[np.argmin(np.abs(q_values - 2.0))]:.4f}")
             
         except Exception as e:
-            print(f"Error processing {window_name}: {e}")
+            if verbose:
+                print(f"Error processing {window_name}: {e}")
             results[window_name] = None
-    
-    print("\n" + "="*80)
-    print("ANALYSIS COMPLETE")
-    print("="*80)
+    if verbose:
+        print("\n" + "="*80)
+        print("ANALYSIS COMPLETE")
+        print("="*80)
     
     return results
 
