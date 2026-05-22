@@ -127,7 +127,6 @@ def plot_rmse_heatmap_by_coda(
         List of scenarios to include. If None, use all except monte_carlo
     """
     
-    from src.plot_settings import set_plot_style
     colors, colors1 = set_plot_style()
     
     if scenarios is None:
@@ -220,7 +219,6 @@ def plot_scatter_by_coda(
         Output directory
     """
     
-    from src.plot_settings import set_plot_style
     colors, colors1 = set_plot_style()
     
     coda_methods = ['rautian', 'arias', 'envelope', 'median']
@@ -309,7 +307,6 @@ def plot_zeta_confidence_by_coda(
         Output directory
     """
     
-    from src.plot_settings import set_plot_style
     colors, colors1 = set_plot_style()
     
     coda_methods = ['rautian', 'arias', 'envelope', 'median']
@@ -398,7 +395,6 @@ def plot_error_distributions_by_coda(
         Output directory
     """
     
-    from src.plot_settings import set_plot_style
     colors, colors1 = set_plot_style()
     
     # TODO: Implement violin/box plot of Δζ distributions
@@ -434,7 +430,6 @@ def plot_metrics_barplot_by_coda(
         Output directory
     """
     
-    from src.plot_settings import set_plot_style
     colors, colors1 = set_plot_style()
     
     coda_methods = ['rautian', 'arias', 'envelope', 'median']
@@ -516,7 +511,6 @@ def plot_rmse_heatmap_by_picking(
         Scenarios to include
     """
     
-    from src.plot_settings import set_plot_style
     colors, colors1 = set_plot_style()
     
     if scenarios is None:
@@ -605,8 +599,6 @@ def plot_rmse_heatmap_by_datatype(
     scenarios : list of str, optional
         Scenarios to include
     """
-    
-    from src.plot_settings import set_plot_style
     colors, colors1 = set_plot_style()
     
     if scenarios is None:
@@ -692,7 +684,6 @@ def plot_aggregated_sensitivity_matrix(
         Output directory
     """
     
-    from src.plot_settings import set_plot_style
     colors, colors1 = set_plot_style()
     
     data_types = list(results.keys())
