@@ -454,7 +454,8 @@ def apply_phasenet_to_signals(
 
 def merge_phasenet_picks_with_metadata(
     df_picks: pd.DataFrame,
-    df_meta: pd.DataFrame
+    df_meta: pd.DataFrame,
+    sampling_rate: float = 200
 ) -> pd.DataFrame:
     """
     Merge PhaseNet onset picks with station metadata and calculate origin time.
@@ -526,6 +527,6 @@ def merge_phasenet_picks_with_metadata(
     first_sample_datetime = pd.to_datetime(df_merged['DATE_TIME_FIRST_SAMPLE'])
     
     df_merged['origin_time_seconds'] = (event_datetime - first_sample_datetime).dt.total_seconds()
-    df_merged['origin_time_samples'] = (df_merged['origin_time_seconds'] * 200).astype(int)
+    df_merged['origin_time_samples'] = (df_merged['origin_time_seconds'] * sampling_rate).astype(int)
     
     return df_merged

@@ -1168,7 +1168,8 @@ def add_coda_onsets_to_dataframe(
 def compute_coda_method_statistics(
     df_onsets_full: pd.DataFrame, 
     distance_bins: Optional[List[Tuple[float, float]]] = None, 
-    unit: str = 'seconds'
+    unit: str = 'seconds',
+    sampling_rate: float = 200
 ) -> Dict[str, Any]:
     """
 Compute comprehensive statistics for coda onset method comparison.
@@ -1191,6 +1192,8 @@ distance_bins : list of tuple, optional
 unit : {'samples', 'seconds'}, optional
     Which representation to use for statistics (default: 'seconds')
     Note: Statistics are always computed in seconds as they represent physical times
+sampling_rate : float, optional
+    Sampling rate in Hz (used if input columns are in samples, default: 200)
 
 Returns
 -------
@@ -1261,7 +1264,6 @@ Examples
             # Convert samples to seconds for statistics
             print(f"Warning: Using {col_samples}, converting to seconds for statistics")
             # Create temporary seconds column
-            sampling_rate = 200  # Assumed, could be parameter
             df_onsets_full[col_seconds] = df_onsets_full[col_samples] / sampling_rate
             method_cols[method] = col_seconds
         else:
