@@ -1436,10 +1436,10 @@ Examples
         'summary': summary
     }
 
-def find_coda_end(
+def compute_coda_end(
     signal: np.ndarray,
-    t_s_samples: int,  # ← CORRETTO
-    t_coda_samples: int,  # ← CORRETTO
+    t_s_samples: int,
+    t_coda_samples: int,
     s_window_signal: np.ndarray,
     threshold_factor: float = 0.10,
     stability_duration: float = 2.0,
@@ -1448,6 +1448,10 @@ def find_coda_end(
 ) -> int:
     """
     Determine end of active coda using energy decay threshold.
+    
+    Finds the point where signal amplitude drops below a threshold relative
+    to S-wave peak and remains low for a sustained period, indicating
+    transition from seismic coda to ambient noise.
     
     Parameters
     ----------
@@ -1476,13 +1480,24 @@ def find_coda_end(
     
     Notes
     -----
+    Algorithm:
+    1. Calculate threshold = threshold_factor × max(|S-wave|)
+    2. Compute smoothed envelope of signal after t_coda
+    3. Find first point where envelope < threshold for stability_duration
+    4. Return that point, or end of signal if not found
+    
+    Physical interpretation:
+    - Coda decays exponentially from S-wave arrival
+    - When amplitude drops to ~10% of peak and stays low, scattered energy
+      has dissipated and ambient noise dominates
+    - Typical values: threshold_factor=0.05-0.15, stability=1-3s
+    
     All time parameters use explicit _samples suffix to avoid unit ambiguity.
-    This follows the codebase convention established in onset_detection.py
-    and window_segmentation.py.
+    This follows the codebase convention established in onset_detection.py.
     
     Examples
     --------
-    >>> t_end = find_coda_end(
+    >>> t_end = compute_coda_end(
     ...     signal, 
     ...     t_s_samples=2960, 
     ...     t_coda_samples=4140, 
@@ -1490,14 +1505,24 @@ def find_coda_end(
     ...     threshold_factor=0.10
     ... )
     >>> print(f"Coda ends at sample {t_end} ({t_end/200:.2f}s)")
+    Coda ends at sample 8340 (41.70s)
     """
     
     # Reference amplitude: peak of S-wave window
     s_wave_peak = np.max(np.abs(s_window_signal))
+    
+    if s_wave_peak == 0:
+        # Degenerate case: no S-wave signal
+        return len(signal)
+    
     threshold = threshold_factor * s_wave_peak
     
     # Extract post-coda region
-    post_coda_signal = signal[t_coda_samples:]  # ← usa il parametro corretto
+    post_coda_signal = signal[t_coda_samples:]
+    
+    if len(post_coda_signal) == 0:
+        # No signal after coda onset
+        return len(signal)
     
     # Compute envelope (smoothed absolute value)
     envelope = np.abs(post_coda_signal)
@@ -1505,6 +1530,7 @@ def find_coda_end(
     # Smooth envelope to avoid high-frequency fluctuations
     smoothing_samples = int(smoothing_window * sampling_rate)
     if smoothing_samples > 1:
+        # Use uniform filter for efficiency
         from scipy.ndimage import uniform_filter1d
         envelope = uniform_filter1d(envelope, size=smoothing_samples, mode='nearest')
     
@@ -1518,12 +1544,321 @@ def find_coda_end(
     # Find first sustained crossing
     stability_samples = int(stability_duration * sampling_rate)
     
+    # Avoid index out of bounds
+    if stability_samples >= len(below_threshold):
+        # Signal too short for stability check
+        first_crossing = np.where(below_threshold)[0]
+        if len(first_crossing) > 0:
+            return t_coda_samples + first_crossing[0]
+        else:
+            return len(signal)
+    
     # Scan for first point where signal stays below threshold for stability_duration
     for i in range(len(below_threshold) - stability_samples):
         if np.all(below_threshold[i:i + stability_samples]):
             # Found sustained crossing
-            t_coda_end_samples = t_coda_samples + i  # ← usa il parametro corretto
+            t_coda_end_samples = t_coda_samples + i
             return t_coda_end_samples
     
     # Threshold crossed but not sustained: return end of signal
     return len(signal)
+
+def add_coda_end_to_dataframe(
+    df_onsets: pd.DataFrame,
+    signals_dict: Dict,
+    coda_methods: List[str] = ['rautian', 'arias', 'envelope', 'median'],
+    threshold_factor: float = 0.10,
+    stability_duration: float = 2.0,
+    sampling_rate: float = 200.0,
+    smoothing_window: float = 0.5
+) -> pd.DataFrame:
+    """
+    Calculate coda end times and add to DataFrame.
+    
+    For each coda method, computes the end of active coda (transition to
+    post-event noise) using energy decay threshold. Follows the same pattern
+    as add_coda_onsets_to_dataframe(): iterates over station-component pairs,
+    calculates coda end for each method, and populates DataFrame with dual
+    representation (samples + seconds).
+    
+    Parameters
+    ----------
+    df_onsets : pd.DataFrame
+        Component-level DataFrame with columns:
+        - STATION_CODE, COMPONENT
+        - t_s_detected_samples (or _seconds, or legacy t_s_detected)
+        - t_coda_<method>_samples (or _seconds, or legacy) for each method
+    signals_dict : dict
+        Nested dictionary {station: {component: array, 'time': array}}
+        Structure from convert_signals_to_dict()
+    coda_methods : list of str, optional
+        Which coda methods to process (default: ['rautian', 'arias', 'envelope', 'median'])
+    threshold_factor : float, optional
+        Threshold as fraction of S-wave peak amplitude (default: 0.10 = 10%)
+        Lower values (0.05) → longer coda, shorter post-event
+        Higher values (0.15) → shorter coda, longer post-event
+    stability_duration : float, optional
+        Duration in seconds that amplitude must remain below threshold (default: 2.0s)
+        Prevents false positives from transient noise spikes
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200.0)
+    smoothing_window : float, optional
+        Envelope smoothing window in seconds (default: 0.5s)
+        Larger values → smoother envelope, less sensitive to high-frequency noise
+    
+    Returns
+    -------
+    pd.DataFrame
+        Input DataFrame with added columns (dual representation):
+        - t_coda_end_<method>_samples : int (sample index)
+        - t_coda_end_<method>_seconds : float (time in seconds)
+        - t_coda_end_<method> : float (legacy alias, points to seconds)
+        
+        One set of columns per coda method.
+    
+    Notes
+    -----
+    Architectural pattern (matches add_coda_onsets_to_dataframe):
+    1. Detection happens here (calls compute_coda_end internally)
+    2. Results stored in DataFrame with dual representation
+    3. segment_all_signals() reads pre-computed values
+    
+    This maintains separation of concerns:
+    - Detection: add_coda_end_to_dataframe()
+    - Segmentation: segment_signal_into_windows()
+    
+    Missing values (NaN) in output indicate:
+    - Station-component not in signals_dict
+    - t_s or t_coda missing/invalid
+    - S-wave window empty or invalid
+    - compute_coda_end() raised exception
+    
+    Physical interpretation:
+    - t_coda_end marks transition from seismic coda to ambient noise
+    - Coda window: [t_coda, t_coda_end) — scattered seismic energy
+    - Post-event window: [t_coda_end, end] — return to background noise
+    
+    Examples
+    --------
+    >>> # After detecting P/S and coda onsets
+    >>> df_full = add_coda_onsets_to_dataframe(df_full, signals_dict)
+    >>> 
+    >>> # Add coda end times
+    >>> df_full = add_coda_end_to_dataframe(
+    ...     df_full, 
+    ...     signals_dict,
+    ...     threshold_factor=0.10,
+    ...     stability_duration=2.0
+    ... )
+    >>> 
+    >>> # Check results
+    >>> print(df_full[['STATION_CODE', 'COMPONENT', 
+    ...                't_coda_rautian_seconds', 
+    ...                't_coda_end_rautian_seconds']])
+    
+    >>> # Calculate coda durations
+    >>> df_full['coda_duration'] = (
+    ...     df_full['t_coda_end_rautian_seconds'] - 
+    ...     df_full['t_coda_rautian_seconds']
+    ... )
+    """
+    
+    # Initialize columns for each method (dual representation)
+    for method in coda_methods:
+        df_onsets[f't_coda_end_{method}_samples'] = pd.NA
+        df_onsets[f't_coda_end_{method}_seconds'] = np.nan
+    
+    # Auto-detect column naming scheme for t_s
+    has_samples_cols = 't_s_detected_samples' in df_onsets.columns
+    has_seconds_cols = 't_s_detected_seconds' in df_onsets.columns
+    
+    if has_samples_cols:
+        t_s_col = 't_s_detected_samples'
+        t_s_unit = 'samples'
+    elif has_seconds_cols:
+        t_s_col = 't_s_detected_seconds'
+        t_s_unit = 'seconds'
+    else:
+        t_s_col = 't_s_detected'
+        t_s_unit = 'seconds'  # legacy default
+    
+    print(f"\n{'='*70}")
+    print("COMPUTING CODA END TIMES")
+    print(f"{'='*70}")
+    print(f"Processing {len(df_onsets)} components...")
+    print(f"Methods: {coda_methods}")
+    print(f"Threshold: {threshold_factor:.0%} of S-wave peak amplitude")
+    print(f"Stability: {stability_duration:.1f}s")
+    print(f"Smoothing: {smoothing_window:.1f}s")
+    print(f"Sampling rate: {sampling_rate:.0f} Hz")
+    print(f"Working with: {t_s_col}")
+    print("\nProcessing: ", end="", flush=True)
+    
+    n_computed = {method: 0 for method in coda_methods}
+    n_skipped_no_signal = 0
+    n_skipped_missing_onset = 0
+    n_skipped_error = 0
+    
+    for idx, row in df_onsets.iterrows():
+        print(".", end="", flush=True)
+        
+        station = row['STATION_CODE']
+        component = row['COMPONENT']
+        
+        # Check if station-component exists in signals_dict
+        if station not in signals_dict:
+            n_skipped_no_signal += 1
+            continue
+        
+        if component not in signals_dict[station]:
+            n_skipped_no_signal += 1
+            continue
+        
+        signal = signals_dict[station][component]
+        
+        # Extract t_s
+        t_s_value = row[t_s_col]
+        if pd.isna(t_s_value):
+            n_skipped_missing_onset += 1
+            continue
+        
+        # Convert t_s to samples
+        if t_s_unit == 'samples':
+            t_s_samples = int(t_s_value)
+        else:
+            t_s_samples = int(np.round(t_s_value * sampling_rate))
+        
+        # Validate t_s
+        if t_s_samples < 0 or t_s_samples >= len(signal):
+            n_skipped_missing_onset += 1
+            continue
+        
+        # Process each coda method
+        for method in coda_methods:
+            # Auto-detect coda column naming
+            coda_col_samples = f't_coda_{method}_samples'
+            coda_col_seconds = f't_coda_{method}_seconds'
+            coda_col_legacy = f't_coda_{method}'
+            
+            if coda_col_samples in df_onsets.columns:
+                coda_col = coda_col_samples
+                coda_unit = 'samples'
+            elif coda_col_seconds in df_onsets.columns:
+                coda_col = coda_col_seconds
+                coda_unit = 'seconds'
+            elif coda_col_legacy in df_onsets.columns:
+                coda_col = coda_col_legacy
+                coda_unit = 'seconds'
+            else:
+                # Method not available, skip
+                continue
+            
+            t_coda_value = row[coda_col]
+            if pd.isna(t_coda_value):
+                continue
+            
+            # Convert t_coda to samples
+            if coda_unit == 'samples':
+                t_coda_samples = int(t_coda_value)
+            else:
+                t_coda_samples = int(np.round(t_coda_value * sampling_rate))
+            
+            # Validate t_coda
+            if t_coda_samples <= t_s_samples or t_coda_samples >= len(signal):
+                continue
+            
+            # Extract S-wave window
+            s_wave_signal = signal[t_s_samples:t_coda_samples]
+            
+            if len(s_wave_signal) == 0:
+                continue
+            
+            # Calculate coda end
+            try:
+                t_coda_end_samples = compute_coda_end(
+                    signal=signal,
+                    t_s_samples=t_s_samples,
+                    t_coda_samples=t_coda_samples,
+                    s_window_signal=s_wave_signal,
+                    threshold_factor=threshold_factor,
+                    stability_duration=stability_duration,
+                    sampling_rate=sampling_rate,
+                    smoothing_window=smoothing_window
+                )
+                
+                t_coda_end_seconds = t_coda_end_samples / sampling_rate
+                
+                # Store dual representation
+                df_onsets.loc[idx, f't_coda_end_{method}_samples'] = t_coda_end_samples
+                df_onsets.loc[idx, f't_coda_end_{method}_seconds'] = t_coda_end_seconds
+                
+                n_computed[method] += 1
+                
+            except Exception as e:
+                print(f"\nWarning: Failed to compute coda end for {station}-{component}-{method}: {e}")
+                n_skipped_error += 1
+                continue
+    
+    print()  # New line after progress dots
+    
+    # Add legacy aliases (point to seconds)
+    for method in coda_methods:
+        df_onsets[f't_coda_end_{method}'] = df_onsets[f't_coda_end_{method}_seconds']
+    
+    # Print summary
+    print(f"\n{'='*70}")
+    print("SUMMARY")
+    print(f"{'='*70}")
+    print(f"Total components processed: {len(df_onsets)}")
+    print(f"\nSuccessfully computed:")
+    for method in coda_methods:
+        print(f"  {method:12s}: {n_computed[method]:3d} ({100*n_computed[method]/len(df_onsets):.1f}%)")
+    
+    print(f"\nSkipped:")
+    print(f"No signal data:    {n_skipped_no_signal:3d}")
+    print(f"Missing onsets:    {n_skipped_missing_onset:3d}")
+    print(f"Errors:            {n_skipped_error:3d}")
+    
+    # Statistics on coda durations (for first method available)
+    for method in coda_methods:
+        col_coda = f't_coda_{method}_seconds'
+        col_end = f't_coda_end_{method}_seconds'
+        
+        if col_coda in df_onsets.columns and col_end in df_onsets.columns:
+            valid_mask = df_onsets[col_coda].notna() & df_onsets[col_end].notna()
+            
+            if valid_mask.sum() > 0:
+                coda_durations = (
+                    df_onsets.loc[valid_mask, col_end] - 
+                    df_onsets.loc[valid_mask, col_coda]
+                )
+                
+                print(f"\nCoda duration statistics ({method}):")
+                print(f"  Mean:   {coda_durations.mean():.2f}s")
+                print(f"  Median: {coda_durations.median():.2f}s")
+                print(f"  Std:    {coda_durations.std():.2f}s")
+                print(f"  Range:  [{coda_durations.min():.2f}, {coda_durations.max():.2f}]s")
+                
+                # Check for degenerate cases (coda_end at signal end, within 0.1s tolerance)
+                n_full_coda = 0
+                for idx in df_onsets[valid_mask].index:
+                    station = df_onsets.loc[idx, 'STATION_CODE']
+                    component = df_onsets.loc[idx, 'COMPONENT']
+                    
+                    if station in signals_dict and component in signals_dict[station]:
+                        signal_end_sec = len(signals_dict[station][component]) / sampling_rate
+                        coda_end_sec = df_onsets.loc[idx, col_end]
+                        
+                        # Within 0.1s of signal end → consider it "full coda"
+                        if abs(signal_end_sec - coda_end_sec) < 0.1:
+                            n_full_coda += 1
+
+                if n_full_coda > 0:
+                    print(f"\n  Note: {n_full_coda} components have coda extending to signal end")
+                    print(f"        (threshold never crossed or not sustained)")
+                
+                break  # Only print stats for first method
+    
+    print(f"{'='*70}\n")
+    
+    return df_onsets

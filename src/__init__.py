@@ -86,7 +86,7 @@ from .segmentation.onset_detection import (
     detect_coda_start_all_methods,
     add_coda_onsets_to_dataframe,
     compute_coda_method_statistics,
-    find_coda_end
+    compute_coda_end
 )
 
 from .segmentation.window_segmentation import (
