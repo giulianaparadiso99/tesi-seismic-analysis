@@ -122,7 +122,7 @@ from typing import Dict, Tuple, List, Optional, Callable
 from pathlib import Path
 from collections import defaultdict
 from src.segmentation.onset_detection import add_coda_onsets_to_dataframe
-
+from src.analysis.signals_scaling_spatial import save_results_parquet
 
 # ==============================================================================
 # PERTURBATION FUNCTIONS
@@ -423,10 +423,6 @@ def run_sensitivity_analysis(
     results : dict
         {coda_method: {scenario: {window: metrics}}}
     """
-    
-    # Import save function
-    from src.analysis.signals_scaling_spatial import save_results_parquet
-    from src.preprocessing.onset_detection import add_coda_onsets_to_dataframe
     
     logger = logging.getLogger(__name__)
     

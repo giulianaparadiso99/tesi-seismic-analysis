@@ -206,7 +206,7 @@ from .visualization.plots_moment_scaling import (
     plot_scaling_exponents
 )
 
-from visualization.plots_sensitivity import (
+from .visualization.plots_sensitivity import (
     plot_rmse_heatmap_by_coda,
     plot_zeta_confidence_by_coda,
     plot_rmse_heatmap_by_picking,
