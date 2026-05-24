@@ -510,9 +510,6 @@ def detect_coda_start(
     ...                            method='rautian', unit='samples')
     >>> print(result['t_coda_samples'], result['t_coda_seconds'])
     
-    >>> # OLD: seconds-based (backward compatible)
-    >>> result = detect_coda_start(signal, t_s=15.2, origin_time=8.2,
-    ...                            method='rautian', unit='seconds')
     """
     
     # Convert inputs to both representations
@@ -697,9 +694,6 @@ def detect_coda_start(
         signal_after_s = signal[t_s_samp:]
         
         # Calculate envelope using Hilbert transform
-        from scipy.signal import hilbert
-        from scipy.ndimage import uniform_filter1d
-        
         envelope = np.abs(hilbert(signal_after_s))
         
         # Smooth envelope with 1-second moving average (standard practice)
@@ -1046,7 +1040,7 @@ def add_coda_onsets_to_dataframe(
             's_duration_seconds': s_duration_rautian_sec
         }
     
-    print(f"  Computed Rautian for {len(rautian_cache)} stations")
+    print(f"Computed Rautian for {len(rautian_cache)} stations")
     
     print(f"Calculating Arias, Envelope, and Median coda onsets for {len(df_full)} components...")
     
@@ -1441,3 +1435,95 @@ Examples
         'by_distance': by_distance,
         'summary': summary
     }
+
+def find_coda_end(
+    signal: np.ndarray,
+    t_s_samples: int,  # ← CORRETTO
+    t_coda_samples: int,  # ← CORRETTO
+    s_window_signal: np.ndarray,
+    threshold_factor: float = 0.10,
+    stability_duration: float = 2.0,
+    sampling_rate: float = 200.0,
+    smoothing_window: float = 0.5
+) -> int:
+    """
+    Determine end of active coda using energy decay threshold.
+    
+    Parameters
+    ----------
+    signal : np.ndarray
+        Full signal time series
+    t_s_samples : int
+        S-wave onset time in samples
+    t_coda_samples : int
+        Coda onset time in samples
+    s_window_signal : np.ndarray
+        S-wave window signal (for reference amplitude)
+    threshold_factor : float, optional
+        Threshold as fraction of S-wave peak amplitude (default: 0.10 = 10%)
+    stability_duration : float, optional
+        Duration in seconds that amplitude must remain below threshold (default: 2.0s)
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200.0)
+    smoothing_window : float, optional
+        Window size in seconds for envelope smoothing (default: 0.5s)
+    
+    Returns
+    -------
+    t_coda_end_samples : int
+        End of active coda in samples (start of post-event window)
+        Returns len(signal) if threshold never crossed
+    
+    Notes
+    -----
+    All time parameters use explicit _samples suffix to avoid unit ambiguity.
+    This follows the codebase convention established in onset_detection.py
+    and window_segmentation.py.
+    
+    Examples
+    --------
+    >>> t_end = find_coda_end(
+    ...     signal, 
+    ...     t_s_samples=2960, 
+    ...     t_coda_samples=4140, 
+    ...     s_window_signal=s_wave,
+    ...     threshold_factor=0.10
+    ... )
+    >>> print(f"Coda ends at sample {t_end} ({t_end/200:.2f}s)")
+    """
+    
+    # Reference amplitude: peak of S-wave window
+    s_wave_peak = np.max(np.abs(s_window_signal))
+    threshold = threshold_factor * s_wave_peak
+    
+    # Extract post-coda region
+    post_coda_signal = signal[t_coda_samples:]  # ← usa il parametro corretto
+    
+    # Compute envelope (smoothed absolute value)
+    envelope = np.abs(post_coda_signal)
+    
+    # Smooth envelope to avoid high-frequency fluctuations
+    smoothing_samples = int(smoothing_window * sampling_rate)
+    if smoothing_samples > 1:
+        from scipy.ndimage import uniform_filter1d
+        envelope = uniform_filter1d(envelope, size=smoothing_samples, mode='nearest')
+    
+    # Find points below threshold
+    below_threshold = envelope < threshold
+    
+    if not np.any(below_threshold):
+        # Threshold never crossed: entire post-coda region is "active"
+        return len(signal)
+    
+    # Find first sustained crossing
+    stability_samples = int(stability_duration * sampling_rate)
+    
+    # Scan for first point where signal stays below threshold for stability_duration
+    for i in range(len(below_threshold) - stability_samples):
+        if np.all(below_threshold[i:i + stability_samples]):
+            # Found sustained crossing
+            t_coda_end_samples = t_coda_samples + i  # ← usa il parametro corretto
+            return t_coda_end_samples
+    
+    # Threshold crossed but not sustained: return end of signal
+    return len(signal)
