@@ -1684,14 +1684,16 @@ def plot_station_windows(
         'pre_event': '#E8E8E8',
         'p_wave': '#AED6F1',
         's_wave': '#F9E79F',
-        'coda': '#D5F4E6'
+        'coda': '#D5F4E6',
+        'post_event': '#F8C8DC'
     }
     
     # Onset line colors
     onset_colors = {
         'p': '#E74C3C',
         's': '#3498DB',
-        'coda': '#27AE60'
+        'coda': '#27AE60',
+        'coda_end': '#9B59B6'
     }
     
     # Create figure
@@ -1722,6 +1724,10 @@ def plot_station_windows(
         t_p = windows['p_wave']['start_seconds']
         t_s = windows['s_wave']['start_seconds']
         t_coda = windows['coda']['start_seconds']
+
+        has_post_event = 'post_event' in windows
+        if has_post_event:
+            t_coda_end = windows['coda']['end_seconds']
         
         # Plot window backgrounds
         if show_window_backgrounds:
@@ -1729,6 +1735,12 @@ def plot_station_windows(
                 w = windows[window_name]
                 ax.axvspan(w['start_seconds'], w['end_seconds'], 
                           color=window_colors[window_name],
+                          alpha=0.3, zorder=0)
+                
+            if has_post_event:
+                w = windows['post_event']
+                ax.axvspan(w['start_seconds'], w['end_seconds'],
+                          color=window_colors['post_event'],
                           alpha=0.3, zorder=0)
         
         # Plot signal
@@ -1742,6 +1754,10 @@ def plot_station_windows(
                       linestyle='-', zorder=3, label='S onset')
             ax.axvline(t_coda, color=onset_colors['coda'], linewidth=2,
                       linestyle='-', zorder=3, label=f'Coda ({coda_method})')
+            if has_post_event:
+                ax.axvline(t_coda_end, color=onset_colors['coda_end'], 
+                          linewidth=2, linestyle=':', zorder=3, 
+                          label='Coda end', alpha=0.8)
         
         # Labels and formatting
         ax.set_ylabel(f'{comp_label}\n{component}\n({signal_unit})', fontsize=10)
@@ -1760,6 +1776,13 @@ def plot_station_windows(
                     plt.Line2D([0], [0], color=onset_colors['coda'], linewidth=2,
                               label=f'Coda onset ({coda_method})')
                 ])
+
+                if has_post_event:
+                    legend_elements.append(
+                        plt.Line2D([0], [0], color=onset_colors['coda_end'], 
+                                  linewidth=2, linestyle=':', alpha=0.8,
+                                  label='Coda end')
+                    )
             
             if show_window_backgrounds:
                 legend_elements.extend([
@@ -1772,6 +1795,12 @@ def plot_station_windows(
                     mpatches.Patch(color=window_colors['coda'], alpha=0.3,
                                   label='Coda')
                 ])
+
+                if has_post_event:
+                    legend_elements.append(
+                        mpatches.Patch(color=window_colors['post_event'], alpha=0.3,
+                                      label='Post-event')
+                    )
             
             ax.legend(handles=legend_elements, loc='upper right', 
                      fontsize=9, framealpha=0.9)
