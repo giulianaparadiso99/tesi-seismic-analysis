@@ -1,12 +1,119 @@
 """
-Utility functions for sensitivity analysis of phase picking errors on moment scaling.
+Sensitivity analysis of moment scaling exponents to phase picking uncertainties.
 
-This module provides:
-- Perturbation functions for different error scenarios
-- Metrics computation for comparing original vs perturbed results
-- Result aggregation and summary statistics
+This module quantifies the robustness of scaling exponents ζ(q) under different
+phase picking perturbation scenarios. It tests whether conclusions about
+multifractality and anomalous diffusion are sensitive to picking errors.
+
+Main Components
+---------------
+1. **Perturbation functions**: Apply Gaussian noise or systematic bias to P/S picks
+2. **Physical constraints**: Ensure perturbed picks satisfy t_P ≥ 0, t_S > t_P
+3. **Metrics computation**: RMSE, MAE, correlation between baseline and perturbed ζ(q)
+4. **Monte Carlo simulation**: Statistical aggregation over multiple random perturbations
+5. **Result aggregation**: Summary tables and intermediate saves for long-running analyses
+
+Perturbation Scenarios
+----------------------
+- **Gaussian noise**: Random picking errors with σ = 0.2s, 0.5s, 1.0s
+- **Systematic bias**: Early/late shifts (±0.5s) simulating picker calibration errors
+- **Monte Carlo**: 100 runs with σ = 0.5s for statistical confidence intervals
+
+Key Functions
+-------------
+perturb_picks_gaussian : Apply random Gaussian noise to picks
+perturb_picks_bias : Apply systematic temporal bias to picks
+apply_physical_constraints : Enforce physical validity of perturbed picks
+compute_sensitivity_metrics : Compare baseline vs perturbed ζ(q) arrays
+compute_monte_carlo_statistics : Aggregate statistics from MC runs
+run_sensitivity_analysis : Main analysis pipeline for one data type
+create_summary : Generate summary tables from results
+extract_baseline_zeta : Helper to extract baseline ζ(q) from DataFrame/dict
+
+Physical Constraints Applied
+-----------------------------
+After perturbation, picks are adjusted to satisfy:
+1. t_P ≥ 0 (P arrival cannot be before signal start)
+2. t_S > t_P (S must arrive after P, minimum gap = 1 sample)
+3. Both within signal duration (if duration metadata available)
+
+Note: Coda onsets are NOT recalculated after perturbation in current version.
+For methods like Rautian (t_coda = 2*t_S - t_0), this may underestimate sensitivity.
+
+Output Structure
+----------------
+Results are saved hierarchically:
+    output_dir/
+        {coda_method}/
+            {scenario}/
+                ensemble_spatial_summary.parquet  # ζ(q) for all windows
+                ensemble_spatial_moments_{window}.parquet  # Full M_q(τ) data
+            monte_carlo_aggregated.parquet  # MC statistics (mean, std, percentiles)
+        {data_type}_{coda_method}_complete.pkl  # Intermediate checkpoint
+
+Usage Example
+-------------
+>>> from src.analysis.sensitivity import run_sensitivity_analysis
+>>> from src import segment_all_signals, analyze_all_windows
+>>> 
+>>> # Configuration
+>>> config = {
+...     'TAU_MIN': 0.01,
+...     'Q_VALUES': np.linspace(0.25, 5.0, 20),
+...     'SAMPLING_RATE': 200.0,
+...     'SIGNAL_COLUMN': 'signal',
+...     'N_MONTE_CARLO': 100,
+...     'MONTE_CARLO_STD': 0.5
+... }
+>>> 
+>>> scenarios = {
+...     'noise_small': {'type': 'gaussian', 'std': 0.2},
+...     'noise_medium': {'type': 'gaussian', 'std': 0.5},
+...     'bias_early': {'type': 'bias', 'bias': -0.5}
+... }
+>>> 
+>>> # Run analysis
+>>> results = run_sensitivity_analysis(
+...     data_type='acceleration',
+...     signals_dict=signals_dict,
+...     df_full=df_full,
+...     baseline_results=baseline_results,
+...     coda_methods=['rautian', 'arias'],
+...     perturbation_scenarios=scenarios,
+...     segment_function=segment_all_signals,
+...     analyze_function=analyze_all_windows,
+...     config=config,
+...     output_dir=Path('results/sensitivity'),
+...     verbose=True
+... )
+>>> 
+>>> # Create summary
+>>> summary = create_summary(results, 'acceleration', save_path='summary.csv')
+>>> print(summary[['scenario', 'window', 'rmse']].head())
+
+Interpretation Guidelines
+--------------------------
+RMSE(ζ) < 0.05: Robust to picking errors (high confidence in multifractality)
+RMSE(ζ) 0.05-0.15: Moderate sensitivity (results hold with caveats)
+RMSE(ζ) > 0.15: High sensitivity (conclusions may depend on picking quality)
+
+Notes
+-----
+- All perturbations preserve signal content (only onset times change)
+- Monte Carlo runs are independent (different random seeds)
+- Results for coda should be interpreted with caution if coda onsets
+  depend on perturbed S picks (e.g., Rautian method)
+
+See Also
+--------
+src.segmentation.onset_detection : Phase picking algorithms
+src.analysis.signals_scaling_spatial_ensemble : Moment scaling computation
+notebooks.04a_moment_scaling_spatial : Baseline ζ(q) calculation
+
+References
+----------
+.. [1] Vollmer et al. (2024) "Scaling of seismic moment fluctuations"
 """
-
 import numpy as np
 import pandas as pd
 import pickle
@@ -14,6 +121,7 @@ import logging
 from typing import Dict, Tuple, List, Optional, Callable
 from pathlib import Path
 from collections import defaultdict
+from src.segmentation.onset_detection import add_coda_onsets_to_dataframe
 
 
 # ==============================================================================
@@ -318,6 +426,7 @@ def run_sensitivity_analysis(
     
     # Import save function
     from src.analysis.signals_scaling_spatial import save_results_parquet
+    from src.preprocessing.onset_detection import add_coda_onsets_to_dataframe
     
     logger = logging.getLogger(__name__)
     
@@ -374,6 +483,17 @@ def run_sensitivity_analysis(
                 )
             else:
                 raise ValueError(f"Unknown perturbation type: {scenario_params['type']}")
+            
+            # CRITICAL: Recalculate coda onsets with perturbed P/S picks
+            # This ensures coda windows properly reflect the perturbation effects
+            df_perturbed = add_coda_onsets_to_dataframe(
+                df_perturbed,
+                signals_dict,
+                threshold_arias=0.95,
+                threshold_envelope=0.3,
+                sampling_rate=config['SAMPLING_RATE'],
+                unit='samples'
+            )
             
             # Regenerate windows
             try:
@@ -482,6 +602,16 @@ def run_sensitivity_analysis(
                 noise_std=config['MONTE_CARLO_STD'],
                 sampling_rate=config['SAMPLING_RATE'],
                 random_state=42 + mc_run
+            )
+            
+            # CRITICAL: Recalculate coda onsets with perturbed P/S picks
+            df_mc = add_coda_onsets_to_dataframe(
+                df_mc,
+                signals_dict,
+                threshold_arias=0.95,
+                threshold_envelope=0.3,
+                sampling_rate=config['SAMPLING_RATE'],
+                unit='samples'
             )
             
             # Regenerate windows
