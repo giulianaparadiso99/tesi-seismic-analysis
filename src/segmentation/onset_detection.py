@@ -866,7 +866,6 @@ def detect_coda_start_all_methods(
     
     Examples
     --------
-    >>> # NEW: samples-based
     >>> results = detect_coda_start_all_methods(
     ...     signal, t_s=3040, origin_time=1640,
     ...     unit='samples'
@@ -875,11 +874,6 @@ def detect_coda_start_all_methods(
     ...     print(f"{method}: t_coda={res['t_coda_samples']} samp "
     ...           f"({res['t_coda_seconds']:.2f}s)")
     
-    >>> # OLD: seconds-based
-    >>> results = detect_coda_start_all_methods(
-    ...     signal, t_s=15.2, origin_time=8.2,
-    ...     unit='seconds'
-    ... )
     """
     methods = ['rautian', 'arias', 'envelope', 'median']
     results = {}
@@ -1444,7 +1438,7 @@ def compute_coda_end(
     threshold_factor: float = 0.10,
     stability_duration: float = 2.0,
     sampling_rate: float = 200.0,
-    smoothing_window: float = 0.5
+    smoothing_window: float = 1
 ) -> int:
     """
     Determine end of active coda using energy decay threshold.
@@ -1508,66 +1502,207 @@ def compute_coda_end(
     Coda ends at sample 8340 (41.70s)
     """
     
-    # Reference amplitude: peak of S-wave window
-    s_wave_peak = np.max(np.abs(s_window_signal))
-    
-    if s_wave_peak == 0:
-        # Degenerate case: no S-wave signal
-        return len(signal)
-    
-    threshold = threshold_factor * s_wave_peak
-    
-    # Extract post-coda region
+     # Extract post-coda region
     post_coda_signal = signal[t_coda_samples:]
     
     if len(post_coda_signal) == 0:
-        # No signal after coda onset
         return len(signal)
     
-    # Compute envelope (smoothed absolute value)
-    envelope = np.abs(post_coda_signal)
+    # Compute envelope using Hilbert transform
+    envelope = np.abs(hilbert(post_coda_signal))
     
-    # Smooth envelope to avoid high-frequency fluctuations
-    smoothing_samples = int(smoothing_window * sampling_rate)
-    if smoothing_samples > 1:
-        # Use uniform filter for efficiency
-        from scipy.ndimage import uniform_filter1d
-        envelope = uniform_filter1d(envelope, size=smoothing_samples, mode='nearest')
+    # Smooth envelope with 1-second moving average
+    smooth_window_samples = int(smoothing_window * sampling_rate)
+    if smooth_window_samples > 1:
+        envelope_smooth = uniform_filter1d(envelope, size=smooth_window_samples, mode='nearest')
+    else:
+        envelope_smooth = envelope
+    
+    # Find peak envelope in early coda (first 5s after coda onset)
+    search_window_samples = min(int(5.0 * sampling_rate), len(envelope_smooth))
+    
+    if search_window_samples == 0:
+        return len(signal)
+    
+    peak_envelope = np.max(envelope_smooth[:search_window_samples])
+    
+    if peak_envelope == 0:
+        return len(signal)
+    
+    # Calculate threshold
+    threshold = threshold_factor * peak_envelope
     
     # Find points below threshold
-    below_threshold = envelope < threshold
+    below_threshold = envelope_smooth < threshold
     
     if not np.any(below_threshold):
-        # Threshold never crossed: entire post-coda region is "active"
         return len(signal)
     
-    # Find first sustained crossing
+    # Stability requirement
     stability_samples = int(stability_duration * sampling_rate)
     
-    # Avoid index out of bounds
-    if stability_samples >= len(below_threshold):
-        # Signal too short for stability check
+    # ═══════════════════════════════════════════════════════════════
+    # FIX: Enforce minimum coda duration (1 second)
+    # ═══════════════════════════════════════════════════════════════
+    min_coda_duration_samples = int(1.0 * sampling_rate)
+    
+    # If signal too short for both minimum duration AND stability check
+    if len(below_threshold) < (min_coda_duration_samples + stability_samples):
+        # Fallback: find first crossing without stability requirement
         first_crossing = np.where(below_threshold)[0]
         if len(first_crossing) > 0:
-            return t_coda_samples + first_crossing[0]
-        else:
-            return len(signal)
+            # But still enforce minimum duration
+            crossing_idx = max(first_crossing[0], min_coda_duration_samples)
+            if crossing_idx < len(below_threshold):
+                return t_coda_samples + crossing_idx
+        return len(signal)
+    
+    # Start search AFTER minimum duration
+    start_idx = min_coda_duration_samples
     
     # Scan for first point where signal stays below threshold for stability_duration
-    for i in range(len(below_threshold) - stability_samples):
+    for i in range(start_idx, len(below_threshold) - stability_samples):
         if np.all(below_threshold[i:i + stability_samples]):
-            # Found sustained crossing
             t_coda_end_samples = t_coda_samples + i
             return t_coda_end_samples
     
     # Threshold crossed but not sustained: return end of signal
     return len(signal)
 
+def compute_coda_end_arias(
+    signal: np.ndarray,
+    t_s_samples: int,
+    t_coda_samples: int,
+    threshold_end: float = 0.995,  # 99.5% dell'energia
+    sampling_rate: float = 200.0,
+    window_start_samples: int = 0  # Stesso dell'onset (5s prima di P o origine)
+) -> int:
+    """
+    Determine end of active coda using Arias Intensity energy accumulation.
+    
+    Mirrors the Arias D5-D95 method used for coda onset detection, but uses
+    a higher energy threshold (e.g., D99.5) to detect the end of significant
+    seismic energy and transition to ambient noise.
+    
+    Parameters
+    ----------
+    signal : np.ndarray
+        Full signal time series
+    t_s_samples : int
+        S-wave onset time in samples
+    t_coda_samples : int
+        Coda onset time in samples (typically D95)
+    threshold_end : float, optional
+        Energy fraction threshold for coda end (default: 0.995 = 99.5%)
+        Common values:
+        - 0.990 (D99): more conservative, shorter coda
+        - 0.995 (D99.5): balanced (recommended)
+        - 0.999 (D99.9): very long coda, may include noise tail
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200.0)
+    window_start_samples : int, optional
+        Start sample for Arias integration window (default: 0)
+        Should match the value used for coda onset detection
+        (typically 5s before P-onset or event origin)
+    
+    Returns
+    -------
+    t_coda_end_samples : int
+        End of active coda in samples (D99.5 or specified threshold)
+        Returns len(signal) if threshold never reached
+    
+    Notes
+    -----
+    Algorithm (consistent with coda onset detection):
+    1. Compute Arias Intensity on same window as onset detection
+    2. Normalize to [0, 1]
+    3. Find time when AI reaches threshold_end (e.g., 99.5%)
+    4. Return that time as coda end
+    
+    Physical interpretation:
+    - D95 (onset): 95% of total seismic energy released
+    - D99.5 (end): 99.5% of energy released, remaining 0.5% is ambient noise
+    - The 4.5% energy band [D95, D99.5] represents the coda decay phase
+    
+    Advantages over envelope threshold:
+    - Physically motivated (energy-based)
+    - Robust to amplitude fluctuations
+    - Consistent with coda onset methodology
+    - No arbitrary threshold tuning
+    - No stability duration requirement
+    
+    References
+    ----------
+    Lanzano, G., et al. (2019). "The pan-European Engineering Strong Motion 
+    (ESM) flatfile: compilation criteria and data statistics." 
+    Bulletin of Earthquake Engineering, 17(2), 561-582.
+    
+    Examples
+    --------
+    >>> t_end = compute_coda_end_arias(
+    ...     signal,
+    ...     t_s_samples=2960,
+    ...     t_coda_samples=4140,
+    ...     threshold_end=0.995,
+    ...     window_start_samples=1440
+    ... )
+    >>> coda_duration = (t_end - 4140) / 200.0
+    >>> print(f"Coda duration: {coda_duration:.2f}s")
+    Coda duration: 8.34s
+    """
+    
+    # Extract signal window (same as coda onset detection)
+    signal_window = signal[window_start_samples:]
+    
+    if len(signal_window) == 0:
+        return len(signal)
+    
+    # Compute Arias Intensity on full signal window
+    dt = 1.0 / sampling_rate
+    g = 9.81  # m/s²
+    arias_cumsum = (np.pi / (2 * g)) * np.cumsum(signal_window**2) * dt
+    
+    # Handle pathological case (zero signal)
+    if arias_cumsum[-1] == 0 or len(arias_cumsum) == 0:
+        return len(signal)
+    
+    # Normalize to [0, 1]
+    arias_norm = arias_cumsum / arias_cumsum[-1]
+    
+    # Find time when threshold is reached
+    idx_threshold_rel = np.argmax(arias_norm >= threshold_end)
+    
+    # Check if threshold was never reached
+    if idx_threshold_rel == 0 and arias_norm[0] < threshold_end:
+        # Threshold > 1 or signal ends before reaching it
+        return len(signal)
+    
+    # Convert to absolute sample index
+    t_coda_end_samples = window_start_samples + idx_threshold_rel
+    
+    # Sanity check: coda_end must be after coda_onset
+    if t_coda_end_samples <= t_coda_samples:
+        # This shouldn't happen if threshold_end > threshold_onset (e.g., 0.995 > 0.95)
+        # But enforce it as safety
+        return len(signal)
+    
+    # Enforce minimum coda duration (1 second)
+    min_coda_duration_samples = int(1.0 * sampling_rate)
+    if (t_coda_end_samples - t_coda_samples) < min_coda_duration_samples:
+        # Coda too short: extend to minimum duration or signal end
+        t_coda_end_samples = min(
+            t_coda_samples + min_coda_duration_samples,
+            len(signal)
+        )
+    
+    return t_coda_end_samples
+
 def add_coda_end_to_dataframe(
     df_onsets: pd.DataFrame,
     signals_dict: Dict,
     coda_methods: List[str] = ['rautian', 'arias', 'envelope', 'median'],
     threshold_factor: float = 0.10,
+    threshold_end_arias: float = 0.995,
     stability_duration: float = 2.0,
     sampling_rate: float = 200.0,
     smoothing_window: float = 0.5
@@ -1597,6 +1732,8 @@ def add_coda_end_to_dataframe(
         Threshold as fraction of S-wave peak amplitude (default: 0.10 = 10%)
         Lower values (0.05) → longer coda, shorter post-event
         Higher values (0.15) → shorter coda, longer post-event
+    threshold_end_arias : float, optional
+        Energy threshold for Arias method (default: 0.995 = 99.5%)
     stability_duration : float, optional
         Duration in seconds that amplitude must remain below threshold (default: 2.0s)
         Prevents false positives from transient noise spikes
@@ -1773,18 +1910,37 @@ def add_coda_end_to_dataframe(
             if len(s_wave_signal) == 0:
                 continue
             
-            # Calculate coda end
             try:
-                t_coda_end_samples = compute_coda_end(
-                    signal=signal,
-                    t_s_samples=t_s_samples,
-                    t_coda_samples=t_coda_samples,
-                    s_window_signal=s_wave_signal,
-                    threshold_factor=threshold_factor,
-                    stability_duration=stability_duration,
-                    sampling_rate=sampling_rate,
-                    smoothing_window=smoothing_window
-                )
+                if method == 'arias':
+                    # Use Arias D99.5 method (energy-based)
+                    # Need to find window_start used for onset
+                    # Default: 5s before P or origin
+                    if 't_p_detected_samples' in df_onsets.columns:
+                        t_p_samples = int(row['t_p_detected_samples'])
+                        window_start = max(0, t_p_samples - int(5.0 * sampling_rate))
+                    else:
+                        window_start = 0
+                    
+                    t_coda_end_samples = compute_coda_end_arias(
+                        signal=signal,
+                        t_s_samples=t_s_samples,
+                        t_coda_samples=t_coda_samples,
+                        threshold_end=threshold_end_arias,
+                        sampling_rate=sampling_rate,
+                        window_start_samples=window_start
+                    )
+                else:
+                    # Use envelope decay method (for rautian, envelope, median)
+                    t_coda_end_samples = compute_coda_end(
+                        signal=signal,
+                        t_s_samples=t_s_samples,
+                        t_coda_samples=t_coda_samples,
+                        s_window_signal=s_wave_signal,
+                        threshold_factor=threshold_factor,
+                        stability_duration=stability_duration,
+                        sampling_rate=sampling_rate,
+                        smoothing_window=smoothing_window
+                    )
                 
                 t_coda_end_seconds = t_coda_end_samples / sampling_rate
                 
@@ -1819,7 +1975,7 @@ def add_coda_end_to_dataframe(
     print(f"Missing onsets:    {n_skipped_missing_onset:3d}")
     print(f"Errors:            {n_skipped_error:3d}")
     
-    # Statistics on coda durations (for first method available)
+    # Statistics on coda durations (for all methods)
     for method in coda_methods:
         col_coda = f't_coda_{method}_seconds'
         col_end = f't_coda_end_{method}_seconds'
@@ -1834,10 +1990,10 @@ def add_coda_end_to_dataframe(
                 )
                 
                 print(f"\nCoda duration statistics ({method}):")
-                print(f"  Mean:   {coda_durations.mean():.2f}s")
-                print(f"  Median: {coda_durations.median():.2f}s")
-                print(f"  Std:    {coda_durations.std():.2f}s")
-                print(f"  Range:  [{coda_durations.min():.2f}, {coda_durations.max():.2f}]s")
+                print(f"Mean:   {coda_durations.mean():.2f}s")
+                print(f"Median: {coda_durations.median():.2f}s")
+                print(f"Std:    {coda_durations.std():.2f}s")
+                print(f"Range:  [{coda_durations.min():.2f}, {coda_durations.max():.2f}]s")
                 
                 # Check for degenerate cases (coda_end at signal end, within 0.1s tolerance)
                 n_full_coda = 0
@@ -1852,13 +2008,14 @@ def add_coda_end_to_dataframe(
                         # Within 0.1s of signal end → consider it "full coda"
                         if abs(signal_end_sec - coda_end_sec) < 0.1:
                             n_full_coda += 1
-
-                if n_full_coda > 0:
-                    print(f"\n  Note: {n_full_coda} components have coda extending to signal end")
-                    print(f"        (threshold never crossed or not sustained)")
                 
-                break  # Only print stats for first method
-    
+                if n_full_coda > 0:
+                    print(f"  Note: {n_full_coda} components have coda extending to signal end")
+                    print(f"        (threshold never crossed or not sustained)")
+            else:
+                print(f"\nCoda duration statistics ({method}):")
+                print(f"  No valid data")
+
     print(f"{'='*70}\n")
-    
+
     return df_onsets
