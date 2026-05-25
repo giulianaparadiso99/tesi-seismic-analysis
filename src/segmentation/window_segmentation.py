@@ -551,10 +551,8 @@ def segment_all_signals(
                         t_coda_end = int(np.round(float(t_coda_end) * sampling_rate))
                     elif coda_end_unit == 'samples' and working_unit == 'seconds':
                         t_coda_end = int(t_coda_end) / sampling_rate
-                n_with_post += 1
             else:
                 t_coda_end = None
-                n_without_post += 1
 
             # Segment signal
             signal = signals_dict[station][component]
@@ -571,7 +569,10 @@ def segment_all_signals(
                     time=time_array,
                     pre_p_duration=pre_p_duration
                 )
-                
+                if 'post_event' in windows:
+                    n_with_post += 1
+                else:
+                    n_without_post += 1
                 if verbose:
                     print(".", end="", flush=True)
                 windowed_signals[station][component] = windows
@@ -581,23 +582,6 @@ def segment_all_signals(
                     print(f"Error segmenting {station}-{component}: {e}")
                 n_skipped_error += 1
                 continue
-    # Dopo il loop di segmentazione
-    print("\n" + "="*70)
-    print("DEBUG: Detailed post-event check")
-    print("="*70)
-
-    for station in windowed_signals:
-        for component in windowed_signals[station]:
-            windows = windowed_signals[station][component]
-            
-            has_post = 'post_event' in windows
-            
-            if has_post:
-                post_duration = windows['post_event']['duration_seconds']
-                coda_duration = windows['coda']['duration_seconds']
-                
-                if post_duration < 1.0:  # Quasi vuoto
-                    print(f"{station}-{component}: post_event={post_duration:.3f}s, coda={coda_duration:.2f}s")
     
     if verbose:
         print()
