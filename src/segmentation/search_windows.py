@@ -363,24 +363,28 @@ def add_crustal_velocities(
     df_result['traversed_layers'] = layers_list
     
     print(f"Added vp_crust, vs_crust, and traversed_layers columns")
-    print(f"v_P: min={min(vp_list):.2f}, max={max(vp_list):.2f}, "
-          f"median={np.median(vp_list):.2f} km/s")
-    print(f"v_S: min={min(vs_list):.2f}, max={max(vs_list):.2f}, "
-          f"median={np.median(vs_list):.2f} km/s")
-    
-    # Summary of layers used
+    print(f"v_P: min={min(vp_list):.2f}, mean={np.mean(vp_list):.2f}, "
+      f"median={np.median(vp_list):.2f}, max={max(vp_list):.2f} km/s")
+    print(f"v_S: min={min(vs_list):.2f}, mean={np.mean(vs_list):.2f}, "
+      f"median={np.median(vs_list):.2f}, max={max(vs_list):.2f} km/s")
+
+    # Summary of layers used, sorted by frequency (most common first)
     unique_layers_sets = set(tuple(layers) for layers in layers_list)
+    layer_counts = {
+        layer_set: sum(1 for layers in layers_list if tuple(layers) == layer_set)
+        for layer_set in unique_layers_sets
+    }
     print(f"\nUnique layer combinations used: {len(unique_layers_sets)}")
-    for layer_set in unique_layers_sets:
-        count = sum(1 for layers in layers_list if tuple(layers) == layer_set)
-        print(f"  {count} stations: {list(layer_set)}")
-    
+    for layer_set, count in sorted(layer_counts.items(), key=lambda x: -x[1]):
+        label = "station" if count == 1 else "stations"
+        print(f"  {count:2d} {label}: {list(layer_set)}")
     return df_result
 
 def add_hypocentral_distance(
     df_stations: pd.DataFrame, 
     hypo_depth_km: float, 
-    distance_col: str = 'EPICENTRAL_DISTANCE_KM'
+    distance_col: str = 'EPICENTRAL_DISTANCE_KM',
+    verbose: bool = True
 ) -> pd.DataFrame:
     """
     Add hypocentral distance column to station metadata.
@@ -396,7 +400,8 @@ def add_hypocentral_distance(
         Hypocenter depth in kilometers (positive downward from surface)
     distance_col : str, optional
         Column name for epicentral distance (default: 'EPICENTRAL_DISTANCE_KM')
-    
+    verbose : bool, optional
+        If TRUE, print summary statistics (default: True)
     Returns
     -------
     pd.DataFrame
@@ -439,12 +444,12 @@ def add_hypocentral_distance(
     # Summary statistics
     distance_diff = hypocentral_dist - epicentral_dist
     
-    print(f"Hypocentral distance calculated:")
-    print(f"  Hypocenter depth: {hypo_depth_km:.2f} km")
-    print(f"  Epicentral distance range: {epicentral_dist.min():.2f} - {epicentral_dist.max():.2f} km")
-    print(f"  Hypocentral distance range: {hypocentral_dist.min():.2f} - {hypocentral_dist.max():.2f} km")
-    print(f"  Distance increase (depth correction): {distance_diff.min():.2f} - {distance_diff.max():.2f} km")
-    print(f"  Median distance increase: {distance_diff.median():.2f} km")
+    if verbose:
+        print(f"Hypocentral distance calculated:")
+        print(f"Hypocenter depth: {hypo_depth_km:.2f} km")
+        print(f"Epicentral distance:  min={epicentral_dist.min():.2f}, median={epicentral_dist.median():.2f}, max={epicentral_dist.max():.2f} km")
+        print(f"Hypocentral distance: min={hypocentral_dist.min():.2f}, median={hypocentral_dist.median():.2f}, max={hypocentral_dist.max():.2f} km")
+        print(f"Depth correction:     min={distance_diff.min():.2f}, median={distance_diff.median():.2f}, max={distance_diff.max():.2f} km")
     
     return df_result
 
@@ -471,7 +476,7 @@ def add_theoretical_arrivals(
         Sampling rate in Hz (default: 200)
     distance_col : str, optional
         Column name for epicentral distance (default: 'EPICENTRAL_DISTANCE_KM')
-    
+
     Returns
     -------
     pd.DataFrame
@@ -497,7 +502,7 @@ def add_theoretical_arrivals(
         )
     
     # Add hypocentral distance using the new function
-    df_result = add_hypocentral_distance(df_stations, hypo_depth_km, distance_col)
+    df_result = add_hypocentral_distance(df_stations, hypo_depth_km, distance_col, verbose=False)
     
     # Calculate origin_time: seconds from file start to event
     event_datetime = pd.to_datetime(df_result['EVENT_DATE'])
@@ -519,10 +524,18 @@ def add_theoretical_arrivals(
     df_result['t_p_theo_samples'] = np.round(df_result['t_p_theo_seconds'] * sampling_rate).astype(int)
     df_result['t_s_theo_samples'] = np.round(df_result['t_s_theo_seconds'] * sampling_rate).astype(int)
     
-    print(f"\nTheoretical arrival times calculated:")
-    print(f"  Origin time range: {origin_time.min():.2f} - {origin_time.max():.2f} s")
-    print(f"  t_P range: {df_result['t_p_theo_seconds'].min():.2f} - {df_result['t_p_theo_seconds'].max():.2f} s")
-    print(f"  t_S range: {df_result['t_s_theo_seconds'].min():.2f} - {df_result['t_s_theo_seconds'].max():.2f} s")
+    epicentral_dist = df_result[distance_col]
+    hypocentral_dist = df_result['hypocentral_distance_km']
+    distance_diff = hypocentral_dist - epicentral_dist
+
+    print(f"Hypocentral distance and theoretical arrival times:")
+    print(f"Hypocenter depth: {hypo_depth_km:.2f} km")
+    print(f"Epicentral distance:  min={epicentral_dist.min():.2f}, median={epicentral_dist.median():.2f}, max={epicentral_dist.max():.2f} km")
+    print(f"Hypocentral distance: min={hypocentral_dist.min():.2f}, median={hypocentral_dist.median():.2f}, max={hypocentral_dist.max():.2f} km")
+    print(f"Depth correction:     min={distance_diff.min():.2f}, median={distance_diff.median():.2f}, max={distance_diff.max():.2f} km")
+    print(f"Origin time: min={origin_time.min():.2f}, max={origin_time.max():.2f} s")
+    print(f"t_P:         min={df_result['t_p_theo_seconds'].min():.2f}, max={df_result['t_p_theo_seconds'].max():.2f} s")
+    print(f"t_S:         min={df_result['t_s_theo_seconds'].min():.2f}, max={df_result['t_s_theo_seconds'].max():.2f} s")
     
     return df_result
 
