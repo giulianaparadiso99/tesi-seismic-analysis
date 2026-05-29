@@ -425,14 +425,14 @@ def detect_onsets_arpick(
     print(f"  S-wave: {n_s_success}/{n_stations} successful ({100*n_s_success/n_stations:.1f}%)")
     
     if n_p_success > 0:
-        p_res_mean = df_meta_stations['p_residual_seconds'].mean()
-        p_res_std = df_meta_stations['p_residual_seconds'].std()
-        print(f"  P residuals: {p_res_mean:.2f} ± {p_res_std:.2f} s")
-    
+        p_res = df_meta_stations['p_residual_seconds'].dropna()
+        print(f"  P residuals: {p_res.mean():.2f} ± {p_res.std():.2f} s  "
+            f"[{p_res.min():.2f}, {p_res.max():.2f}]")
+
     if n_s_success > 0:
-        s_res_mean = df_meta_stations['s_residual_seconds'].mean()
-        s_res_std = df_meta_stations['s_residual_seconds'].std()
-        print(f"  S residuals: {s_res_mean:.2f} ± {s_res_std:.2f} s")
+        s_res = df_meta_stations['s_residual_seconds'].dropna()
+        print(f"  S residuals: {s_res.mean():.2f} ± {s_res.std():.2f} s  "
+            f"[{s_res.min():.2f}, {s_res.max():.2f}]")
     
     # Report failures
     failures = df_meta_stations[~(df_meta_stations['p_detection_success'] & 

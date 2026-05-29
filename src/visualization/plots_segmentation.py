@@ -156,7 +156,6 @@ def display_theoretical_arrivals_table(df_stations, n_rows=10):
     table.index += 1  # 1-based index
 
     print(f"First {min(n_rows, len(table))} stations sorted by epicentral distance:")
-    print("=" * 70)
     display(table.head(n_rows))
     return table
 
