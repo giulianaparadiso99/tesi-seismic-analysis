@@ -68,8 +68,8 @@ def add_time_columns(
     df['time'] = df['sample'] * sampling_interval
     
     print(f"Added relative time column (t=0 at first sample)")
-    print(f"Sampling interval: {sampling_interval} s ({1/sampling_interval:.1f} Hz)")
-    print(f"Time range: {df['time'].min():.3f} - {df['time'].max():.3f} s")
+    print(f"Sampling rate: {1/sampling_interval:.1f} Hz (interval: {sampling_interval} s)")
+    print(f"Relative time range: {df['time'].min():.3f} - {df['time'].max():.3f} s")
     
     # Merge with metadata to get DATE_TIME_FIRST_SAMPLE per file
     file_times = df_metadata[['file', time_col]].drop_duplicates('file')
@@ -84,19 +84,13 @@ def add_time_columns(
     # Drop temporary merge column
     df = df.drop(columns=[time_col])
     
-    print(f"Added absolute time column")
-    print(f"Time range: {df['time_absolute'].min()} to {df['time_absolute'].max()}")
-    
-    # Verify consistency
-    expected_duration = df_metadata['DURATION_S'].iloc[0]
-    actual_duration = df.groupby('file')['time'].max().mean()
-    duration_diff = abs(expected_duration - actual_duration)
-    
-    if duration_diff < 0.01:
-        print(f"Duration check: ({actual_duration:.2f} s matches metadata)")
-    else:
-        print(f"Duration check: Expected {expected_duration:.2f} s, got {actual_duration:.2f} s")
-    
+    print(f"\nAdded absolute time column")
+    print(f"Absolute time range: {df['time_absolute'].min()} to {df['time_absolute'].max()}")
+
+    # Signal duration statistics across files
+    durations = df.groupby('file')['time'].max()
+    print(f"Signal duration: min={durations.min():.2f}, median={durations.median():.2f}, max={durations.max():.2f} s ({len(durations)} files)")
+        
     return df
 
 def get_station_from_filename(filename: str) -> str:

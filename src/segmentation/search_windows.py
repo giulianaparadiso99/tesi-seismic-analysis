@@ -786,22 +786,14 @@ def calculate_distance_thresholds(
         )
     
     # Print summary
-    print(f"Distance thresholds calculated using {method}:")
-    print(f"  Distance column: {distance_col}")
-    print(f"  Number of stations: {len(distances)}")
-    print(f"  Distance range: {distances.min():.2f} - {distances.max():.2f} km")
-    print(f"  Thresholds: {[f'{t:.2f}' for t in thresholds]} km")
-    
-    # Show bin populations
     bins = [0] + thresholds + [np.inf]
-    print(f"\nDistance bins:")
-    for i in range(len(bins) - 1):
-        count = np.sum((distances > bins[i]) & (distances <= bins[i+1]))
-        if bins[i+1] == np.inf:
-            print(f"  Bin {i+1}: ({bins[i]:.2f}, ∞) km → {count} stations")
-        else:
-            print(f"  Bin {i+1}: ({bins[i]:.2f}, {bins[i+1]:.2f}] km → {count} stations")
-    
+    bin_counts = [int(np.sum((distances > bins[i]) & (distances <= bins[i+1])))
+                for i in range(len(bins) - 1)]
+    thresholds_str = ", ".join(f"{t:.2f}" for t in thresholds)
+    counts_str = " / ".join(str(c) for c in bin_counts)
+    print(f"Distance thresholds ({method}, {distance_col}):")
+    print(f"  {len(distances)} stations, range: {distances.min():.2f} - {distances.max():.2f} km")
+    print(f"  Thresholds: {thresholds_str} km → bins of {counts_str} stations")
     return thresholds
 
 

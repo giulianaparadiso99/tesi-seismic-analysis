@@ -118,7 +118,6 @@ from IPython.display import display
 from src.visualization.plot_settings import set_plot_style
 colors, colors1 = set_plot_style()
 
-
 def display_theoretical_arrivals_table(df_stations, n_rows=10):
     """
     Display table of theoretical arrival times and crustal velocities.
@@ -135,41 +134,32 @@ def display_theoretical_arrivals_table(df_stations, n_rows=10):
     pd.DataFrame
         Formatted table subset
     """
-    
     table = df_stations[[
-        'STATION_CODE', 
+        'STATION_CODE',
         'EPICENTRAL_DISTANCE_KM',
-        'vp_crust', 
+        'vp_crust',
         'vs_crust',
-        't_p_theo_seconds', 
+        'origin_time',
+        't_p_theo_seconds',
         't_s_theo_seconds'
     ]].copy()
-    
-    # Round for readability
-    table['vp_crust'] = table['vp_crust'].round(2)
-    table['vs_crust'] = table['vs_crust'].round(2)
-    table['t_p_theo_seconds'] = table['t_p_theo_seconds'].round(2)
-    table['t_s_theo_seconds'] = table['t_s_theo_seconds'].round(2)
-    
-    # Sort by distance
-    table = table.sort_values('EPICENTRAL_DISTANCE_KM')
-    
-    # Display statistics
-    print("Theoretical Arrival Times Summary")
+
+    table = table.round({
+        'vp_crust': 2,
+        'vs_crust': 2,
+        'origin_time': 2,
+        't_p_theo_seconds': 2,
+        't_s_theo_seconds': 2
+    })
+
+    table = table.sort_values('EPICENTRAL_DISTANCE_KM').reset_index(drop=True)
+    table.index += 1  # 1-based index
+
+    print(f"First {min(n_rows, len(table))} stations sorted by epicentral distance:")
     print("=" * 70)
-    print(f"\nNumber of stations: {len(table)}")
-    print(f"\nDistance range: {table['EPICENTRAL_DISTANCE_KM'].min():.1f} - {table['EPICENTRAL_DISTANCE_KM'].max():.1f} km")
-    print(f"P-wave arrival range: {table['t_p_theo_seconds'].min():.1f} - {table['t_p_theo_seconds'].max():.1f} s")
-    print(f"S-wave arrival range: {table['t_s_theo_seconds'].min():.1f} - {table['t_s_theo_seconds'].max():.1f} s")
-    print(f"\nMedian crustal velocities:")
-    print(f"  v_P = {table['vp_crust'].median():.2f} km/s")
-    print(f"  v_S = {table['vs_crust'].median():.2f} km/s")
-    print(f"\nFirst {n_rows} stations (sorted by distance):")
-    print("=" * 70)
-    
     display(table.head(n_rows))
-    
     return table
+
 
 def plot_apparent_vs_crustal_velocities(
     df_meta_stations: pd.DataFrame, 
@@ -320,7 +310,6 @@ def plot_crustal_velocities_vs_distance(
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {output_path}")
     
     return fig
 
@@ -426,7 +415,6 @@ def plot_theoretical_arrivals(
             output_path = output_path.with_suffix('.pdf')
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {output_path}")
     
     return fig, ax
 
@@ -627,7 +615,6 @@ def plot_onset_detection_results(signals_dict, df_results,
         if output_dir is not None:
             output_path = output_dir / f'onset_detection_{station}.pdf'
             fig.savefig(output_path, dpi=150, bbox_inches='tight')
-            print(f"Saved: {output_path}")
         
         figures[station] = fig
     
@@ -856,7 +843,6 @@ def plot_onset_detection_results_v2(
         if output_dir is not None:
             output_path = output_dir / f'onset_detection_{station}_{method}.pdf'
             fig.savefig(output_path, dpi=150, bbox_inches='tight')
-            print(f"Saved: {output_path}")
         
         figures[station] = fig
     
@@ -1042,7 +1028,6 @@ def plot_coda_onset_results(signals_dict, df_onsets_full,
         if output_dir is not None:
             output_path = output_dir / f'coda_detection_{station}.pdf'
             fig.savefig(output_path, dpi=150, bbox_inches='tight')
-            print(f"Saved: {output_path}")
         
         figures[station] = fig
     
@@ -1138,7 +1123,7 @@ def plot_coda_scatter_comparison(
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {output_path}")
+    
     
     return fig
 
@@ -1243,7 +1228,7 @@ def plot_bland_altman_comparison(
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {output_path}")
+    
     
     return fig
 
@@ -1337,7 +1322,7 @@ def plot_residuals_vs_distance(
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {output_path}")
+        
     
     return fig
 
@@ -1431,7 +1416,7 @@ def plot_pairwise_difference_histograms(
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {output_path}")
+        
     
     return fig
 
@@ -1523,7 +1508,6 @@ def plot_correlation_matrix_heatmap(
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {output_path}")
     
     return fig
 
@@ -1826,7 +1810,6 @@ def plot_station_windows(
             output_path = output_path.with_suffix('.pdf')
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=150, bbox_inches='tight')
-        print(f"Saved: {output_path}")
     
     return fig
 
@@ -2042,6 +2025,5 @@ def plot_window_comparison(
             output_path = output_path.with_suffix('.pdf')
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=150, bbox_inches='tight')
-        print(f"Saved: {output_path}")
     
     return fig

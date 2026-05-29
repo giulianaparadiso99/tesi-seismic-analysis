@@ -1145,9 +1145,9 @@ def add_coda_onsets_to_dataframe(
             df_full[f't_coda_{method}'] = df_full[f't_coda_{method}_seconds']
             df_full[f's_duration_{method}'] = df_full[f's_duration_{method}_seconds']
     
-    print(f"\nDone!")
-    print(f"  Successfully processed: {n_processed}/{len(df_full)} components")
-    print(f"  Failed: {n_failed}/{len(df_full)} components")
+    # Sostituisci il blocco finale con:
+    print(f"\nCoda onsets computed for {n_processed}/{len(df_full)} components "
+      f"({n_failed} failed)")
     print(f"  Created columns with dual representation (_samples + _seconds)")
     print(f"  Legacy columns (no suffix) point to: {unit}")
     
@@ -1975,47 +1975,40 @@ def add_coda_end_to_dataframe(
     print(f"Missing onsets:    {n_skipped_missing_onset:3d}")
     print(f"Errors:            {n_skipped_error:3d}")
     
-    # Statistics on coda durations (for all methods)
+    
+    # Statistics on coda durations
+    print(f"\nCoda duration statistics:")
+    print(f"  {'Method':<10}  {'Mean':>7}  {'Median':>7}  {'Std':>7}  {'Range':<22}  {'At signal end':>13}")
+    print(f"  {'-'*75}")
+
     for method in coda_methods:
         col_coda = f't_coda_{method}_seconds'
         col_end = f't_coda_end_{method}_seconds'
-        
-        if col_coda in df_onsets.columns and col_end in df_onsets.columns:
-            valid_mask = df_onsets[col_coda].notna() & df_onsets[col_end].notna()
-            
-            if valid_mask.sum() > 0:
-                coda_durations = (
-                    df_onsets.loc[valid_mask, col_end] - 
-                    df_onsets.loc[valid_mask, col_coda]
-                )
-                
-                print(f"\nCoda duration statistics ({method}):")
-                print(f"Mean:   {coda_durations.mean():.2f}s")
-                print(f"Median: {coda_durations.median():.2f}s")
-                print(f"Std:    {coda_durations.std():.2f}s")
-                print(f"Range:  [{coda_durations.min():.2f}, {coda_durations.max():.2f}]s")
-                
-                # Check for degenerate cases (coda_end at signal end, within 0.1s tolerance)
-                n_full_coda = 0
-                for idx in df_onsets[valid_mask].index:
-                    station = df_onsets.loc[idx, 'STATION_CODE']
-                    component = df_onsets.loc[idx, 'COMPONENT']
-                    
-                    if station in signals_dict and component in signals_dict[station]:
-                        signal_end_sec = len(signals_dict[station][component]) / sampling_rate
-                        coda_end_sec = df_onsets.loc[idx, col_end]
-                        
-                        # Within 0.1s of signal end → consider it "full coda"
-                        if abs(signal_end_sec - coda_end_sec) < 0.1:
-                            n_full_coda += 1
-                
-                if n_full_coda > 0:
-                    print(f"  Note: {n_full_coda} components have coda extending to signal end")
-                    print(f"        (threshold never crossed or not sustained)")
-            else:
-                print(f"\nCoda duration statistics ({method}):")
-                print(f"  No valid data")
 
-    print(f"{'='*70}\n")
+        if col_coda not in df_onsets.columns or col_end not in df_onsets.columns:
+            continue
+
+        valid_mask = df_onsets[col_coda].notna() & df_onsets[col_end].notna()
+
+        if valid_mask.sum() == 0:
+            print(f"  {method:<10}  {'no valid data'}")
+            continue
+
+        coda_durations = (
+            df_onsets.loc[valid_mask, col_end] -
+            df_onsets.loc[valid_mask, col_coda]
+        )
+
+        n_full_coda = sum(
+            1 for idx in df_onsets[valid_mask].index
+            if (df_onsets.loc[idx, 'STATION_CODE'] in signals_dict and
+                df_onsets.loc[idx, 'COMPONENT'] in signals_dict[df_onsets.loc[idx, 'STATION_CODE']] and
+                abs(len(signals_dict[df_onsets.loc[idx, 'STATION_CODE']][df_onsets.loc[idx, 'COMPONENT']]) / sampling_rate
+                    - df_onsets.loc[idx, col_end]) < 0.1)
+        )
+
+        range_str = f"[{coda_durations.min():.2f}, {coda_durations.max():.2f}]s"
+        print(f"  {method:<10}  {coda_durations.mean():>6.2f}s  {coda_durations.median():>6.2f}s  "
+            f"{coda_durations.std():>6.2f}s  {range_str:<22}  {n_full_coda:>5} at signal end")
 
     return df_onsets
