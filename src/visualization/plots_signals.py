@@ -29,7 +29,7 @@ Usage:
 """
 
 from pathlib import Path
-from typing import Optional, Union, List, Tuple
+from typing import Optional, Union, List, Tuple, Dict
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -278,7 +278,7 @@ def plot_signals_distributions(
     df_meta_clean: pd.DataFrame,
     signal_column: str = 'acceleration',
     signal_unit: str = 'cm/s²',
-    streams: Tuple[str, ...] = ('HNE', 'HNN', 'HNZ'),
+    orientation_groups: Optional[Dict[str, List[str]]] = None,
     output_dir: Optional[Union[str, Path]] = None,
     prefix: str = ''
 ) -> None:
@@ -328,12 +328,19 @@ def plot_signals_distributions(
     plt.close()
     
     # Per-component overlay
+    if orientation_groups is None:
+        orientation_groups = {
+            'E': ['HNE', 'HGE', 'HLE'],
+            'N': ['HNN', 'HGN', 'HLN'],
+            'Z': ['HNZ', 'HGZ', 'HLZ']
+        }
+
     fig, ax = plt.subplots(figsize=(8, 5))
-    for i, stream in enumerate(streams):
-        files = df_meta_clean[df_meta_clean['STREAM'] == stream]['file'].values
+    for i, (orientation, streams) in enumerate(orientation_groups.items()):
+        files = df_meta_clean[df_meta_clean['STREAM'].isin(streams)]['file'].values
         signal_values = df_signals[df_signals['file'].isin(files)][signal_column].values
         ax.hist(signal_values, bins=100, color=colors[i], alpha=0.6,
-                label=stream, edgecolor='none')
+                label=orientation, edgecolor='none')
     
     ax.set_yscale('log')
     ax.set_title(f'{signal_name} distribution by component (log scale)')

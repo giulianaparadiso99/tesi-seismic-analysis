@@ -1,0 +1,18 @@
+\begin{table}[H]
+\centering
+\begin{tabular}{lllll}
+\toprule
+\textbf{Check} & \textbf{PDF Analysis} & \textbf{Moment Scaling} & \textbf{Expected} & \textbf{Pass} \\
+\midrule
+Files retained & 192 / 192 & 192 / 192 (0 excluded) & — & — \\
+Max residual mean (cm/s²) & 6.06e-16 & 6.06e-16 & < 1e-10 & \checkmark \\
+Mean std (normalized) & 1.00000000 & N/A (not normalized) & $\approx 1$ & \checkmark \\
+NaN in acceleration & 0 & 0 & 0 & \checkmark \\
+NaN in acceleration_normalized & 0 & N/A (column not present) & 0 & \checkmark \\
+Inf in acceleration & 0 & 0 & 0 & \checkmark \\
+Inf in acceleration_normalized & 0 & N/A (column not present) & 0 & \checkmark \\
+\bottomrule
+\end{tabular}
+\caption{Post-preprocessing quality checks for the two preprocessing pipelines.}
+\label{tab:postcheck}
+\end{table}
