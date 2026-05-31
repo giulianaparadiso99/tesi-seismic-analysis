@@ -15,7 +15,7 @@ optimized for onset detection and phase picking algorithms.
 import numpy as np
 import pandas as pd
 import numpy.typing as npt
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple, Any, Optional, List
 
 def add_time_columns(
     df_signals: pd.DataFrame, 
@@ -291,7 +291,10 @@ def get_signal_for_station(
     return time, signal
 
 
-def validate_signals_dict(signals_dict: Dict[str, Dict[str, npt.NDArray[np.float64]]]) -> Dict[str, Any]:
+def validate_signals_dict(
+    signals_dict: Dict[str, Dict[str, npt.NDArray[np.float64]]],
+    valid_component_sets: Optional[List[set]] = None
+) -> Dict[str, Any]:
     """
     Validate signals dictionary structure.
     
@@ -323,12 +326,14 @@ def validate_signals_dict(signals_dict: Dict[str, Dict[str, npt.NDArray[np.float
     ...     print(f"Issues: {report['issues']}")
     """
     # Valid component sets
-    valid_component_sets = [
-        {'HNE', 'HNN', 'HNZ'},  # Standard 3-component
-        {'HGE', 'HGN', 'HGZ'},  # High gain 3-component
-        {'HN1', 'HN2'},         # Horizontal only (no vertical)
-        {'HN1', 'HN2', 'HNZ'} 
-    ]
+    if valid_component_sets is None:
+        valid_component_sets = [
+            {'HNE', 'HNN', 'HNZ'},
+            {'HGE', 'HGN', 'HGZ'},
+            {'HLE', 'HLN', 'HLZ'},
+            {'HN1', 'HN2'},
+            {'HN1', 'HN2', 'HNZ'}
+        ]
     
     issues = []
     incomplete_stations = []

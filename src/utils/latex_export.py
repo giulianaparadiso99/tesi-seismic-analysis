@@ -579,12 +579,12 @@ def onset_detection_to_latex(df_onsets_full: pd.DataFrame,
     s_duration_col = f's_duration_{coda_method}'
     
     required_cols = [
-        'STATION_CODE', comp_col, 'EPICENTRAL_DISTANCE_KM',
-        'vp_crust', 'vs_crust',
-        't_p_theo', 't_p_detected', 'p_residual',
-        't_s_theo', 't_s_detected', 's_residual',
-        t_coda_col, s_duration_col
-    ]
+    'STATION_CODE', comp_col, 'EPICENTRAL_DISTANCE_KM',
+    'vp_crust', 'vs_crust',
+    't_p_theo_seconds', 't_p_detected_seconds', 'p_residual_seconds',
+    't_s_theo_seconds', 't_s_detected_seconds', 's_residual_seconds',
+    t_coda_col, s_duration_col
+]
     
     # Check if required columns exist
     missing = [col for col in required_cols if col not in df_onsets_full.columns]
@@ -601,12 +601,12 @@ def onset_detection_to_latex(df_onsets_full: pd.DataFrame,
     table['EPICENTRAL_DISTANCE_KM'] = table['EPICENTRAL_DISTANCE_KM'].round(1)
     table['vp_crust'] = table['vp_crust'].round(2)
     table['vs_crust'] = table['vs_crust'].round(2)
-    table['t_p_theo'] = table['t_p_theo'].round(2)
-    table['t_p_detected'] = table['t_p_detected'].round(2)
-    table['p_residual'] = table['p_residual'].round(2)
-    table['t_s_theo'] = table['t_s_theo'].round(2)
-    table['t_s_detected'] = table['t_s_detected'].round(2)
-    table['s_residual'] = table['s_residual'].round(2)
+    table['t_p_theo_seconds'] = table['t_p_theo_seconds'].round(2)
+    table['t_p_detected_seconds'] = table['t_p_detected_seconds'].round(2)
+    table['p_residual_seconds'] = table['p_residual_seconds'].round(2)
+    table['t_s_theo_seconds'] = table['t_s_theo_seconds'].round(2)
+    table['t_s_detected_seconds'] = table['t_s_detected_seconds'].round(2)
+    table['s_residual_seconds'] = table['s_residual_seconds'].round(2)
     table[t_coda_col] = table[t_coda_col].round(2)
     table[s_duration_col] = table[s_duration_col].round(2)
     
@@ -695,8 +695,8 @@ def onset_detection_to_latex(df_onsets_full: pd.DataFrame,
             current_station = station
         
         # Format residuals with sign
-        p_res = row['p_residual']
-        s_res = row['s_residual']
+        p_res = row['p_residual_seconds']
+        s_res = row['s_residual_seconds']
         p_res_str = f"+{p_res:.2f}" if p_res >= 0 else f"{p_res:.2f}"
         s_res_str = f"+{s_res:.2f}" if s_res >= 0 else f"{s_res:.2f}"
         
@@ -705,11 +705,11 @@ def onset_detection_to_latex(df_onsets_full: pd.DataFrame,
             f"{row['EPICENTRAL_DISTANCE_KM']:.1f} & "
             f"{row['vp_crust']:.2f} & "
             f"{row['vs_crust']:.2f} & "
-            f"{row['t_p_theo']:.2f} & "
-            f"{row['t_p_detected']:.2f} & "
+            f"{row['t_p_theo_seconds']:.2f} & "
+            f"{row['t_p_detected_seconds']:.2f} & "
             f"{p_res_str} & "
-            f"{row['t_s_theo']:.2f} & "
-            f"{row['t_s_detected']:.2f} & "
+            f"{row['t_s_theo_seconds']:.2f} & "
+            f"{row['t_s_detected_seconds']:.2f} & "
             f"{s_res_str} & "
             f"{row[t_coda_col]:.2f} & "
             f"{row[s_duration_col]:.2f} \\\\"
@@ -777,16 +777,16 @@ def coda_onset_comparison_to_latex(df_onsets_full: pd.DataFrame,
     
     # Select and sort data
     table = df_onsets_full[[
-        'STATION_CODE',
-        comp_col,
-        't_s_detected',
-        't_coda_rautian',
-        't_coda_arias',
-        't_coda_envelope',
-        's_duration_rautian',
-        's_duration_arias',
-        's_duration_envelope'
-    ]].copy()
+    'STATION_CODE',
+    comp_col,
+    't_s_detected_seconds',
+    't_coda_rautian_seconds',
+    't_coda_arias_seconds',
+    't_coda_envelope_seconds',
+    's_duration_rautian_seconds',
+    's_duration_arias_seconds',
+    's_duration_envelope_seconds'
+]].copy()
     
     table = table.sort_values(['STATION_CODE', comp_col]).reset_index(drop=True)
     
@@ -839,13 +839,13 @@ def coda_onset_comparison_to_latex(df_onsets_full: pd.DataFrame,
         
         line = (
             f"    {station} & {component} & "
-            f"{row['t_s_detected']:.2f} & "
-            f"{row['t_coda_rautian']:.2f} & "
-            f"{row['t_coda_arias']:.2f} & "
-            f"{row['t_coda_envelope']:.2f} & "
-            f"{row['s_duration_rautian']:.2f} & "
-            f"{row['s_duration_arias']:.2f} & "
-            f"{row['s_duration_envelope']:.2f} \\\\"
+            f"{row['t_s_detected_seconds']:.2f} & "
+            f"{row['t_coda_rautian_seconds']:.2f} & "
+            f"{row['t_coda_arias_seconds']:.2f} & "
+            f"{row['t_coda_envelope_seconds']:.2f} & "
+            f"{row['s_duration_rautian_seconds']:.2f} & "
+            f"{row['s_duration_arias_seconds']:.2f} & "
+            f"{row['s_duration_envelope_seconds']:.2f} \\\\"
         )
         latex_lines.append(line)
     
