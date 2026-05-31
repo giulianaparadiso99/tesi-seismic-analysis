@@ -78,7 +78,7 @@ def gaussian_fit_analysis(
     bins: int = 100, 
     log_scale: bool = False, 
     normalized: bool = True,
-    output_dir: Union[str, Path] = '../figures/03_single_signal/03a_pdf_analysis/gaussian_fit',
+    output_dir: Union[str, Path] = None,
     prefix: str = ''
 ) -> pd.DataFrame:
     """
@@ -339,7 +339,7 @@ def heavy_tail_assessment(
     signal_column: str = 'acceleration', 
     signal_unit: str = 'cm/s²',
     normalized: bool = True, 
-    output_dir: Union[str, Path] = '../figures/03_single_signal/03a_pdf_analysis/heavy_tail',
+    output_dir: Union[str, Path] = None,
     prefix: str = '', 
     resume: bool = False,
     partial_path = None,

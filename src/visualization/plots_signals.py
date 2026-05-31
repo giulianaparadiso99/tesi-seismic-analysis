@@ -555,7 +555,7 @@ def plot_empirical_pdfs(
     bins: int = 100, 
     log_scale: bool = False, 
     normalized: bool = True,
-    output_dir: Union[str, Path] = '../figures/03_single_signal/03a_pdf_analysis/pdf_single',
+    output_dir: Union[str, Path] = None,
     prefix: str = ''
 ) -> None:
     """
