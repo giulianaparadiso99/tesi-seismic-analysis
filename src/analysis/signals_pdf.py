@@ -341,7 +341,8 @@ def heavy_tail_assessment(
     normalized: bool = True, 
     output_dir: Union[str, Path] = '../figures/03_single_signal/03a_pdf_analysis/heavy_tail',
     prefix: str = '', 
-    resume: bool = False
+    resume: bool = False,
+    partial_path = None,
 ) -> pd.DataFrame:
     """
     Assess heavy-tailed behavior and power-law characteristics.
@@ -454,26 +455,14 @@ def heavy_tail_assessment(
     
     # Resume from partial results if requested
     processed_files = set()
-    if resume:
+    if resume and partial_path is not None:
         try:
-            from pathlib import Path as PathlibPath
-            # Try to find partial results file
-            partial_paths = [
-                f'../data/processed/03a_pdf_analysis/{prefix}_heavy_tail_results_partial.parquet',
-                '../data/processed/03a_pdf_analysis/heavy_tail_results_partial.parquet',
-            ]
-            df_partial = None
-            for ppath in partial_paths:
-                try:
-                    df_partial = pd.read_parquet(ppath)
-                    print(f"Resuming from {len(df_partial)} previously processed signals")
-                    results = df_partial.to_dict('records')
-                    processed_files = set(df_partial['file'].values)
-                    break
-                except:
-                    continue
-        except Exception as e:
-            print(f"Could not load partial results: {e}")
+            df_partial = pd.read_parquet(partial_path)
+            print(f"Resuming from {len(df_partial)} previously processed signals")
+            results = df_partial.to_dict('records')
+            processed_files = set(df_partial['file'].values)
+        except FileNotFoundError:
+            print("No partial results found, starting from scratch")
     
     for file in df_clean['file'].unique():
         if file in processed_files:
