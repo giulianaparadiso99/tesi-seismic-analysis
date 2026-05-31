@@ -129,14 +129,18 @@ def create_obspy_stream_from_dataframe(df_station: pd.DataFrame,
         Z_name = 'HNZ'
     elif 'HGZ' in available:
         Z_name = 'HGZ'
+    elif 'HLZ' in available:
+        Z_name = 'HLZ'
     else:
         return None, None
-    
+
     # Determine horizontal components
     if 'HNN' in available and 'HNE' in available:
         N_name, E_name = 'HNN', 'HNE'
     elif 'HGN' in available and 'HGE' in available:
         N_name, E_name = 'HGN', 'HGE'
+    elif 'HLN' in available and 'HLE' in available:
+        N_name, E_name = 'HLN', 'HLE'
     elif 'HN1' in available and 'HN2' in available:
         N_name, E_name = 'HN1', 'HN2'
     else:
