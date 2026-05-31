@@ -306,8 +306,8 @@ def segment_signal_into_windows(
         windows[window_name]['t_end'] = windows[window_name]['end_seconds']
         windows[window_name]['duration'] = windows[window_name]['duration_seconds']
 
-        if 'post_event' in windows:
-            windows['post_event']['time'] = time[t_coda_end_samp:t_end_samp]
+    if time is not None and 'post_event' in windows:
+        windows['post_event']['time'] = time[t_coda_end_samp:t_end_samp]
     
     return windows
 
