@@ -82,7 +82,7 @@ Examples
 
 import numpy as np
 import pandas as pd
-from typing import Dict, Literal, Optional, Tuple, Union
+from typing import Dict, Literal, Optional, Tuple, Union, Set
 
 def segment_signal_into_windows(
     signal: np.ndarray,
@@ -93,7 +93,8 @@ def segment_signal_into_windows(
     unit: Literal['samples', 'seconds'] = 'samples',
     sampling_rate: float = 200,
     time: Optional[np.ndarray] = None,
-    pre_p_duration: Union[int, float, Literal['full']] = 5.0
+    pre_p_duration: Union[int, float, Literal['full']] = 5.0,
+    available_windows: Optional[Set[str]] = None
 ) -> Dict[str, Dict[str, np.ndarray]]:
     """
     Segment a single signal into four temporal windows.
@@ -103,7 +104,7 @@ def segment_signal_into_windows(
     - p_wave:    [t_p, t_s)
     - s_wave:    [t_s, t_coda)
     - coda:      [t_coda, t_coda_end)
-    - post_event: [t_coda_end, end]     # (only if t_coda_end provided and < end)
+    - post_event: [t_coda_end, end]
     
     Parameters
     ----------
@@ -127,18 +128,25 @@ def segment_signal_into_windows(
         - If unit='seconds': float (seconds)
         - If 'full': use all available signal from start
         Default: 5.0 (interpreted based on unit)
-        
+    available_windows : set of str, optional
+        Set of window names to create. Valid values: 'pre_event', 'p_wave', 's_wave', 'coda'.
+        If None, all four windows are created (default behavior).
+        Use to skip windows for stations where certain phases are not present in the recording,
+        e.g. triggered stations where the recording starts after the P or S arrival.
+        The coda window is always created if included (or if None).
+            
     Returns
     -------
     windows : dict
         Dictionary with keys: 'pre_event', 'p_wave', 's_wave', 'coda', 'post_event'
-        Each contains:
+         Each component contains only the windows present in its available_windows set.
         - 'signal': array
         - 'start_samples', 'end_samples': int (sample indices)
         - 'start_seconds', 'end_seconds': float (times in seconds)
         - 'duration_samples': int
         - 'duration_seconds': float
         - 'time': array (only if time parameter was provided)
+    Only windows listed in available_windows are present in the output dictionary.
         
     Examples
     --------
@@ -215,17 +223,19 @@ def segment_signal_into_windows(
     else:
         raise ValueError(f"unit must be 'samples' or 'seconds', got {unit}")
     
-    # Validate onset times (use samples for integer comparison)
-    if not (t_p_samp < t_s_samp < t_coda_samp):
-        raise ValueError(
-            f"Onset times must satisfy t_p < t_s < t_coda, "
-            f"got t_p={t_p_samp} ({t_p_sec:.2f}s), "
-            f"t_s={t_s_samp} ({t_s_sec:.2f}s), "
-            f"t_coda={t_coda_samp} ({t_coda_sec:.2f}s)"
+    if available_windows is None:
+        available_windows = {'pre_event', 'p_wave', 's_wave', 'coda'}
+        
+    if 'p_wave' in available_windows and 's_wave' in available_windows:
+        if not (t_p_samp < t_s_samp):
+            raise ValueError(
+                f"t_p must be < t_s, got t_p={t_p_samp} ({t_p_sec:.2f}s), t_s={t_s_samp} ({t_s_sec:.2f}s)"
+            )
+    if 's_wave' in available_windows:
+        if not (t_s_samp < t_coda_samp):
+            raise ValueError(
+                f"t_s must be < t_coda, got t_s={t_s_samp} ({t_s_sec:.2f}s), t_coda={t_coda_samp} ({t_coda_sec:.2f}s)"
         )
-    
-    if pre_p_samp <= 0 and pre_p_duration != 'full':
-        raise ValueError(f"pre_p_duration must be positive, got {pre_p_samp} samples")
     
     # Calculate pre-event window start
     t_pre_start_samp = max(0, t_p_samp - pre_p_samp)
@@ -238,48 +248,52 @@ def segment_signal_into_windows(
     windows = {}
     
     # Pre-event window
-    windows['pre_event'] = {
-        'signal': signal[t_pre_start_samp:t_p_samp],
-        'start_samples': t_pre_start_samp,
-        'end_samples': t_p_samp,
-        'start_seconds': t_pre_start_sec,
-        'end_seconds': t_p_sec,
-        'duration_samples': t_p_samp - t_pre_start_samp,
-        'duration_seconds': t_p_sec - t_pre_start_sec
-    }
+    if 'pre_event' in available_windows:
+        windows['pre_event'] = {
+            'signal': signal[t_pre_start_samp:t_p_samp],
+            'start_samples': t_pre_start_samp,
+            'end_samples': t_p_samp,
+            'start_seconds': t_pre_start_sec,
+            'end_seconds': t_p_sec,
+            'duration_samples': t_p_samp - t_pre_start_samp,
+            'duration_seconds': t_p_sec - t_pre_start_sec
+        }
     
     # P-wave window
-    windows['p_wave'] = {
-        'signal': signal[t_p_samp:t_s_samp],
-        'start_samples': t_p_samp,
-        'end_samples': t_s_samp,
-        'start_seconds': t_p_sec,
-        'end_seconds': t_s_sec,
-        'duration_samples': t_s_samp - t_p_samp,
-        'duration_seconds': t_s_sec - t_p_sec
-    }
+    if 'p_wave' in available_windows:
+        windows['p_wave'] = {
+            'signal': signal[t_p_samp:t_s_samp],
+            'start_samples': t_p_samp,
+            'end_samples': t_s_samp,
+            'start_seconds': t_p_sec,
+            'end_seconds': t_s_sec,
+            'duration_samples': t_s_samp - t_p_samp,
+            'duration_seconds': t_s_sec - t_p_sec
+        }
     
     # S-wave window
-    windows['s_wave'] = {
-        'signal': signal[t_s_samp:t_coda_samp],
-        'start_samples': t_s_samp,
-        'end_samples': t_coda_samp,
-        'start_seconds': t_s_sec,
-        'end_seconds': t_coda_sec,
-        'duration_samples': t_coda_samp - t_s_samp,
-        'duration_seconds': t_coda_sec - t_s_sec
-    }
+    if 's_wave' in available_windows:
+        windows['s_wave'] = {
+            'signal': signal[t_s_samp:t_coda_samp],
+            'start_samples': t_s_samp,
+            'end_samples': t_coda_samp,
+            'start_seconds': t_s_sec,
+            'end_seconds': t_coda_sec,
+            'duration_samples': t_coda_samp - t_s_samp,
+            'duration_seconds': t_coda_sec - t_s_sec
+        }
     
-    # Coda window 
-    windows['coda'] = {
-        'signal': signal[t_coda_samp:t_coda_end_samp],
-        'start_samples': t_coda_samp,
-        'end_samples': t_coda_end_samp,
-        'start_seconds': t_coda_sec,
-        'end_seconds': t_coda_end_sec,
-        'duration_samples': t_coda_end_samp - t_coda_samp,
-        'duration_seconds': t_coda_end_sec - t_coda_sec
-    }
+    # Coda window
+    if 'coda' in available_windows:
+        windows['coda'] = {
+            'signal': signal[t_coda_samp:t_coda_end_samp],
+            'start_samples': t_coda_samp,
+            'end_samples': t_coda_end_samp,
+            'start_seconds': t_coda_sec,
+            'end_seconds': t_coda_end_sec,
+            'duration_samples': t_coda_end_samp - t_coda_samp,
+            'duration_seconds': t_coda_end_sec - t_coda_sec
+        }
 
     # Post-event window (only if t_coda_end < signal end)
     if t_coda_end_samp < t_end_samp:
@@ -295,10 +309,14 @@ def segment_signal_into_windows(
     
     # Add time arrays if provided (backward compatibility)
     if time is not None:
-        windows['pre_event']['time'] = time[t_pre_start_samp:t_p_samp]
-        windows['p_wave']['time'] = time[t_p_samp:t_s_samp]
-        windows['s_wave']['time'] = time[t_s_samp:t_coda_samp]
-        windows['coda']['time'] = time[t_coda_samp:t_coda_end_samp]
+        if 'pre_event' in windows:
+            windows['pre_event']['time'] = time[t_pre_start_samp:t_p_samp]
+        if 'p_wave' in windows:
+            windows['p_wave']['time'] = time[t_p_samp:t_s_samp]
+        if 's_wave' in windows:
+            windows['s_wave']['time'] = time[t_s_samp:t_coda_samp]
+        if 'coda' in windows:
+            windows['coda']['time'] = time[t_coda_samp:t_coda_end_samp]
     
     # Legacy keys for backward compatibility
     for window_name in windows:
@@ -323,11 +341,7 @@ def segment_all_signals(
 ) -> Dict[str, Dict[str, Dict[str, Dict[str, np.ndarray]]]]:
     """
     Segment all signals in dictionary into temporal windows.
-
-    Creates 4 or 5 windows per signal depending on whether t_coda_end
-    columns are present in df_onsets:
-    - If t_coda_end_<method>_* exists: 5 windows (pre, P, S, coda, post)
-    - Otherwise: 4 windows (pre, P, S, coda extends to end)
+    Each component contains only the windows present in its available_windows set.
     
     Parameters
     ----------
@@ -510,6 +524,15 @@ def segment_all_signals(
     n_skipped_error = 0
     n_with_post = 0
     n_without_post = 0
+    n_with_pre_event = 0
+    n_with_p_wave = 0
+    n_with_s_wave = 0
+    n_with_coda = 0
+    stations_without_pre_event = []
+    stations_without_p_wave = []
+    stations_without_s_wave = []
+    stations_without_coda = []
+    stations_without_post_event = []
     
     for station in signals_dict.keys():
         windowed_signals[station] = {}
@@ -528,6 +551,19 @@ def segment_all_signals(
                 continue
             
             row = df_onsets[mask].iloc[0]
+
+            # Determine available windows based on theoretical arrivals
+            if 't_p_theo_seconds' in df_onsets.columns and 't_s_theo_seconds' in df_onsets.columns:
+                t_p_theo = row['t_p_theo_seconds']
+                t_s_theo = row['t_s_theo_seconds']
+                if t_p_theo >= 0:
+                    available_windows = {'pre_event', 'p_wave', 's_wave', 'coda'}
+                elif t_s_theo >= 0:
+                    available_windows = {'s_wave', 'coda'}
+                else:
+                    available_windows = {'coda'}
+            else:
+                available_windows = {'pre_event', 'p_wave', 's_wave', 'coda'}
             
             # Extract onset times
             t_p = row[t_p_col]
@@ -567,16 +603,41 @@ def segment_all_signals(
                     unit=working_unit,
                     sampling_rate=sampling_rate,
                     time=time_array,
-                    pre_p_duration=pre_p_duration
+                    pre_p_duration=pre_p_duration,
+                    available_windows=available_windows
                 )
+
+                if 'pre_event' in windows:
+                    n_with_pre_event += 1
+                else:
+                    if station not in stations_without_pre_event:
+                        stations_without_pre_event.append(station)
+                if 'p_wave' in windows:
+                    n_with_p_wave += 1
+                else:
+                    if station not in stations_without_p_wave:
+                        stations_without_p_wave.append(station)
+                if 's_wave' in windows:
+                    n_with_s_wave += 1
+                else:
+                    if station not in stations_without_s_wave:
+                        stations_without_s_wave.append(station)
+                if 'coda' in windows:
+                    n_with_coda += 1
+                else:
+                    if station not in stations_without_coda:
+                        stations_without_coda.append(station)
                 if 'post_event' in windows:
                     n_with_post += 1
                 else:
                     n_without_post += 1
+                    if station not in stations_without_post_event:
+                        stations_without_post_event.append(station)
                 if verbose:
                     print(".", end="", flush=True)
+
                 windowed_signals[station][component] = windows
-                
+
             except (ValueError, TypeError) as e:
                 if verbose:
                     print(f"Error segmenting {station}-{component}: {e}")
@@ -602,22 +663,22 @@ def segment_all_signals(
             for component in windowed_signals[station]:
                 windows = windowed_signals[station][component]
                 
-                pre_durations_sec.append(windows['pre_event']['duration_seconds'])
-                pre_durations_samp.append(windows['pre_event']['duration_samples'])
+                if 'pre_event' in windows:
+                    pre_durations_sec.append(windows['pre_event']['duration_seconds'])
+                    pre_durations_samp.append(windows['pre_event']['duration_samples'])
                 
-                p_durations_sec.append(windows['p_wave']['duration_seconds'])
-                s_durations_sec.append(windows['s_wave']['duration_seconds'])
+                if 'p_wave' in windows:
+                    p_durations_sec.append(windows['p_wave']['duration_seconds'])
                 
-                coda_durations_sec.append(windows['coda']['duration_seconds'])
+                if 's_wave' in windows:
+                    s_durations_sec.append(windows['s_wave']['duration_seconds'])
+                
+                if 'coda' in windows:
+                    coda_durations_sec.append(windows['coda']['duration_seconds'])
                 
                 if 'post_event' in windows:
                     post_durations_sec.append(windows['post_event']['duration_seconds'])
         
-        pre_durations_sec = np.array(pre_durations_sec)
-        pre_durations_samp = np.array(pre_durations_samp)
-        p_durations_sec = np.array(p_durations_sec)
-        s_durations_sec = np.array(s_durations_sec)
-        coda_durations_sec = np.array(coda_durations_sec)
 
         # Print segmentation summary with statistics for all windows
         if verbose:
@@ -629,53 +690,77 @@ def segment_all_signals(
             print(f"Skipped (missing values): {n_skipped_missing}")
             print(f"Skipped (errors): {n_skipped_error}")
             
-            # Post-event window info
+            # Window info
+            print(f"\nWindows created:")
+            print(f"  pre_event:  {n_with_pre_event}/{n_total}")
+            if stations_without_pre_event:
+                print(f"    Missing for: {sorted(set(stations_without_pre_event))}")
+            print(f"  p_wave:     {n_with_p_wave}/{n_total}")
+            if stations_without_p_wave:
+                print(f"    Missing for: {sorted(set(stations_without_p_wave))}")
+            print(f"  s_wave:     {n_with_s_wave}/{n_total}")
+            if stations_without_s_wave:
+                print(f"    Missing for: {sorted(set(stations_without_s_wave))}")
+            print(f"  coda:       {n_with_coda}/{n_total}")
+            if stations_without_coda:
+                print(f"    Missing for: {sorted(set(stations_without_coda))}")
             if has_coda_end:
-                print(f"\nPost-event windows:")
-                print(f"  Created: {n_with_post}")
-                print(f"  Not created (coda_end = NaN): {n_without_post}")
+                print(f"  post_event: {n_with_post}/{n_total}")
+                if stations_without_post_event:
+                    print(f"    Missing for: {sorted(set(stations_without_post_event))}")
             
             # Window duration statistics
             print(f"\nWindow duration statistics:")
             
             # Pre-event statistics
-            print(f"\nPre-event:")
-            if pre_p_duration == 'full':
-                print(f"  Min:    {np.min(pre_durations_sec):.2f}s ({np.min(pre_durations_samp)} samp)")
-                print(f"  Max:    {np.max(pre_durations_sec):.2f}s ({np.max(pre_durations_samp)} samp)")
-                print(f"  Mean:   {np.mean(pre_durations_sec):.2f}s ({np.mean(pre_durations_samp):.0f} samp)")
-                print(f"  Median: {np.median(pre_durations_sec):.2f}s ({np.median(pre_durations_samp):.0f} samp)")
-                print(f"  Std:    {np.std(pre_durations_sec):.2f}s ({np.std(pre_durations_samp):.0f} samp)")
-            else:
-                if working_unit == 'samples':
-                    target_str = f"{pre_p_duration} samples ({pre_p_duration/sampling_rate:.2f}s)"
+            if len(pre_durations_sec)>0:
+                print(f"\nPre-event:")
+                if pre_p_duration == 'full':
+                    pre_durations_sec = np.array(pre_durations_sec)
+                    pre_durations_samp = np.array(pre_durations_samp)
+                    print(f"  Min:    {np.min(pre_durations_sec):.2f}s ({np.min(pre_durations_samp)} samp)")
+                    print(f"  Max:    {np.max(pre_durations_sec):.2f}s ({np.max(pre_durations_samp)} samp)")
+                    print(f"  Mean:   {np.mean(pre_durations_sec):.2f}s ({np.mean(pre_durations_samp):.0f} samp)")
+                    print(f"  Median: {np.median(pre_durations_sec):.2f}s ({np.median(pre_durations_samp):.0f} samp)")
+                    print(f"  Std:    {np.std(pre_durations_sec):.2f}s ({np.std(pre_durations_samp):.0f} samp)")
                 else:
-                    target_str = f"{pre_p_duration:.2f}s ({int(pre_p_duration*sampling_rate)} samp)"
-                
-                print(f"  Target: {target_str}")
-                print(f"  Actual mean: {np.mean(pre_durations_sec):.2f}s ({np.mean(pre_durations_samp):.0f} samp)")
-                print(f"  Actual range: [{np.min(pre_durations_sec):.2f}, {np.max(pre_durations_sec):.2f}]s")
-                if np.min(pre_durations_samp) < (pre_p_duration if working_unit == 'samples' else pre_p_duration * sampling_rate):
-                    n_short = np.sum(pre_durations_samp < (pre_p_duration if working_unit == 'samples' else pre_p_duration * sampling_rate))
-                    print(f"  Note: {n_short} signals have shorter pre-event (P arrives early)")
+                    pre_durations_sec = np.array(pre_durations_sec)
+                    pre_durations_samp = np.array(pre_durations_samp)
+                    if working_unit == 'samples':
+                        target_str = f"{pre_p_duration} samples ({pre_p_duration/sampling_rate:.2f}s)"
+                    else:
+                        target_str = f"{pre_p_duration:.2f}s ({int(pre_p_duration*sampling_rate)} samp)"
+                    
+                    print(f"  Target: {target_str}")
+                    print(f"  Actual mean: {np.mean(pre_durations_sec):.2f}s ({np.mean(pre_durations_samp):.0f} samp)")
+                    print(f"  Actual range: [{np.min(pre_durations_sec):.2f}, {np.max(pre_durations_sec):.2f}]s")
+                    if np.min(pre_durations_samp) < (pre_p_duration if working_unit == 'samples' else pre_p_duration * sampling_rate):
+                        n_short = np.sum(pre_durations_samp < (pre_p_duration if working_unit == 'samples' else pre_p_duration * sampling_rate))
+                        print(f"  Note: {n_short} signals have shorter pre-event (P arrives early)")
             
             # P-wave statistics
-            print(f"\nP-wave:")
-            print(f"  Mean:   {np.mean(p_durations_sec):.2f}s")
-            print(f"  Median: {np.median(p_durations_sec):.2f}s")
-            print(f"  Range:  [{np.min(p_durations_sec):.2f}, {np.max(p_durations_sec):.2f}]s")
+            if len(p_durations_sec)>0:
+                p_durations_sec = np.array(p_durations_sec)
+                print(f"\nP-wave:")
+                print(f"  Mean:   {np.mean(p_durations_sec):.2f}s")
+                print(f"  Median: {np.median(p_durations_sec):.2f}s")
+                print(f"  Range:  [{np.min(p_durations_sec):.2f}, {np.max(p_durations_sec):.2f}]s")
             
             # S-wave statistics
-            print(f"\nS-wave:")
-            print(f"  Mean:   {np.mean(s_durations_sec):.2f}s")
-            print(f"  Median: {np.median(s_durations_sec):.2f}s")
-            print(f"  Range:  [{np.min(s_durations_sec):.2f}, {np.max(s_durations_sec):.2f}]s")
-            
+            if len(s_durations_sec)>0:
+                s_durations_sec = np.array(s_durations_sec)
+                print(f"\nS-wave:")
+                print(f"  Mean:   {np.mean(s_durations_sec):.2f}s")
+                print(f"  Median: {np.median(s_durations_sec):.2f}s")
+                print(f"  Range:  [{np.min(s_durations_sec):.2f}, {np.max(s_durations_sec):.2f}]s")
+                
             # Coda statistics
-            print(f"\nCoda:")
-            print(f"  Mean:   {np.mean(coda_durations_sec):.2f}s")
-            print(f"  Median: {np.median(coda_durations_sec):.2f}s")
-            print(f"  Range:  [{np.min(coda_durations_sec):.2f}, {np.max(coda_durations_sec):.2f}]s")
+            if len(coda_durations_sec)>0:
+                coda_durations_sec = np.array(coda_durations_sec)
+                print(f"\nCoda:")
+                print(f"  Mean:   {np.mean(coda_durations_sec):.2f}s")
+                print(f"  Median: {np.median(coda_durations_sec):.2f}s")
+                print(f"  Range:  [{np.min(coda_durations_sec):.2f}, {np.max(coda_durations_sec):.2f}]s")
             
             # Post-event statistics (if exists)
             if len(post_durations_sec) > 0:
