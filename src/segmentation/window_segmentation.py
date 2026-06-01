@@ -94,7 +94,7 @@ def segment_signal_into_windows(
     sampling_rate: float = 200,
     time: Optional[np.ndarray] = None,
     pre_p_duration: Union[int, float, Literal['full']] = 5.0,
-    min_window_duration: float = 1,
+    min_window_duration: float = 1.0,
     available_windows: Optional[Set[str]] = None
 ) -> Dict[str, Dict[str, np.ndarray]]:
     """
