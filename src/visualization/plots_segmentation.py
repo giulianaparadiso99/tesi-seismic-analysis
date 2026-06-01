@@ -1503,38 +1503,41 @@ def plot_station_windows(
         windows = windowed_signals[station][component]
         
         # Extract onset times
-        t_p = windows['p_wave']['start_seconds']
-        t_s = windows['s_wave']['start_seconds']
-        t_coda = windows['coda']['start_seconds']
-
+        has_pre_event = 'pre_event' in windows
+        has_p_wave = 'p_wave' in windows
+        has_s_wave = 's_wave' in windows
+        has_coda = 'coda' in windows
         has_post_event = 'post_event' in windows
+
+        t_p = windows['p_wave']['start_seconds'] if has_p_wave else None
+        t_s = windows['s_wave']['start_seconds'] if has_s_wave else None
+        t_coda = windows['coda']['start_seconds'] if has_coda else None
         if has_post_event:
             t_coda_end = windows['coda']['end_seconds']
-        
+                
         # Plot window backgrounds
         if show_window_backgrounds:
-            for window_name in ['pre_event', 'p_wave', 's_wave', 'coda']:
-                w = windows[window_name]
-                ax.axvspan(w['start_seconds'], w['end_seconds'], 
-                          color=window_colors[window_name],
-                          alpha=0.3, zorder=0)
+            for window_name in ['pre_event', 'p_wave', 's_wave', 'coda', 'post_event']:
+                if window_name in windows:
+                    w = windows[window_name]
+                    ax.axvspan(w['start_seconds'], w['end_seconds'], 
+                            color=window_colors[window_name],
+                            alpha=0.3, zorder=0)
                 
-            if has_post_event:
-                w = windows['post_event']
-                ax.axvspan(w['start_seconds'], w['end_seconds'],
-                          color=window_colors['post_event'],
-                          alpha=0.3, zorder=0)
         
         # Plot signal
         ax.plot(time_full, signal_full, 'k-', linewidth=0.6, zorder=2)
         
         # Plot onset lines
         if show_onset_lines:
-            ax.axvline(t_p, color=onset_colors['p'], linewidth=2, 
+            if t_p is not None:
+                ax.axvline(t_p, color=onset_colors['p'], linewidth=2, 
                       linestyle='-', zorder=3, label='P onset')
-            ax.axvline(t_s, color=onset_colors['s'], linewidth=2,
+            if t_s is not None:
+                ax.axvline(t_s, color=onset_colors['s'], linewidth=2,
                       linestyle='-', zorder=3, label='S onset')
-            ax.axvline(t_coda, color=onset_colors['coda'], linewidth=2,
+            if t_coda is not None:
+                ax.axvline(t_coda, color=onset_colors['coda'], linewidth=2,
                       linestyle='-', zorder=3, label=f'Coda ({coda_method})')
             if has_post_event:
                 ax.axvline(t_coda_end, color=onset_colors['coda_end'], 
@@ -1550,15 +1553,21 @@ def plot_station_windows(
             legend_elements = []
             
             if show_onset_lines:
-                legend_elements.extend([
-                    plt.Line2D([0], [0], color=onset_colors['p'], linewidth=2, 
-                              label='P onset'),
-                    plt.Line2D([0], [0], color=onset_colors['s'], linewidth=2,
-                              label='S onset'),
-                    plt.Line2D([0], [0], color=onset_colors['coda'], linewidth=2,
-                              label=f'Coda onset ({coda_method})')
-                ])
-
+                if has_p_wave:
+                    legend_elements.append(
+                        plt.Line2D([0], [0], color=onset_colors['p'], linewidth=2, 
+                                  label='P onset')
+                    )
+                if has_s_wave:
+                    legend_elements.append(
+                        plt.Line2D([0], [0], color=onset_colors['s'], linewidth=2,
+                                  label='S onset')
+                    )
+                if has_coda:
+                    legend_elements.append(
+                        plt.Line2D([0], [0], color=onset_colors['coda'], linewidth=2,
+                                  label=f'Coda onset ({coda_method})')
+                    )
                 if has_post_event:
                     legend_elements.append(
                         plt.Line2D([0], [0], color=onset_colors['coda_end'], 
@@ -1567,22 +1576,17 @@ def plot_station_windows(
                     )
             
             if show_window_backgrounds:
-                legend_elements.extend([
-                    mpatches.Patch(color=window_colors['pre_event'], alpha=0.3,
-                                  label='Pre-event'),
-                    mpatches.Patch(color=window_colors['p_wave'], alpha=0.3,
-                                  label='P-wave'),
-                    mpatches.Patch(color=window_colors['s_wave'], alpha=0.3,
-                                  label='S-wave'),
-                    mpatches.Patch(color=window_colors['coda'], alpha=0.3,
-                                  label='Coda')
-                ])
-
-                if has_post_event:
-                    legend_elements.append(
-                        mpatches.Patch(color=window_colors['post_event'], alpha=0.3,
-                                      label='Post-event')
-                    )
+                for window_name, label in [
+                    ('pre_event', 'Pre-event'),
+                    ('p_wave', 'P-wave'),
+                    ('s_wave', 'S-wave'),
+                    ('coda', 'Coda'),
+                    ('post_event', 'Post-event')
+                ]:
+                    if window_name in windows:
+                        legend_elements.append(
+                            mpatches.Patch(color=window_colors[window_name], alpha=0.3, label=label)
+                        )
             
             ax.legend(handles=legend_elements, loc='upper right', 
                      fontsize=9, framealpha=0.9)
@@ -1592,10 +1596,17 @@ def plot_station_windows(
     
     # Title with component info
     comp_str = ', '.join([comp_map[k] for k, _ in plot_order])
-    dur_s = windows['s_wave']['duration_seconds']
     
     title = f"Station {station} ({comp_str}){title_suffix}\n"
-    title += f"S-wave duration: {dur_s:.2f}s"
+    duration_parts = []
+    if has_p_wave:
+        duration_parts.append(f"P: {windows['p_wave']['duration_seconds']:.2f}s")
+    if has_s_wave:
+        duration_parts.append(f"S: {windows['s_wave']['duration_seconds']:.2f}s")
+    if has_coda:
+        duration_parts.append(f"Coda: {windows['coda']['duration_seconds']:.2f}s")
+    if duration_parts:
+        title += "Window durations: " + "  |  ".join(duration_parts)
     
     fig.suptitle(title, fontsize=14, fontweight='bold', y=0.995)
     
@@ -1784,29 +1795,32 @@ def plot_window_comparison(
         color = method_colors[idx % len(method_colors)]
         
         # P onset (should be same for all)
-        if idx == 0:
-            t_p = windows['p_wave']['t_start_seconds']
+        if idx == 0 and 'p_wave' in windows:
+            t_p = windows['p_wave']['start_seconds']
             ax.axvline(t_p, color='red', linewidth=2, linestyle='-',
-                      label='P onset', zorder=10)
-        
+                    label='P onset', zorder=10)
+
         # S onset (should be same for all)
-        if idx == 0:
-            t_s = windows['s_wave']['t_start_seconds']
+        if idx == 0 and 's_wave' in windows:
+            t_s = windows['s_wave']['start_seconds']
             ax.axvline(t_s, color='blue', linewidth=2, linestyle='-',
-                      label='S onset', zorder=10)
-        
+                    label='S onset', zorder=10)
+
         # Coda onset (different for each method)
-        t_coda = windows['coda']['t_start_seconds']
-        ax.axvline(t_coda, color=color, linewidth=2.5, linestyle='--',
-                  label=f'Coda ({label}): {t_coda:.1f}s', zorder=9)
-        
+        if 'coda' in windows:
+            t_coda = windows['coda']['start_seconds']
+            ax.axvline(t_coda, color=color, linewidth=2.5, linestyle='--',
+                    label=f'Coda ({label}): {t_coda:.1f}s', zorder=9)
+
         # Pre-event start (if different)
-        if idx > 0:
-            t_pre = windows['pre_event']['t_start_seconds']
-            prev_t_pre = windowed_dict_list[0][station][component]['pre_event']['t_start_seconds']
-            if abs(t_pre - prev_t_pre) > 0.1:
-                ax.axvline(t_pre, color=color, linewidth=1.5, linestyle=':',
-                          alpha=0.6, label=f'Pre-event start ({label})')
+        if idx > 0 and 'pre_event' in windows:
+            prev_windows = windowed_dict_list[0][station][component]
+            if 'pre_event' in prev_windows:
+                t_pre = windows['pre_event']['start_seconds']
+                prev_t_pre = prev_windows['pre_event']['start_seconds']
+                if abs(t_pre - prev_t_pre) > 0.1:
+                    ax.axvline(t_pre, color=color, linewidth=1.5, linestyle=':',
+                            alpha=0.6, label=f'Pre-event start ({label})')
     
     ax.set_xlabel('Time (s)', fontsize=12)
     ax.set_ylabel(f'{component} Signal ({signal_unit})', fontsize=12)
