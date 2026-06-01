@@ -715,11 +715,11 @@ def print_quality_control_summary(
             checks = qc_results[station][component]
             
             # Format check results
-            peak_status = "✓" if checks['peak_check']['passed'] else "✗"
-            mono_p_status = "✓" if checks['monotonicity_p']['passed'] else "✗"
-            mono_s_status = "✓" if checks['monotonicity_s']['passed'] else "✗"
-            snr_p_status = "✓" if checks['snr_p']['passed'] else "✗"
-            snr_s_status = "✓" if checks['snr_s']['passed'] else "✗"
+            peak_status = "✓" if checks['peak_check']['passed'] else ("–" if 'error' in checks['peak_check'] else "✗")
+            mono_p_status = "✓" if checks['monotonicity_p']['passed'] else ("–" if 'error' in checks['monotonicity_p'] else "✗")
+            mono_s_status = "✓" if checks['monotonicity_s']['passed'] else ("–" if 'error' in checks['monotonicity_s'] else "✗")
+            snr_p_status = "✓" if checks['snr_p']['passed'] else ("–" if 'error' in checks['snr_p'] else "✗")
+            snr_s_status = "✓" if checks['snr_s']['passed'] else ("–" if 'error' in checks['snr_s'] else "✗")
             
             # Count failures
             # Peak
