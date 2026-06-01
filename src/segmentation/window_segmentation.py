@@ -94,6 +94,7 @@ def segment_signal_into_windows(
     sampling_rate: float = 200,
     time: Optional[np.ndarray] = None,
     pre_p_duration: Union[int, float, Literal['full']] = 5.0,
+    min_window_duration: float = 1,
     available_windows: Optional[Set[str]] = None
 ) -> Dict[str, Dict[str, np.ndarray]]:
     """
@@ -128,6 +129,8 @@ def segment_signal_into_windows(
         - If unit='seconds': float (seconds)
         - If 'full': use all available signal from start
         Default: 5.0 (interpreted based on unit)
+    min_window_duration : float, optional
+        Minimum duration in seconds for a window to be included in output (default: 1.0s)
     available_windows : set of str, optional
         Set of window names to create. Valid values: 'pre_event', 'p_wave', 's_wave', 'coda'.
         If None, all four windows are created (default behavior).
@@ -225,6 +228,8 @@ def segment_signal_into_windows(
     
     if available_windows is None:
         available_windows = {'pre_event', 'p_wave', 's_wave', 'coda'}
+
+    min_window_samples = int(np.round(min_window_duration * sampling_rate))
         
     if 'p_wave' in available_windows and 's_wave' in available_windows:
         if not (t_p_samp < t_s_samp):
@@ -249,63 +254,68 @@ def segment_signal_into_windows(
     
     # Pre-event window
     if 'pre_event' in available_windows:
-        windows['pre_event'] = {
-            'signal': signal[t_pre_start_samp:t_p_samp],
-            'start_samples': t_pre_start_samp,
-            'end_samples': t_p_samp,
-            'start_seconds': t_pre_start_sec,
-            'end_seconds': t_p_sec,
-            'duration_samples': t_p_samp - t_pre_start_samp,
-            'duration_seconds': t_p_sec - t_pre_start_sec
-        }
+        if (t_p_samp - t_pre_start_samp) >= min_window_samples:
+            windows['pre_event'] = {
+                'signal': signal[t_pre_start_samp:t_p_samp],
+                'start_samples': t_pre_start_samp,
+                'end_samples': t_p_samp,
+                'start_seconds': t_pre_start_sec,
+                'end_seconds': t_p_sec,
+                'duration_samples': t_p_samp - t_pre_start_samp,
+                'duration_seconds': t_p_sec - t_pre_start_sec
+            }
     
     # P-wave window
     if 'p_wave' in available_windows:
-        windows['p_wave'] = {
-            'signal': signal[t_p_samp:t_s_samp],
-            'start_samples': t_p_samp,
-            'end_samples': t_s_samp,
-            'start_seconds': t_p_sec,
-            'end_seconds': t_s_sec,
-            'duration_samples': t_s_samp - t_p_samp,
-            'duration_seconds': t_s_sec - t_p_sec
-        }
+        if (t_s_samp - t_p_samp) >= min_window_samples:
+            windows['p_wave'] = {
+                'signal': signal[t_p_samp:t_s_samp],
+                'start_samples': t_p_samp,
+                'end_samples': t_s_samp,
+                'start_seconds': t_p_sec,
+                'end_seconds': t_s_sec,
+                'duration_samples': t_s_samp - t_p_samp,
+                'duration_seconds': t_s_sec - t_p_sec
+            }
     
     # S-wave window
     if 's_wave' in available_windows:
-        windows['s_wave'] = {
-            'signal': signal[t_s_samp:t_coda_samp],
-            'start_samples': t_s_samp,
-            'end_samples': t_coda_samp,
-            'start_seconds': t_s_sec,
-            'end_seconds': t_coda_sec,
-            'duration_samples': t_coda_samp - t_s_samp,
-            'duration_seconds': t_coda_sec - t_s_sec
-        }
+         if (t_coda_samp - t_s_samp) >= min_window_samples:
+            windows['s_wave'] = {
+                'signal': signal[t_s_samp:t_coda_samp],
+                'start_samples': t_s_samp,
+                'end_samples': t_coda_samp,
+                'start_seconds': t_s_sec,
+                'end_seconds': t_coda_sec,
+                'duration_samples': t_coda_samp - t_s_samp,
+                'duration_seconds': t_coda_sec - t_s_sec
+            }
     
     # Coda window
     if 'coda' in available_windows:
-        windows['coda'] = {
-            'signal': signal[t_coda_samp:t_coda_end_samp],
-            'start_samples': t_coda_samp,
-            'end_samples': t_coda_end_samp,
-            'start_seconds': t_coda_sec,
-            'end_seconds': t_coda_end_sec,
-            'duration_samples': t_coda_end_samp - t_coda_samp,
-            'duration_seconds': t_coda_end_sec - t_coda_sec
-        }
+         if (t_coda_end_samp - t_coda_samp) >= min_window_samples:
+            windows['coda'] = {
+                'signal': signal[t_coda_samp:t_coda_end_samp],
+                'start_samples': t_coda_samp,
+                'end_samples': t_coda_end_samp,
+                'start_seconds': t_coda_sec,
+                'end_seconds': t_coda_end_sec,
+                'duration_samples': t_coda_end_samp - t_coda_samp,
+                'duration_seconds': t_coda_end_sec - t_coda_sec
+            }
 
     # Post-event window (only if t_coda_end < signal end)
     if t_coda_end_samp < t_end_samp:
-        windows['post_event'] = {
-            'signal': signal[t_coda_end_samp:t_end_samp],
-            'start_samples': t_coda_end_samp,
-            'end_samples': t_end_samp,
-            'start_seconds': t_coda_end_sec,
-            'end_seconds': t_end_sec,
-            'duration_samples': t_end_samp - t_coda_end_samp,
-            'duration_seconds': t_end_sec - t_coda_end_sec
-        }
+         if (t_end_samp - t_coda_end_samp) >= min_window_samples:
+            windows['post_event'] = {
+                'signal': signal[t_coda_end_samp:t_end_samp],
+                'start_samples': t_coda_end_samp,
+                'end_samples': t_end_samp,
+                'start_seconds': t_coda_end_sec,
+                'end_seconds': t_end_sec,
+                'duration_samples': t_end_samp - t_coda_end_samp,
+                'duration_seconds': t_end_sec - t_coda_end_sec
+            }
     
     # Add time arrays if provided (backward compatibility)
     if time is not None:
@@ -337,6 +347,7 @@ def segment_all_signals(
     unit: Literal['samples', 'seconds'] = 'samples',
     coda_method: Literal['rautian', 'arias', 'envelope'] = 'rautian',
     pre_p_duration: Union[int, float, Literal['full']] = 5.0,
+    min_window_duration: float = 1.0,
     verbose: bool = True
 ) -> Dict[str, Dict[str, Dict[str, Dict[str, np.ndarray]]]]:
     """
@@ -366,6 +377,8 @@ def segment_all_signals(
         - If unit='samples': int (number of samples), default: 5.0 → 1000 samples @ 200Hz
         - If unit='seconds': float (seconds), default: 5.0
         - If 'full': use all available signal from recording start
+    min_window_duration : float, optional
+        Minimum duration in seconds for a window to be included (default: 1.0s)
     verbose : bool, optional
         If True, print detailed progress
         
@@ -604,6 +617,7 @@ def segment_all_signals(
                     sampling_rate=sampling_rate,
                     time=time_array,
                     pre_p_duration=pre_p_duration,
+                    min_window_duration=min_window_duration,
                     available_windows=available_windows
                 )
 
