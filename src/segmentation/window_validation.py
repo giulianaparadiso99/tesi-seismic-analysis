@@ -613,11 +613,14 @@ def quality_control_all_stations(
         for component in windowed_signals[station].keys():
             # Peak check (component-specific, uses df_full)
             peak_check = check_peak_in_s_wave(
-                df_full, station, component, 
+                df_full, station, component,
                 peak_column=peak_column,
                 time_peak_column=time_peak_column,
                 coda_method=coda_method
-            )
+            ) if 's_wave' in windowed_signals[station][component] else {
+                'passed': False,
+                'error': 'Missing s_wave window'
+            }
             
             # Monotonicity checks (station-level, cached)
             mono_p = monotonicity_cache[station]['p']
@@ -625,13 +628,22 @@ def quality_control_all_stations(
             
             # SNR checks (component-specific, uses windowed_signals)
             snr_p = check_snr(
-                windowed_signals, station, component, 
+                windowed_signals, station, component,
                 phase='p', threshold=snr_threshold
-            )
+            ) if 'p_wave' in windowed_signals[station][component] and 'pre_event' in windowed_signals[station][component] else {
+                'passed': False, 'snr': np.nan, 'rms_signal': np.nan,
+                'rms_noise': np.nan, 'threshold': snr_threshold,
+                'error': 'Missing p_wave or pre_event window'
+            }
+
             snr_s = check_snr(
                 windowed_signals, station, component,
                 phase='s', threshold=snr_threshold
-            )
+            ) if 's_wave' in windowed_signals[station][component] and 'pre_event' in windowed_signals[station][component] else {
+                'passed': False, 'snr': np.nan, 'rms_signal': np.nan,
+                'rms_noise': np.nan, 'threshold': snr_threshold,
+                'error': 'Missing s_wave or pre_event window'
+            }
             
             # Aggregate results
             all_passed = (
@@ -685,11 +697,12 @@ def print_quality_control_summary(
     
     total_components = 0
     check_failures = {
-        'peak': 0,
-        'monotonicity_p': 0,
-        'monotonicity_s': 0,
-        'snr_p': 0,
-        'snr_s': 0
+        'peak': 0, 'monotonicity_p': 0, 'monotonicity_s': 0,
+        'snr_p': 0, 'snr_s': 0
+    }
+    check_applicable = {
+        'peak': 0, 'monotonicity_p': 0, 'monotonicity_s': 0,
+        'snr_p': 0, 'snr_s': 0
     }
     
     for station in sorted(qc_results.keys()):
@@ -709,16 +722,35 @@ def print_quality_control_summary(
             snr_s_status = "✓" if checks['snr_s']['passed'] else "✗"
             
             # Count failures
-            if not checks['peak_check']['passed']:
-                check_failures['peak'] += 1
-            if not checks['monotonicity_p']['passed']:
-                check_failures['monotonicity_p'] += 1
-            if not checks['monotonicity_s']['passed']:
-                check_failures['monotonicity_s'] += 1
-            if not checks['snr_p']['passed']:
-                check_failures['snr_p'] += 1
-            if not checks['snr_s']['passed']:
-                check_failures['snr_s'] += 1
+            # Peak
+            if 'error' not in checks['peak_check']:
+                check_applicable['peak'] += 1
+                if not checks['peak_check']['passed']:
+                    check_failures['peak'] += 1
+
+            # Monotonicity P
+            if 'error' not in checks['monotonicity_p']:
+                check_applicable['monotonicity_p'] += 1
+                if not checks['monotonicity_p']['passed']:
+                    check_failures['monotonicity_p'] += 1
+
+            # Monotonicity S
+            if 'error' not in checks['monotonicity_s']:
+                check_applicable['monotonicity_s'] += 1
+                if not checks['monotonicity_s']['passed']:
+                    check_failures['monotonicity_s'] += 1
+
+            # SNR P
+            if 'error' not in checks['snr_p']:
+                check_applicable['snr_p'] += 1
+                if not checks['snr_p']['passed']:
+                    check_failures['snr_p'] += 1
+
+            # SNR S
+            if 'error' not in checks['snr_s']:
+                check_applicable['snr_s'] += 1
+                if not checks['snr_s']['passed']:
+                    check_failures['snr_s'] += 1
             
             # Tree structure
             if i == len(components) - 1:
@@ -739,11 +771,11 @@ def print_quality_control_summary(
     print("\n" + "=" * 70)
     print(f"Total components: {total_components}")
     print(f"\nCheck failures:")
-    print(f"  Peak in S-wave:     {check_failures['peak']} ({100*check_failures['peak']/total_components:.1f}%)")
-    print(f"  Monotonicity P:     {check_failures['monotonicity_p']} ({100*check_failures['monotonicity_p']/total_components:.1f}%)")
-    print(f"  Monotonicity S:     {check_failures['monotonicity_s']} ({100*check_failures['monotonicity_s']/total_components:.1f}%)")
-    print(f"  SNR P-wave:         {check_failures['snr_p']} ({100*check_failures['snr_p']/total_components:.1f}%)")
-    print(f"  SNR S-wave:         {check_failures['snr_s']} ({100*check_failures['snr_s']/total_components:.1f}%)")
+    print(f"  Peak in S-wave:     {check_failures['peak']}/{check_applicable['peak']} ({100*check_failures['peak']/check_applicable['peak']:.1f}%)")
+    print(f"  Monotonicity P:     {check_failures['monotonicity_p']}/{check_applicable['monotonicity_p']} ({100*check_failures['monotonicity_p']/check_applicable['monotonicity_p']:.1f}%)")
+    print(f"  Monotonicity S:     {check_failures['monotonicity_s']}/{check_applicable['monotonicity_s']} ({100*check_failures['monotonicity_s']/check_applicable['monotonicity_s']:.1f}%)")
+    print(f"  SNR P-wave:         {check_failures['snr_p']}/{check_applicable['snr_p']} ({100*check_failures['snr_p']/check_applicable['snr_p']:.1f}%)")
+    print(f"  SNR S-wave:         {check_failures['snr_s']}/{check_applicable['snr_s']} ({100*check_failures['snr_s']/check_applicable['snr_s']:.1f}%)")
     print("=" * 70)
 
 
@@ -1184,18 +1216,18 @@ def print_violation_summary(
         print(f"    Detected: {row['t_detected']:.3f}s | Theoretical: {row['t_theo']:.3f}s | Residual: {row['residual']:.3f}s")
         
         if 'prev' in row['violation_type']:
-            print(f"    ⚠ PREV VIOLATION:")
+            print(f"PREV VIOLATION:")
             print(f"       {row['prev_station']} (d={row['prev_distance']:.2f}km) arrived at {row['prev_t_detected']:.3f}s")
-            print(f"       → Closer station arrived LATER or same time (Δt = {row['prev_t_detected'] - row['t_detected']:+.3f}s)")
+            print(f"      Closer station arrived LATER or same time (Δt = {row['prev_t_detected'] - row['t_detected']:+.3f}s)")
             if row['prev_residual'] is not None:
-                print(f"       → Residuals: prev={row['prev_residual']:+.3f}s, this={row['residual']:+.3f}s")
+                print(f"       Residuals: prev={row['prev_residual']:+.3f}s, this={row['residual']:+.3f}s")
         
         if 'next' in row['violation_type']:
-            print(f"    ⚠ NEXT VIOLATION:")
+            print(f"    NEXT VIOLATION:")
             print(f"       {row['next_station']} (d={row['next_distance']:.2f}km) arrived at {row['next_t_detected']:.3f}s")
-            print(f"       → Farther station arrived EARLIER or same time (Δt = {row['next_t_detected'] - row['t_detected']:+.3f}s)")
+            print(f"       Farther station arrived EARLIER or same time (Δt = {row['next_t_detected'] - row['t_detected']:+.3f}s)")
             if row['next_residual'] is not None:
-                print(f"       → Residuals: this={row['residual']:+.3f}s, next={row['next_residual']:+.3f}s")
+                print(f"       Residuals: this={row['residual']:+.3f}s, next={row['next_residual']:+.3f}s")
     
     print("\n" + "="*80)
 
