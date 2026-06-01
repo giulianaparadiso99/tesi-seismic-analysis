@@ -391,12 +391,14 @@ def detect_onsets_arpick(
         if p_success:
             if has_theo_samples:
                 t_p_theo_sec = t_p_theo_samp / sampling_rate
-            df_meta_stations.loc[idx, 'p_residual_seconds'] = t_p_detected_sec - t_p_theo_sec
-        
+            if t_p_theo_sec >= 0:
+                df_meta_stations.loc[idx, 'p_residual_seconds'] = t_p_detected_sec - t_p_theo_sec
+
         if s_success:
             if has_theo_samples:
                 t_s_theo_sec = t_s_theo_samp / sampling_rate
-            df_meta_stations.loc[idx, 's_residual_seconds'] = t_s_detected_sec - t_s_theo_sec
+            if t_s_theo_sec >= 0:
+                df_meta_stations.loc[idx, 's_residual_seconds'] = t_s_detected_sec - t_s_theo_sec
         
         # Record errors if any
         if error_msg:
