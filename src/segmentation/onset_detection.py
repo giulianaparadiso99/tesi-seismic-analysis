@@ -1970,7 +1970,9 @@ def add_coda_end_to_dataframe(
     print(f"Total components processed: {len(df_onsets)}")
     print(f"\nSuccessfully computed:")
     for method in coda_methods:
-        print(f"  {method:12s}: {n_computed[method]:3d} ({100*n_computed[method]/len(df_onsets):.1f}%)")
+        n_applicable = df_onsets[f't_coda_{method}_samples'].notna().sum()
+        denom = n_applicable if n_applicable > 0 else len(df_onsets)
+        print(f"  {method:12s}: {n_computed[method]:3d} ({100*n_computed[method]/denom:.1f}%)")
     
     print(f"\nSkipped:")
     print(f"No signal data:    {n_skipped_no_signal:3d}")

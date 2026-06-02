@@ -1396,10 +1396,12 @@ def plot_station_windows(
 ) -> plt.Figure:
     """
     Plot three-component signal with onset times and window boundaries.
-    
-    Automatically detects component naming convention (HNE/HNN/HNZ vs 
-    HGE/HGN/HGZ vs HN1/HN2/HNZ).
-    
+
+    Only plots components that have at least one window in windowed_signals.
+    The figure title shows the station name and epicentral distance (if available).
+    Each subplot has a subtitle with the durations of the windows present for
+    that specific component.
+
     Parameters
     ----------
     station : str
@@ -1409,217 +1411,223 @@ def plot_station_windows(
     windowed_signals : dict
         Windowed signals from segment_all_signals()
     df_onsets : pd.DataFrame, optional
-        DataFrame with onset times for displaying in legend
+        DataFrame with onset times; used to retrieve EPICENTRAL_DISTANCE_KM
     signal_unit : str, optional
+        Y-axis unit label (default: 'cm/s²')
     coda_method : str, optional
-        Which coda method was used ('rautian', 'arias', 'envelope')
-        Only used if df_onsets is provided (default: 'rautian')
+        Coda method name shown in legend (default: 'rautian')
     figsize : tuple, optional
-        Figure size (width, height) in inches (default: (14, 10))
-    output_path : str, optional
+        Figure size in inches (default: (14, 10))
+    output_path : str or Path, optional
         If provided, save figure to this path
     show_onset_lines : bool, optional
         Show vertical lines at onset times (default: True)
     show_window_backgrounds : bool, optional
         Show colored backgrounds for each window (default: True)
     title_suffix : str, optional
-        Additional text for title (default: '')
-        
+        Extra text appended to the figure title (default: '')
+
     Returns
     -------
     fig : matplotlib.figure.Figure
-        
+
     Raises
     ------
     ValueError
-        If station not found or no components available
+        If station not found in signals_dict or windowed_signals, or if no
+        component has any window.
     """
-    
     if station not in signals_dict:
         raise ValueError(f"Station '{station}' not found in signals_dict")
-    
     if station not in windowed_signals:
         raise ValueError(f"Station '{station}' not found in windowed_signals")
-    
-    # Get component mapping
+
+    # ── Build plot_order from components that actually have windows ──────────
+    # Preserve canonical order: Z first, then N or 2, then E or 1.
     comp_map = get_station_components(station, signals_dict)
-    
-    if len(comp_map) == 0:
-        raise ValueError(f"No components found for station {station}")
-    
-    # Determine plot order and labels based on available components
+
     if 'Z' in comp_map and 'N' in comp_map and 'E' in comp_map:
-        # N-E system: plot Z, N, E
-        plot_order = [('Z', 'Vertical'), ('N', 'North'), ('E', 'East')]
+        canonical_order = [('Z', 'Vertical'), ('N', 'North'), ('E', 'East')]
     elif 'Z' in comp_map and '1' in comp_map and '2' in comp_map:
-        # 1-2 system: plot Z, 1, 2
-        plot_order = [('Z', 'Vertical'), ('1', 'Horizontal-1'), ('2', 'Horizontal-2')]
+        canonical_order = [('Z', 'Vertical'), ('1', 'Horizontal-1'), ('2', 'Horizontal-2')]
     else:
-        # Fallback: plot whatever is available
-        plot_order = [(k, f'Component {v}') for k, v in comp_map.items()]
-    
-    # Filter to actually available components
-    plot_order = [(key, label) for key, label in plot_order if key in comp_map]
-    
-    # Window colors
+        canonical_order = [(k, f'Component {v}') for k, v in comp_map.items()]
+
+    # Keep only components present in windowed_signals with at least one window
+    plot_order = [
+        (key, label)
+        for key, label in canonical_order
+        if key in comp_map
+        and comp_map[key] in windowed_signals[station]
+        and len(windowed_signals[station][comp_map[key]]) > 0
+    ]
+
+    if not plot_order:
+        raise ValueError(
+            f"Station '{station}': no component has any window in windowed_signals"
+        )
+
+    # ── Figure title ─────────────────────────────────────────────────────────
+    title_parts = [f"Station {station}"]
+    if df_onsets is not None and 'EPICENTRAL_DISTANCE_KM' in df_onsets.columns:
+        mask = df_onsets['STATION_CODE'] == station
+        if mask.any():
+            dist = df_onsets.loc[mask, 'EPICENTRAL_DISTANCE_KM'].iloc[0]
+            if not pd.isna(dist):
+                title_parts.append(f"{dist:.1f} km")
+    suptitle = ' — '.join(title_parts) + title_suffix
+
+    # ── Window and onset colors ───────────────────────────────────────────────
     window_colors = {
-        'pre_event': '#E8E8E8',
-        'p_wave': '#AED6F1',
-        's_wave': '#F9E79F',
-        'coda': '#D5F4E6',
-        'post_event': '#F8C8DC'
+        'pre_event':  '#E8E8E8',
+        'p_wave':     '#AED6F1',
+        's_wave':     '#F9E79F',
+        'coda':       '#D5F4E6',
+        'post_event': '#F8C8DC',
     }
-    
-    # Onset line colors
     onset_colors = {
-        'p': '#E74C3C',
-        's': '#3498DB',
-        'coda': '#27AE60',
-        'coda_end': '#9B59B6'
+        'p':        '#E74C3C',
+        's':        '#3498DB',
+        'coda':     '#27AE60',
+        'coda_end': '#9B59B6',
     }
-    
-    # Create figure
+
+    # ── Create figure ─────────────────────────────────────────────────────────
     n_subplots = len(plot_order)
     fig, axes = plt.subplots(n_subplots, 1, figsize=figsize, sharex=True)
-    
-    # Handle single subplot case
     if n_subplots == 1:
         axes = [axes]
-    
-    # Get full time array
+
     time_full = signals_dict[station]['time']
-    
-    # Plot each component
+
     for idx, (comp_key, comp_label) in enumerate(plot_order):
         ax = axes[idx]
-        
-        # Get actual component code
         component = comp_map[comp_key]
-        
-        # Get full signal
         signal_full = signals_dict[station][component]
-        
-        # Get windowed data
         windows = windowed_signals[station][component]
-        
-        # Extract onset times
-        has_pre_event = 'pre_event' in windows
-        has_p_wave = 'p_wave' in windows
-        has_s_wave = 's_wave' in windows
-        has_coda = 'coda' in windows
+
+        # ── Presence flags ────────────────────────────────────────────────────
+        has_pre_event  = 'pre_event'  in windows
+        has_p_wave     = 'p_wave'     in windows
+        has_s_wave     = 's_wave'     in windows
+        has_coda       = 'coda'       in windows
         has_post_event = 'post_event' in windows
 
-        t_p = windows['p_wave']['start_seconds'] if has_p_wave else None
-        t_s = windows['s_wave']['start_seconds'] if has_s_wave else None
-        t_coda = windows['coda']['start_seconds'] if has_coda else None
-        if has_post_event:
-            t_coda_end = windows['coda']['end_seconds']
-                
-        # Plot window backgrounds
+        # ── Onset times (seconds) ─────────────────────────────────────────────
+        t_p        = windows['p_wave']['start_seconds']    if has_p_wave     else None
+        t_s        = windows['s_wave']['start_seconds']    if has_s_wave     else None
+        t_coda     = windows['coda']['start_seconds']      if has_coda       else None
+        t_coda_end = windows['coda']['end_seconds']        if has_post_event else None
+
+        # ── Window backgrounds ────────────────────────────────────────────────
         if show_window_backgrounds:
-            for window_name in ['pre_event', 'p_wave', 's_wave', 'coda', 'post_event']:
+            for window_name in ('pre_event', 'p_wave', 's_wave', 'coda', 'post_event'):
                 if window_name in windows:
                     w = windows[window_name]
-                    ax.axvspan(w['start_seconds'], w['end_seconds'], 
-                            color=window_colors[window_name],
-                            alpha=0.3, zorder=0)
-                
-        
-        # Plot signal
+                    ax.axvspan(
+                        w['start_seconds'], w['end_seconds'],
+                        color=window_colors[window_name], alpha=0.3, zorder=0
+                    )
+
+        # ── Signal ────────────────────────────────────────────────────────────
         ax.plot(time_full, signal_full, 'k-', linewidth=0.6, zorder=2)
-        
-        # Plot onset lines
+
+        # ── Onset lines ───────────────────────────────────────────────────────
         if show_onset_lines:
             if t_p is not None:
-                ax.axvline(t_p, color=onset_colors['p'], linewidth=2, 
-                      linestyle='-', zorder=3, label='P onset')
+                ax.axvline(t_p, color=onset_colors['p'], linewidth=2,
+                           linestyle='-', zorder=3,
+                           label='P onset' if idx == 0 else '')
             if t_s is not None:
                 ax.axvline(t_s, color=onset_colors['s'], linewidth=2,
-                      linestyle='-', zorder=3, label='S onset')
+                           linestyle='-', zorder=3,
+                           label='S onset' if idx == 0 else '')
             if t_coda is not None:
                 ax.axvline(t_coda, color=onset_colors['coda'], linewidth=2,
-                      linestyle='-', zorder=3, label=f'Coda ({coda_method})')
-            if has_post_event:
-                ax.axvline(t_coda_end, color=onset_colors['coda_end'], 
-                          linewidth=2, linestyle=':', zorder=3, 
-                          label='Coda end', alpha=0.8)
-        
-        # Labels and formatting
+                           linestyle='-', zorder=3,
+                           label=f'Coda ({coda_method})' if idx == 0 else '')
+            if t_coda_end is not None:
+                ax.axvline(t_coda_end, color=onset_colors['coda_end'],
+                           linewidth=2, linestyle=':', zorder=3, alpha=0.8,
+                           label='Coda end' if idx == 0 else '')
+
+        # ── Y-axis label ──────────────────────────────────────────────────────
         ax.set_ylabel(f'{comp_label}\n{component}\n({signal_unit})', fontsize=10)
         ax.grid(True, alpha=0.3, zorder=1)
-        
-        # Legend only on first subplot
+
+        # ── Per-subplot subtitle: window durations ────────────────────────────
+        duration_parts = []
+        window_labels = [
+            ('pre_event',  'Pre'),
+            ('p_wave',     'P'),
+            ('s_wave',     'S'),
+            ('coda',       'Coda'),
+            ('post_event', 'Post'),
+        ]
+        for window_name, short_label in window_labels:
+            if window_name in windows:
+                dur = windows[window_name]['duration_seconds']
+                duration_parts.append(f"{short_label}: {dur:.2f}s")
+        if duration_parts:
+            ax.set_title('  |  '.join(duration_parts), fontsize=9, loc='left', pad=3)
+
+        # ── Legend (first subplot only) ───────────────────────────────────────
         if idx == 0:
             legend_elements = []
-            
             if show_onset_lines:
                 if has_p_wave:
                     legend_elements.append(
-                        plt.Line2D([0], [0], color=onset_colors['p'], linewidth=2, 
-                                  label='P onset')
+                        plt.Line2D([0], [0], color=onset_colors['p'],
+                                   linewidth=2, label='P onset')
                     )
                 if has_s_wave:
                     legend_elements.append(
-                        plt.Line2D([0], [0], color=onset_colors['s'], linewidth=2,
-                                  label='S onset')
+                        plt.Line2D([0], [0], color=onset_colors['s'],
+                                   linewidth=2, label='S onset')
                     )
                 if has_coda:
                     legend_elements.append(
-                        plt.Line2D([0], [0], color=onset_colors['coda'], linewidth=2,
-                                  label=f'Coda onset ({coda_method})')
+                        plt.Line2D([0], [0], color=onset_colors['coda'],
+                                   linewidth=2, label=f'Coda onset ({coda_method})')
                     )
                 if has_post_event:
                     legend_elements.append(
-                        plt.Line2D([0], [0], color=onset_colors['coda_end'], 
-                                  linewidth=2, linestyle=':', alpha=0.8,
-                                  label='Coda end')
+                        plt.Line2D([0], [0], color=onset_colors['coda_end'],
+                                   linewidth=2, linestyle=':', alpha=0.8,
+                                   label='Coda end')
                     )
-            
             if show_window_backgrounds:
                 for window_name, label in [
-                    ('pre_event', 'Pre-event'),
-                    ('p_wave', 'P-wave'),
-                    ('s_wave', 'S-wave'),
-                    ('coda', 'Coda'),
-                    ('post_event', 'Post-event')
+                    ('pre_event',  'Pre-event'),
+                    ('p_wave',     'P-wave'),
+                    ('s_wave',     'S-wave'),
+                    ('coda',       'Coda'),
+                    ('post_event', 'Post-event'),
                 ]:
                     if window_name in windows:
                         legend_elements.append(
-                            mpatches.Patch(color=window_colors[window_name], alpha=0.3, label=label)
+                            mpatches.Patch(
+                                color=window_colors[window_name],
+                                alpha=0.3, label=label
+                            )
                         )
-            
-            ax.legend(handles=legend_elements, loc='upper right', 
-                     fontsize=9, framealpha=0.9)
-    
-    # X-axis label
+            if legend_elements:
+                ax.legend(handles=legend_elements, loc='upper right',
+                          fontsize=9, framealpha=0.9)
+
+    # ── X-axis label and figure title ─────────────────────────────────────────
     axes[-1].set_xlabel('Time (s)', fontsize=12)
-    
-    # Title with component info
-    comp_str = ', '.join([comp_map[k] for k, _ in plot_order])
-    
-    title = f"Station {station} ({comp_str}){title_suffix}\n"
-    duration_parts = []
-    if has_p_wave:
-        duration_parts.append(f"P: {windows['p_wave']['duration_seconds']:.2f}s")
-    if has_s_wave:
-        duration_parts.append(f"S: {windows['s_wave']['duration_seconds']:.2f}s")
-    if has_coda:
-        duration_parts.append(f"Coda: {windows['coda']['duration_seconds']:.2f}s")
-    if duration_parts:
-        title += "Window durations: " + "  |  ".join(duration_parts)
-    
-    fig.suptitle(title, fontsize=14, fontweight='bold', y=0.995)
-    
+    fig.suptitle(suptitle, fontsize=13, fontweight='bold', y=0.999)
     plt.tight_layout(rect=[0, 0, 1, 0.98])
-    
-    # Save if requested
-    if output_path is not None:  # era save_path
+
+    # ── Save ──────────────────────────────────────────────────────────────────
+    if output_path is not None:
         output_path = Path(output_path)
         if output_path.suffix == '':
             output_path = output_path.with_suffix('.pdf')
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=150, bbox_inches='tight')
-    
+
     return fig
 
 
@@ -1679,6 +1687,7 @@ def plot_multiple_stations(
     figures = {}
     
     print(f"\nPlotting {len(stations)} stations...")
+    stations = [s for s in stations if s in windowed_signals]
     
     for i, station in enumerate(stations, 1):
         try:

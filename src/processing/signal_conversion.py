@@ -406,7 +406,8 @@ def validate_signals_dict(
 
 def expand_to_component_level(
     df_meta_stations: pd.DataFrame, 
-    df_meta_clean: pd.DataFrame
+    df_meta_clean: pd.DataFrame,
+    sampling_rate: float = 200.0
 ) -> pd.DataFrame:
     """
     Expand station-level onset data to component-level.
@@ -436,6 +437,8 @@ def expand_to_component_level(
         - EPICENTRAL_DISTANCE_KM
         - PGA_CM/S^2, TIME_PGA_S
         - All other metadata fields
+    sampling_rate : float, default=200.0
+        Sampling rate in Hz (used to calculate origin_time_samples if needed)
     
     Returns
     -------
@@ -510,12 +513,7 @@ def expand_to_component_level(
         df_full['origin_time_seconds'] = df_full['origin_time']
         
         # Calculate samples using actual sampling rate from metadata
-        if 'INSTRUMENTAL_FREQUENCY_HZ' in df_full.columns:
-            sampling_rate = df_full['INSTRUMENTAL_FREQUENCY_HZ'].iloc[0]
-            df_full['origin_time_samples'] = (df_full['origin_time'] * sampling_rate).astype(int)
-        else:
-            print("  Warning: INSTRUMENTAL_FREQUENCY_HZ not found, assuming 200 Hz")
-            df_full['origin_time_samples'] = (df_full['origin_time'] * 200).astype(int)
+        df_full['origin_time_samples'] = (df_full['origin_time'] * sampling_rate).astype(int)
             
     elif 'origin_time_seconds' in df_full.columns and 'origin_time' not in df_full.columns:
         # Create legacy alias
