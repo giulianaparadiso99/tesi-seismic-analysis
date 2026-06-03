@@ -227,7 +227,7 @@ def segment_signal_into_windows(
         raise ValueError(f"unit must be 'samples' or 'seconds', got {unit}")
     
     if available_windows is None:
-        available_windows = {'pre_event', 'p_wave', 's_wave', 'coda'}
+        available_windows = {'pre_event', 'p_wave', 's_wave', 'coda', 'post_event'}
 
     min_window_samples = int(np.round(min_window_duration * sampling_rate))
         
@@ -241,15 +241,24 @@ def segment_signal_into_windows(
             raise ValueError(
                 f"t_s must be < t_coda, got t_s={t_s_samp} ({t_s_sec:.2f}s), t_coda={t_coda_samp} ({t_coda_sec:.2f}s)"
         )
+    if 'coda' in available_windows and t_coda_end is not None:
+        if not (t_coda_samp < t_coda_end_samp):
+            raise ValueError(
+                f"t_coda must be < t_coda_end, got t_coda={t_coda_samp} ({t_coda_sec:.2f}s), "
+                f"t_coda_end={t_coda_end_samp} ({t_coda_end_sec:.2f}s)"
+            )
     
-    # Calculate pre-event window start
     t_pre_start_samp = max(0, t_p_samp - pre_p_samp)
     t_pre_start_sec = t_pre_start_samp / sampling_rate
-    
-    # Signal end
     t_end_samp = len(signal)
     t_end_sec = t_end_samp / sampling_rate
-    
+    t_p_wave_start = None
+    t_p_wave_end = None
+    t_s_wave_start = None
+    t_s_wave_end = None
+    t_coda_start = None
+    t_coda_end_local = None
+
     windows = {}
     
     # Pre-event window
@@ -267,44 +276,49 @@ def segment_signal_into_windows(
     
     # P-wave window
     if 'p_wave' in available_windows:
-        if (t_s_samp - t_p_samp) >= min_window_samples:
+        t_p_wave_start = max(0, t_p_samp)
+        t_p_wave_end = min(t_s_samp, t_end_samp)
+        if (t_p_wave_end - t_p_wave_start) >= min_window_samples:
             windows['p_wave'] = {
-                'signal': signal[t_p_samp:t_s_samp],
-                'start_samples': t_p_samp,
-                'end_samples': t_s_samp,
-                'start_seconds': t_p_sec,
-                'end_seconds': t_s_sec,
-                'duration_samples': t_s_samp - t_p_samp,
-                'duration_seconds': t_s_sec - t_p_sec
+                'signal': signal[t_p_wave_start:t_p_wave_end],
+                'start_samples': t_p_wave_start,
+                'end_samples': t_p_wave_end,
+                'start_seconds': t_p_wave_start / sampling_rate,
+                'end_seconds': t_p_wave_end / sampling_rate,
+                'duration_samples': t_p_wave_end - t_p_wave_start,
+                'duration_seconds': (t_p_wave_end - t_p_wave_start) / sampling_rate
             }
-    
+
     # S-wave window
     if 's_wave' in available_windows:
+        t_s_wave_start = max(0, t_s_samp)
         t_s_wave_end = min(t_coda_samp, t_end_samp)
-        if (t_s_wave_end - t_s_samp) >= min_window_samples:
+        if (t_s_wave_end - t_s_wave_start) >= min_window_samples:
             windows['s_wave'] = {
-                'signal': signal[t_s_samp:t_s_wave_end],
-                'start_samples': t_s_samp,
+                'signal': signal[t_s_wave_start:t_s_wave_end],
+                'start_samples': t_s_wave_start,
                 'end_samples': t_s_wave_end,
-                'start_seconds': t_s_sec,
+                'start_seconds': t_s_wave_start / sampling_rate,
                 'end_seconds': t_s_wave_end / sampling_rate,
-                'duration_samples': t_s_wave_end - t_s_samp,
-                'duration_seconds': (t_s_wave_end - t_s_samp) / sampling_rate
+                'duration_samples': t_s_wave_end - t_s_wave_start,
+                'duration_seconds': (t_s_wave_end - t_s_wave_start) / sampling_rate
             }
     
     # Coda window
     if 'coda' in available_windows:
-         if t_coda_samp >= t_end_samp:
-             pass
-         elif (t_coda_end_samp - t_coda_samp) >= min_window_samples:
+        t_coda_start = max(0, t_coda_samp)
+        t_coda_end_local = min(t_coda_end_samp, t_end_samp)
+        if t_coda_start >= t_end_samp:
+            pass
+        elif (t_coda_end_local - t_coda_start) >= min_window_samples:
             windows['coda'] = {
-                'signal': signal[t_coda_samp:t_coda_end_samp],
-                'start_samples': t_coda_samp,
-                'end_samples': t_coda_end_samp,
-                'start_seconds': t_coda_sec,
-                'end_seconds': t_coda_end_sec,
-                'duration_samples': t_coda_end_samp - t_coda_samp,
-                'duration_seconds': t_coda_end_sec - t_coda_sec
+                'signal': signal[t_coda_start:t_coda_end_local],
+                'start_samples': t_coda_start,
+                'end_samples': t_coda_end_local,
+                'start_seconds': t_coda_start / sampling_rate,
+                'end_seconds': t_coda_end_local / sampling_rate,
+                'duration_samples': t_coda_end_local - t_coda_start,
+                'duration_seconds': (t_coda_end_local - t_coda_start) / sampling_rate
             }
 
     # Post-event window (only if t_coda_end < signal end)
@@ -325,12 +339,12 @@ def segment_signal_into_windows(
         if 'pre_event' in windows:
             windows['pre_event']['time'] = time[t_pre_start_samp:t_p_samp]
         if 'p_wave' in windows:
-            windows['p_wave']['time'] = time[t_p_samp:t_s_samp]
+            windows['p_wave']['time'] = time[t_p_wave_start:t_p_wave_end]
         if 's_wave' in windows:
-            windows['s_wave']['time'] = time[t_s_samp:t_coda_samp]
+            windows['s_wave']['time'] = time[t_s_wave_start:t_s_wave_end]
         if 'coda' in windows:
-            windows['coda']['time'] = time[t_coda_samp:t_coda_end_samp]
-    
+            windows['coda']['time'] = time[t_coda_start:t_coda_end_local]
+
     # Legacy keys for backward compatibility
     for window_name in windows:
         windows[window_name]['t_start'] = windows[window_name]['start_seconds']
