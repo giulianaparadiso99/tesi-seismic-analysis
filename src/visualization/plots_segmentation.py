@@ -1753,6 +1753,7 @@ def plot_multiple_stations(
     coda_method: str = 'rautian',
     output_dir: Optional[Union[str, Path]] = None,
     close_after_save: bool = True,
+    mode: str = 'interactive',
     **kwargs
 ) -> Dict[str, plt.Figure]:
     """
@@ -1807,7 +1808,7 @@ def plot_multiple_stations(
         try:
             # Determine save path if directory provided
             if output_dir:
-                output_path = Path(output_dir) / f'{station}_windows.pdf'
+                output_path = Path(output_dir) / f'{station}_windows'
             else:
                 output_path = None
             
@@ -1819,6 +1820,7 @@ def plot_multiple_stations(
                 df_onsets=df_onsets,
                 coda_method=coda_method,
                 output_path=output_path,
+                mode=mode,
                 **kwargs
             )
             
