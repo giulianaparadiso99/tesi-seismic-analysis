@@ -22,7 +22,7 @@ High-level (batch processing):
 
 Technical Details
 -----------------
-PhaseNet model: Pre-trained ETHZ model via SeisBench
+PhaseNet model: Pre-trained INSTANCE model via SeisBench
 Target sampling rate: 100 Hz (resampled internally)
 Minimum signal duration: 30 seconds
 Output format: Dual representation (samples + seconds)
@@ -59,7 +59,7 @@ Examples
 >>> import seisbench.models as sbm
 >>> 
 >>> # Load pre-trained model
->>> model = sbm.PhaseNet.from_pretrained("ethz")
+>>> model = sbm.PhaseNet.from_pretrained("instance")
 >>> 
 >>> # Process all signals
 >>> df_picks = apply_phasenet_to_signals(
@@ -534,3 +534,186 @@ def merge_phasenet_picks_with_metadata(
     df_merged['origin_time_samples'] = (df_merged['origin_time_seconds'] * sampling_rate).astype(int)
     
     return df_merged
+
+def extract_picks_from_classify_output(
+    classify_output,
+    original_starttime,
+    sampling_rate_original: float,
+    station_code: str,
+    comp_names: Tuple[str, str, str],
+    original_npts: int,
+    original_duration: float
+) -> Dict:
+    """
+    Extract P and S onset times from a SeisBench ClassifyOutput object.
+
+    Converts UTCDateTime pick times to sample indices and seconds in the
+    original signal coordinate system. If a phase has no picks above
+    threshold, the corresponding fields are set to None/NaN.
+
+    Parameters
+    ----------
+    classify_output : seisbench.util.ClassifyOutput
+        Output of model.classify(), must have attribute .picks (PickList)
+    original_starttime : obspy.UTCDateTime
+        Start time of the original (unresampled) stream
+    sampling_rate_original : float
+        Sampling rate of the original signal (Hz)
+    station_code : str
+        Station code
+    comp_names : tuple of str
+        Component names (Z, N, E)
+    original_npts : int
+        Number of samples in the original signal
+    original_duration : float
+        Duration of the original signal in seconds
+
+    Returns
+    -------
+    dict
+        Dictionary with fields:
+        - station_code, components
+        - t_p_samples, t_s_samples (int or None)
+        - t_p_seconds, t_s_seconds (float or NaN)
+        - p_probability_max, s_probability_max (float or NaN)
+        - original_duration_s
+
+    Notes
+    -----
+    When multiple picks of the same phase are present, the one with
+    the highest peak_value is selected.
+    """
+    picks = classify_output.picks
+
+    # Separate P and S picks
+    p_picks = [p for p in picks if p.phase == 'P']
+    s_picks = [p for p in picks if p.phase == 'S']
+
+    def pick_to_sample(pick):
+        """Convert a Pick's peak_time to absolute sample index in original signal."""
+        offset_seconds = float(pick.peak_time - original_starttime)
+        sample_index = int(round(offset_seconds * sampling_rate_original))
+        return sample_index
+
+    # Select best pick per phase (highest peak_value)
+    t_p_samples = None
+    t_p_seconds = np.nan
+    p_probability_max = np.nan
+
+    if p_picks:
+        best_p = max(p_picks, key=lambda p: p.peak_value)
+        t_p_samples = pick_to_sample(best_p)
+        t_p_seconds = t_p_samples / sampling_rate_original
+        p_probability_max = float(best_p.peak_value)
+
+    t_s_samples = None
+    t_s_seconds = np.nan
+    s_probability_max = np.nan
+
+    if s_picks:
+        best_s = max(s_picks, key=lambda p: p.peak_value)
+        t_s_samples = pick_to_sample(best_s)
+        t_s_seconds = t_s_samples / sampling_rate_original
+        s_probability_max = float(best_s.peak_value)
+
+    return {
+        'station_code': station_code,
+        'components': ', '.join(comp_names),
+        't_p_samples': t_p_samples,
+        't_s_samples': t_s_samples,
+        't_p_seconds': t_p_seconds,
+        't_s_seconds': t_s_seconds,
+        'p_probability_max': p_probability_max,
+        's_probability_max': s_probability_max,
+        'original_duration_s': float(original_duration)
+    }
+
+
+def process_single_station_phasenet_v2(
+    df_station: pd.DataFrame,
+    station_code: str,
+    model,
+    signal_column: str,
+    sampling_rate_original: float,
+    sampling_rate_target: float,
+    min_p_probability: float = 0,
+    min_s_probability: float = 0
+) -> Optional[Dict]:
+    """
+    Apply PhaseNet to a single station using classify().
+
+    Parameters
+    ----------
+    df_station : pd.DataFrame
+        DataFrame with signal data for one station
+    station_code : str
+        Station code
+    model : seisbench.models.PhaseNet
+        Loaded PhaseNet model
+    signal_column : str
+        Name of signal column ('acceleration', 'velocity', 'displacement')
+    sampling_rate_original : float
+        Original sampling rate (Hz)
+    sampling_rate_target : float
+        Target sampling rate for PhaseNet (Hz)
+    min_p_probability : float
+        Minimum P-wave probability threshold passed to classify() (default: 0.3)
+    min_s_probability : float
+        Minimum S-wave probability threshold passed to classify() (default: 0.3)
+
+    Returns
+    -------
+    dict or None
+        Dictionary with onset times and probabilities. Fields for missing
+        phases are set to None/NaN. Returns None only if stream construction
+        fails or signal is too short.
+
+    Notes
+    -----
+    Thresholds are passed directly to model.classify() via P_threshold and
+    S_threshold keyword arguments, which apply picks_from_annotations
+    internally. This differs from the previous annotate() approach where
+    argmax was used regardless of probability value.
+    """
+    logger = logging.getLogger(__name__)
+
+    stream, comp_names = create_obspy_stream_from_dataframe(
+        df_station, station_code, sampling_rate_original, signal_column
+    )
+
+    if stream is None:
+        return None
+
+    original_starttime = stream[0].stats.starttime
+    original_npts = stream[0].stats.npts
+    original_duration = original_npts / sampling_rate_original
+
+    expected_duration = 3000 / sampling_rate_target
+    if original_duration < expected_duration:
+        logger.warning(
+            f"Skipping {station_code}: signal too short "
+            f"({original_duration:.1f}s < {expected_duration:.1f}s)"
+        )
+        return None
+
+    stream_resampled = stream.copy()
+    stream_resampled.resample(sampling_rate_target)
+
+    overlap_samples = int(28.0 * sampling_rate_target)
+
+    classify_output = model.classify(
+        stream_resampled,
+        overlap=overlap_samples,
+        P_threshold=min_p_probability,
+        S_threshold=min_s_probability
+    )
+
+    return extract_picks_from_classify_output(
+        classify_output=classify_output,
+        original_starttime=original_starttime,
+        sampling_rate_original=sampling_rate_original,
+        station_code=station_code,
+        comp_names=comp_names,
+        original_npts=original_npts,
+        original_duration=original_duration
+    )

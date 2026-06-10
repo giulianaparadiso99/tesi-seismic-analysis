@@ -114,6 +114,7 @@ from .segmentation.phasenet_utils import (
     get_component_from_filename,
     create_obspy_stream_from_dataframe,
     process_single_station_phasenet,
+    process_single_station_phasenet_v2,
     convert_onset_coordinates,
     apply_phasenet_to_signals,
     merge_phasenet_picks_with_metadata
