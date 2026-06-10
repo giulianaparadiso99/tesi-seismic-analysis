@@ -1540,14 +1540,19 @@ def plot_station_windows(
         }
     else:
         window_colors = {
-            'pre_event':  '#D0D0D0',
-            'p_wave':     '#7FB3D3',
-            's_wave':     '#F0C060',
-            'coda':       '#82C9A0',
-            'post_event': '#E8A0B8',
+            'pre_event':  '#D6D6D6',
+            'p_wave':     '#B8D8E8',
+            's_wave':     '#F5DFA0',
+            'coda':       '#A8D4C8',
+            'post_event': '#E8C8A0',
         }
 
     onset_colors = {
+        'p':        '#C0392B',
+        's':        '#00807F',
+        'coda':     '#C8861D',
+        'coda_end': '#729EC1',
+    } if mode != 'interactive' else {
         'p':        '#C0392B',
         's':        '#2471A3',
         'coda':     '#1E8449',
