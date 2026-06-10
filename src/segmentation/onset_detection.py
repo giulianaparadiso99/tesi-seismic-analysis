@@ -451,6 +451,272 @@ def detect_onsets_arpick(
     
     return df_meta_stations
 
+def detect_onsets_arpick_ps(
+    signals_dict: Dict[str, Dict[str, np.ndarray]],
+    df_meta_stations: pd.DataFrame,
+    sampling_rate: float = 200,
+    unit: str = 'samples',
+) -> pd.DataFrame:
+    """
+    Detect P and S onsets using AR-AIC with a single joint PS window.
+
+    Calls ar_pick once per station on the full interval
+    [p_window_start, s_window_end], using both returned values.
+    Search windows must be computed with calculate_adaptive_windows(..., joint_ps=True).
+
+    Parameters
+    ----------
+    signals_dict : dict
+        Nested dictionary from convert_signals_to_dict().
+        Structure: {station: {component: array, 'time': array}}
+    df_meta_stations : pd.DataFrame
+        Station metadata with columns:
+        - STATION_CODE
+        - t_p_theo_samples, t_s_theo_samples (preferred), OR
+          t_p_theo_seconds, t_s_theo_seconds, OR t_p_theo, t_s_theo
+        - LOW_CUT_FREQUENCY_HZ, HIGH_CUT_FREQUENCY_HZ
+        - p_window_start_samples, s_window_end_samples (preferred), OR
+          p_window_start_seconds, s_window_end_seconds
+    sampling_rate : float, optional
+        Sampling rate in Hz (default: 200)
+    unit : {'samples', 'seconds'}, optional
+        Preferred unit for legacy column names (default: 'samples')
+
+    Returns
+    -------
+    pd.DataFrame
+        df_meta_stations with added columns identical to detect_onsets_arpick():
+        - t_p_detected_samples, t_s_detected_samples (int)
+        - t_p_detected_seconds, t_s_detected_seconds (float)
+        - t_p_detected, t_s_detected (legacy alias)
+        - p_residual_seconds, s_residual_seconds (float)
+        - p_residual, s_residual (legacy alias)
+        - p_detection_success, s_detection_success (bool)
+        - error_message (str)
+        - components_used (str)
+
+    Notes
+    -----
+    ar_pick returns times in seconds relative to the start of the input array.
+    Both values are converted to absolute sample indices using ps_win_start_samp
+    as offset, then divided by sampling_rate for the seconds representation.
+
+    Examples
+    --------
+    >>> thresholds = calculate_distance_thresholds(df_stations)
+    >>> df_stations = calculate_adaptive_windows(df_stations, thresholds, joint_ps=True)
+    >>> df_stations = detect_onsets_arpick_ps(signals_dict, df_stations)
+    """
+    # Initialize onset columns - identical to detect_onsets_arpick
+    df_meta_stations['t_p_detected_samples'] = pd.NA
+    df_meta_stations['t_s_detected_samples'] = pd.NA
+    df_meta_stations['t_p_detected_seconds'] = np.nan
+    df_meta_stations['t_s_detected_seconds'] = np.nan
+
+    df_meta_stations['p_residual_seconds'] = np.nan
+    df_meta_stations['s_residual_seconds'] = np.nan
+
+    df_meta_stations['p_detection_success'] = False
+    df_meta_stations['s_detection_success'] = False
+    df_meta_stations['error_message'] = ''
+    df_meta_stations['components_used'] = ''
+
+    print(f"Running AR-AIC joint PS onset detection...")
+    print(f"  Sampling rate: {sampling_rate} Hz")
+    print("\nProcessing: ", end="", flush=True)
+
+    for idx, station_meta in df_meta_stations.iterrows():
+        print(".", end="", flush=True)
+
+        station = station_meta['STATION_CODE']
+
+        if station not in signals_dict:
+            df_meta_stations.loc[idx, 'error_message'] = 'Station not found in signals_dict'
+            continue
+
+        data = signals_dict[station]
+        components = [k for k in data.keys() if k != 'time']
+
+        comp_z = None
+        comp_n = None
+        comp_e = None
+
+        for comp in components:
+            if comp.endswith('Z'):
+                comp_z = comp
+            elif comp.endswith('N') or comp.endswith('2'):
+                comp_n = comp
+            elif comp.endswith('E') or comp.endswith('1'):
+                comp_e = comp
+
+        if comp_z is None or comp_n is None or comp_e is None:
+            df_meta_stations.loc[idx, 'error_message'] = (
+                f'Incomplete components: Z={comp_z}, N={comp_n}, E={comp_e}'
+            )
+            df_meta_stations.loc[idx, 'components_used'] = ','.join(
+                [c for c in [comp_z, comp_n, comp_e] if c]
+            )
+            continue
+
+        signal_z_full = data[comp_z]
+        signal_n_full = data[comp_n]
+        signal_e_full = data[comp_e]
+
+        df_meta_stations.loc[idx, 'components_used'] = f'{comp_e},{comp_n},{comp_z}'
+
+        f1 = station_meta['LOW_CUT_FREQUENCY_HZ']
+        f2 = station_meta['HIGH_CUT_FREQUENCY_HZ']
+
+        # ===== GET THEORETICAL TIMES =====
+        if 't_p_theo_samples' in station_meta.index:
+            t_p_theo_samp = int(station_meta['t_p_theo_samples'])
+            t_s_theo_samp = int(station_meta['t_s_theo_samples'])
+            has_theo_samples = True
+        elif 't_p_theo_seconds' in station_meta.index:
+            t_p_theo_sec = float(station_meta['t_p_theo_seconds'])
+            t_s_theo_sec = float(station_meta['t_s_theo_seconds'])
+            t_p_theo_samp = int(np.round(t_p_theo_sec * sampling_rate))
+            t_s_theo_samp = int(np.round(t_s_theo_sec * sampling_rate))
+            has_theo_samples = False
+        else:
+            t_p_theo_sec = float(station_meta['t_p_theo'])
+            t_s_theo_sec = float(station_meta['t_s_theo'])
+            t_p_theo_samp = int(np.round(t_p_theo_sec * sampling_rate))
+            t_s_theo_samp = int(np.round(t_s_theo_sec * sampling_rate))
+            has_theo_samples = False
+
+        # ===== GET JOINT PS WINDOW =====
+        if 'p_window_start_samples' in station_meta.index and not pd.isna(station_meta['p_window_start_samples']):
+            ps_win_start_samp = int(station_meta['p_window_start_samples'])
+            ps_win_end_samp = int(station_meta['s_window_end_samples'])
+        elif 'p_window_start_seconds' in station_meta.index and not pd.isna(station_meta['p_window_start_seconds']):
+            ps_win_start_samp = int(np.round(float(station_meta['p_window_start_seconds']) * sampling_rate))
+            ps_win_end_samp = int(np.round(float(station_meta['s_window_end_seconds']) * sampling_rate))
+        elif 'p_window_start' in station_meta.index and not pd.isna(station_meta['p_window_start']):
+            ps_win_start_samp = int(np.round(float(station_meta['p_window_start']) * sampling_rate))
+            ps_win_end_samp = int(np.round(float(station_meta['s_window_end']) * sampling_rate))
+        else:
+            df_meta_stations.loc[idx, 'error_message'] = 'No window columns found in df_meta_stations'
+            continue
+
+        # ===== JOINT PS DETECTION =====
+        t_p_detected_samp = None
+        t_s_detected_samp = None
+        t_p_detected_sec = np.nan
+        t_s_detected_sec = np.nan
+        p_success = False
+        s_success = False
+        error_msg = ''
+
+        try:
+            signal_z_ps = signal_z_full[ps_win_start_samp:ps_win_end_samp]
+            signal_n_ps = signal_n_full[ps_win_start_samp:ps_win_end_samp]
+            signal_e_ps = signal_e_full[ps_win_start_samp:ps_win_end_samp]
+
+            if len(signal_z_ps) < 100:
+                raise ValueError(f"PS window too short: {len(signal_z_ps)} samples")
+
+            p_pick_seconds, s_pick_seconds = ar_pick(
+                signal_z_ps, signal_n_ps, signal_e_ps,
+                samp_rate=sampling_rate,
+                f1=f1,
+                f2=f2,
+                lta_p=1.0,
+                sta_p=0.1,
+                lta_s=4.0,
+                sta_s=1.0,
+                m_p=2,
+                m_s=8,
+                l_p=0.1,
+                l_s=0.2
+            )
+
+            if p_pick_seconds is not None and not np.isnan(p_pick_seconds):
+                t_p_detected_samp = ps_win_start_samp + int(round(p_pick_seconds * sampling_rate))
+                t_p_detected_sec = t_p_detected_samp / sampling_rate
+                p_success = True
+            else:
+                error_msg += 'P-pick returned None; '
+
+            if s_pick_seconds is not None and not np.isnan(s_pick_seconds):
+                t_s_detected_samp = ps_win_start_samp + int(round(s_pick_seconds * sampling_rate))
+                t_s_detected_sec = t_s_detected_samp / sampling_rate
+                s_success = True
+            else:
+                error_msg += 'S-pick returned None; '
+
+        except Exception as e:
+            error_msg += f'PS detection failed: {str(e)}; '
+
+        # ===== POPULATE DATAFRAME =====
+        df_meta_stations.loc[idx, 't_p_detected_samples'] = t_p_detected_samp
+        df_meta_stations.loc[idx, 't_s_detected_samples'] = t_s_detected_samp
+        df_meta_stations.loc[idx, 't_p_detected_seconds'] = t_p_detected_sec
+        df_meta_stations.loc[idx, 't_s_detected_seconds'] = t_s_detected_sec
+
+        df_meta_stations.loc[idx, 'p_detection_success'] = p_success
+        df_meta_stations.loc[idx, 's_detection_success'] = s_success
+
+        if p_success:
+            if has_theo_samples:
+                t_p_theo_sec = t_p_theo_samp / sampling_rate
+            if t_p_theo_sec >= 0:
+                df_meta_stations.loc[idx, 'p_residual_seconds'] = t_p_detected_sec - t_p_theo_sec
+
+        if s_success:
+            if has_theo_samples:
+                t_s_theo_sec = t_s_theo_samp / sampling_rate
+            if t_s_theo_sec >= 0:
+                df_meta_stations.loc[idx, 's_residual_seconds'] = t_s_detected_sec - t_s_theo_sec
+
+        if error_msg:
+            df_meta_stations.loc[idx, 'error_message'] = error_msg.strip('; ')
+
+    # ===== LEGACY COLUMNS =====
+    if unit == 'samples':
+        df_meta_stations['t_p_detected'] = df_meta_stations['t_p_detected_samples']
+        df_meta_stations['t_s_detected'] = df_meta_stations['t_s_detected_samples']
+    else:
+        df_meta_stations['t_p_detected'] = df_meta_stations['t_p_detected_seconds']
+        df_meta_stations['t_s_detected'] = df_meta_stations['t_s_detected_seconds']
+
+    df_meta_stations['p_residual'] = df_meta_stations['p_residual_seconds']
+    df_meta_stations['s_residual'] = df_meta_stations['s_residual_seconds']
+
+    print("\n\nDetection complete!")
+
+    n_stations = len(df_meta_stations)
+    n_p_success = df_meta_stations['p_detection_success'].sum()
+    n_s_success = df_meta_stations['s_detection_success'].sum()
+
+    print(f"\nResults:")
+    print(f"  P-wave: {n_p_success}/{n_stations} successful ({100*n_p_success/n_stations:.1f}%)")
+    print(f"  S-wave: {n_s_success}/{n_stations} successful ({100*n_s_success/n_stations:.1f}%)")
+
+    if n_p_success > 0:
+        p_res = df_meta_stations['p_residual_seconds'].dropna()
+        print(f"  P residuals: {p_res.mean():.2f} ± {p_res.std():.2f} s  "
+              f"[{p_res.min():.2f}, {p_res.max():.2f}]")
+
+    if n_s_success > 0:
+        s_res = df_meta_stations['s_residual_seconds'].dropna()
+        print(f"  S residuals: {s_res.mean():.2f} ± {s_res.std():.2f} s  "
+              f"[{s_res.min():.2f}, {s_res.max():.2f}]")
+
+    failures = df_meta_stations[~(df_meta_stations['p_detection_success'] &
+                                   df_meta_stations['s_detection_success'])]
+    if len(failures) > 0:
+        print(f"\nFailed/partial detections ({len(failures)} stations):")
+        for _, row in failures.iterrows():
+            status = []
+            if not row['p_detection_success']:
+                status.append('P')
+            if not row['s_detection_success']:
+                status.append('S')
+            print(f"  {row['STATION_CODE']}: {', '.join(status)} failed - {row['error_message']}")
+
+    return df_meta_stations
+
 def detect_coda_start(
     signal: np.ndarray, 
     t_s_detected: Union[int, float], 

@@ -804,7 +804,8 @@ def calculate_adaptive_windows(
     distance_col: str = 'hypocentral_distance_km',
     unit: str = 'samples',
     window_widths: Optional[List[Tuple[float, float]]] = None,
-    gap: float = 0.5
+    gap: float = 0.5,
+    joint_ps: bool = False
 ) -> pd.DataFrame:
     """
     Calculate adaptive search windows that scale with distance.
@@ -840,7 +841,13 @@ def calculate_adaptive_windows(
     gap : float, optional
         Minimum time separation between P and S windows in SECONDS (default: 0.5s)
         Ensures temporal separation of phase arrivals
-    
+    joint_ps : bool, optional
+        If True, S-window is symmetric around t_s_theo with no P-window
+        constraint. Use with detect_onsets_arpick_ps(), which calls ar_pick
+        once on the full [p_window_start, s_window_end] interval.
+        If False (default), S-window is constrained to start after
+        p_window_end + gap, preventing P/S overlap (default behavior).
+
     Returns
     -------
     df_stations : pd.DataFrame
@@ -1009,9 +1016,13 @@ def calculate_adaptive_windows(
             p_start_samp = max(0, t_p_samp - p_hw_samp)
             p_end_samp = t_p_samp + p_hw_samp
             
-            s_start_min_samp = p_end_samp + gap_samp
+            # nuovo
             s_start_theo_samp = t_s_samp - s_hw_samp
-            s_start_samp = max(s_start_min_samp, s_start_theo_samp, 0)
+            if joint_ps:
+                s_start_samp = max(s_start_theo_samp, 0)
+            else:
+                s_start_min_samp = p_end_samp + gap_samp
+                s_start_samp = max(s_start_min_samp, s_start_theo_samp, 0)
             s_end_samp = t_s_samp + s_hw_samp
             
             # Convert to seconds (DERIVED)
@@ -1029,9 +1040,12 @@ def calculate_adaptive_windows(
             p_start_sec = max(0.0, t_p_sec - p_hw_sec)
             p_end_sec = t_p_sec + p_hw_sec
             
-            s_start_min_sec = p_end_sec + gap
             s_start_theo_sec = t_s_sec - s_hw_sec
-            s_start_sec = max(s_start_min_sec, s_start_theo_sec, 0.0)
+            if joint_ps:
+                s_start_sec = max(s_start_theo_sec, 0.0)
+            else:
+                s_start_min_sec = p_end_sec + gap
+                s_start_sec = max(s_start_min_sec, s_start_theo_sec, 0.0)
             s_end_sec = t_s_sec + s_hw_sec
             
             # Convert to samples (DERIVED)
@@ -1120,9 +1134,12 @@ def calculate_adaptive_windows(
     
     # Check for P-S overlap (should be 0 by design)
     overlaps = (df_result['s_window_start_samples'] < df_result['p_window_end_samples']).sum()
-    if overlaps > 0:
+    if joint_ps:
+        print(f"\nJoint PS mode: {overlaps}/{len(df_result)} stations have P-S window overlap (expected)")
+    elif overlaps > 0:
         print(f"\nWarning: {overlaps}/{len(df_result)} stations have P-S window overlap")
     else:
         print(f"\nP-S window separation verified: 0 overlaps")
-    
+        
     return df_result
+

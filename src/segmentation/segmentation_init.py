@@ -86,6 +86,7 @@ from .search_windows import (
 # AR-AIC phase detection
 from .onset_detection import (
     detect_onsets_arpick,
+    detect_onsets_arpick_ps,
     detect_coda_start,
     detect_coda_start_all_methods,
     add_coda_onsets_to_dataframe,
