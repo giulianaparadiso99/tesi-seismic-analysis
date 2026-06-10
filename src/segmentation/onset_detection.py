@@ -332,7 +332,7 @@ def detect_onsets_arpick(
             
             # Convert to absolute sample index in full signal
             if p_pick_relative_samp is not None and not np.isnan(p_pick_relative_samp):
-                t_p_detected_samp = p_win_start_samp + int(p_pick_relative_samp)
+                t_p_detected_samp = p_win_start_samp + int(round(p_pick_relative_samp * sampling_rate))
                 t_p_detected_sec = t_p_detected_samp / sampling_rate
                 p_success = True
             else:
@@ -369,7 +369,7 @@ def detect_onsets_arpick(
             
             # Convert to absolute sample index in full signal
             if s_pick_relative_samp is not None and not np.isnan(s_pick_relative_samp):
-                t_s_detected_samp = s_win_start_samp + int(s_pick_relative_samp)
+                t_s_detected_samp = s_win_start_samp + int(round(s_pick_relative_samp * sampling_rate))
                 t_s_detected_sec = t_s_detected_samp / sampling_rate
                 s_success = True
             else:
