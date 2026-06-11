@@ -2021,3 +2021,373 @@ def plot_window_comparison(
         fig.savefig(output_path, dpi=150, bbox_inches='tight')
     
     return fig
+
+def plot_station_windows_multitype(
+    station: str,
+    signals_dicts: Dict[str, Dict],
+    windowed_signals_dicts: Dict[str, Dict],
+    signal_units: Dict[str, str],
+    df_onsets: Optional[pd.DataFrame] = None,
+    coda_method: str = 'rautian',
+    title_suffix: str = '',
+    output_path: Optional[Union[str, Path]] = None,
+    show_onset_lines: bool = True,
+    show_window_backgrounds: bool = True,
+    mode: str = 'thesis',
+) -> plt.Figure:
+    """
+    Plot three-component windowed signals for a single station across
+    three signal types (acceleration, velocity, displacement) in a
+    single figure with shared axes.
+
+    Parameters
+    ----------
+    station : str
+        Station code (e.g., 'OGDI')
+    signals_dicts : dict
+        Dictionary mapping signal type to signals_dict, e.g.:
+        {'acceleration': signals_dict_acc, 'velocity': signals_dict_vel,
+         'displacement': signals_dict_disp}
+    windowed_signals_dicts : dict
+        Dictionary mapping signal type to windowed_signals, e.g.:
+        {'acceleration': windowed_acc, 'velocity': windowed_vel,
+         'displacement': windowed_disp}
+    signal_units : dict
+        Dictionary mapping signal type to unit string, e.g.:
+        {'acceleration': 'cm/s²', 'velocity': 'cm/s', 'displacement': 'cm'}
+    df_onsets : pd.DataFrame, optional
+        DataFrame with onset times; used to retrieve EPICENTRAL_DISTANCE_KM
+    coda_method : str, optional
+        Coda method name shown in legend (default: 'rautian')
+    title_suffix : str, optional
+        Extra text appended to the figure title (default: '')
+    output_path : str or Path, optional
+        If provided, save figure to this path
+    show_onset_lines : bool, optional
+        Show vertical lines at onset times (default: True)
+    show_window_backgrounds : bool, optional
+        Show colored backgrounds for each window (default: True)
+    mode : str, optional
+        Output mode: 'thesis', 'paper', 'poster', 'interactive'
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    """
+    _VALID_MODES = ('interactive', 'paper', 'poster', 'thesis')
+    if mode not in _VALID_MODES:
+        raise ValueError(f"Invalid mode '{mode}'. Must be one of: {_VALID_MODES}")
+
+    signal_types = ['acceleration', 'velocity', 'displacement']
+    for st in signal_types:
+        if st not in signals_dicts:
+            raise ValueError(f"Missing signals_dict for signal type '{st}'")
+        if st not in windowed_signals_dicts:
+            raise ValueError(f"Missing windowed_signals for signal type '{st}'")
+
+    # ── Mode-dependent settings ───────────────────────────────────────────────
+    _mode_settings = {
+        'interactive': dict(
+            figsize          = (18, 10),
+            dpi_save         = 150,
+            font_title       = 13,
+            font_col_label   = 11,
+            font_axis_label  = 10,
+            font_tick        = 9,
+            font_legend      = 9,
+            linewidth_signal = 0.6,
+            linewidth_onset  = 1.5,
+            window_alpha     = 0.3,
+            output_suffix    = '.pdf',
+        ),
+        'paper': dict(
+            figsize          = (6.89, 5.5),
+            dpi_save         = 600,
+            font_title       = 10,
+            font_col_label   = 9,
+            font_axis_label  = 8,
+            font_tick        = 7,
+            font_legend      = 7,
+            linewidth_signal = 0.4,
+            linewidth_onset  = 1.0,
+            window_alpha     = 0.25,
+            output_suffix    = '.png',
+        ),
+        'poster': dict(
+            figsize          = (10.0, 7.0),
+            dpi_save         = 300,
+            font_title       = 13,
+            font_col_label   = 11,
+            font_axis_label  = 10,
+            font_tick        = 9,
+            font_legend      = 9,
+            linewidth_signal = 0.5,
+            linewidth_onset  = 1.2,
+            window_alpha     = 0.25,
+            output_suffix    = '.png',
+        ),
+        'thesis': dict(
+            figsize          = (10.0, 6.5),
+            dpi_save         = 300,
+            font_title       = 10,
+            font_col_label   = 9,
+            font_axis_label  = 8,
+            font_tick        = 7,
+            font_legend      = 7,
+            linewidth_signal = 0.4,
+            linewidth_onset  = 1.0,
+            window_alpha     = 0.25,
+            output_suffix    = '.pdf',
+        ),
+    }
+    cfg = _mode_settings[mode]
+
+    # ── Colors ────────────────────────────────────────────────────────────────
+    if mode == 'interactive':
+        window_colors = {
+            'pre_event':  '#E8E8E8',
+            'p_wave':     '#AED6F1',
+            's_wave':     '#F9E79F',
+            'coda':       '#D5F4E6',
+            'post_event': '#F8C8DC',
+        }
+        onset_colors = {
+            'p':        '#C0392B',
+            's':        '#2471A3',
+            'coda':     '#1E8449',
+            'coda_end': '#7D3C98',
+        }
+    else:
+        window_colors = {
+            'pre_event':  '#D6D6D6',
+            'p_wave':     '#B8D8E8',
+            's_wave':     '#F5DFA0',
+            'coda':       '#A8D4C8',
+            'post_event': '#E8C8A0',
+        }
+        onset_colors = {
+            'p':        '#C0392B',
+            's':        '#00807F',
+            'coda':     '#C8861D',
+            'coda_end': '#729EC1',
+        }
+
+    # ── Component ordering ────────────────────────────────────────────────────
+    comp_map = get_station_components(station, signals_dicts['acceleration'])
+    if 'Z' in comp_map and 'N' in comp_map and 'E' in comp_map:
+        canonical_order = [('Z', 'HNZ'), ('N', 'HNN'), ('E', 'HNE')]
+    elif 'Z' in comp_map and '1' in comp_map and '2' in comp_map:
+        canonical_order = [('Z', 'HNZ'), ('1', 'HN1'), ('2', 'HN2')]
+    else:
+        canonical_order = [(k, v) for k, v in comp_map.items()]
+
+    n_rows = len(canonical_order)
+    n_cols = len(signal_types)
+
+    # ── Figure title ──────────────────────────────────────────────────────────
+    title_parts = [f"Station {station}"]
+    if df_onsets is not None and 'EPICENTRAL_DISTANCE_KM' in df_onsets.columns:
+        mask = df_onsets['STATION_CODE'] == station
+        if mask.any():
+            dist = df_onsets.loc[mask, 'EPICENTRAL_DISTANCE_KM'].iloc[0]
+            if not pd.isna(dist):
+                title_parts.append(f"$d_{{\\mathrm{{epi}}}}$ = {dist:.1f} km")
+    if title_suffix:
+        title_parts.append(title_suffix)
+    suptitle = ' — '.join(title_parts)
+
+    # ── Create figure ─────────────────────────────────────────────────────────
+    fig = plt.figure(figsize=cfg['figsize'])
+    gs = fig.add_gridspec(
+        n_rows, n_cols,
+        hspace=0.05,
+        wspace=0.08,
+        top=0.82,
+        bottom=0.10,
+        left=0.12,
+        right=0.97,
+    )
+    axes = [[fig.add_subplot(gs[r, c]) for c in range(n_cols)] for r in range(n_rows)]
+
+    # Share x axis within each column
+    for c in range(n_cols):
+        for r in range(1, n_rows):
+            axes[r][c].sharex(axes[0][c])
+
+    # ── Column labels ─────────────────────────────────────────────────────────
+    col_labels = {
+        'acceleration': 'Acceleration',
+        'velocity':     'Velocity',
+        'displacement': 'Displacement',
+    }
+    for c, st in enumerate(signal_types):
+        axes[0][c].set_title(
+            col_labels[st],
+            fontsize=cfg['font_col_label'],
+            fontweight='bold',
+            pad=4,
+        )
+
+    # ── Legend handles ────────────────────────────────────────────────────────
+    legend_elements = []
+    legend_built = False
+
+    # ── Plot ──────────────────────────────────────────────────────────────────
+    for c, st in enumerate(signal_types):
+        signals_dict    = signals_dicts[st]
+        windowed_signals = windowed_signals_dicts[st]
+        signal_unit     = signal_units[st]
+
+        if station not in signals_dict or station not in windowed_signals:
+            continue
+
+        time_full = signals_dict[station]['time']
+
+        for r, (comp_key, comp_code) in enumerate(canonical_order):
+            ax = axes[r][c]
+
+            if comp_key not in comp_map:
+                ax.axis('off')
+                continue
+
+            component = comp_map[comp_key]
+
+            if (station not in windowed_signals or
+                    component not in windowed_signals[station] or
+                    len(windowed_signals[station][component]) == 0):
+                ax.axis('off')
+                continue
+
+            signal_full = signals_dict[station][component]
+            windows     = windowed_signals[station][component]
+
+            has_pre_event  = 'pre_event'  in windows
+            has_p_wave     = 'p_wave'     in windows
+            has_s_wave     = 's_wave'     in windows
+            has_coda       = 'coda'       in windows
+            has_post_event = 'post_event' in windows
+
+            t_p        = windows['p_wave']['start_seconds']  if has_p_wave     else None
+            t_s        = windows['s_wave']['start_seconds']  if has_s_wave     else None
+            t_coda     = windows['coda']['start_seconds']    if has_coda       else None
+            t_coda_end = windows['coda']['end_seconds']      if has_post_event else None
+
+            # Window backgrounds
+            if show_window_backgrounds:
+                for window_name in ('pre_event', 'p_wave', 's_wave', 'coda', 'post_event'):
+                    if window_name in windows:
+                        w = windows[window_name]
+                        ax.axvspan(
+                            w['start_seconds'], w['end_seconds'],
+                            color=window_colors[window_name],
+                            alpha=cfg['window_alpha'],
+                            zorder=0,
+                        )
+
+            # Signal
+            ax.plot(
+                time_full, signal_full, 'k-',
+                linewidth=cfg['linewidth_signal'], zorder=2,
+            )
+
+            # Onset lines
+            if show_onset_lines:
+                if t_p is not None:
+                    ax.axvline(t_p, color=onset_colors['p'],
+                               linewidth=cfg['linewidth_onset'],
+                               linestyle='-', zorder=3)
+                if t_s is not None:
+                    ax.axvline(t_s, color=onset_colors['s'],
+                               linewidth=cfg['linewidth_onset'],
+                               linestyle='-', zorder=3)
+                if t_coda is not None:
+                    ax.axvline(t_coda, color=onset_colors['coda'],
+                               linewidth=cfg['linewidth_onset'],
+                               linestyle='-', zorder=3)
+                if t_coda_end is not None:
+                    ax.axvline(t_coda_end, color=onset_colors['coda_end'],
+                               linewidth=cfg['linewidth_onset'],
+                               linestyle=':', zorder=3, alpha=0.8)
+
+            # Y-axis label (only on leftmost column)
+            if c == 0:
+                ax.set_ylabel(
+                    f'{comp_code}\n({signal_unit[st]})',
+                    fontsize=cfg['font_axis_label'],
+                    rotation=0,
+                    ha='right',
+                    va='center',
+                    labelpad=25,
+                )
+            else:
+                ax.set_ylabel('')
+                ax.tick_params(axis='y', labelleft=False)
+
+            # X-axis ticks (only on bottom row)
+            if r < n_rows - 1:
+                ax.tick_params(axis='x', labelbottom=False)
+            else:
+                ax.tick_params(axis='x', labelsize=cfg['font_tick'])
+                ax.set_xlabel('Time (s)', fontsize=cfg['font_axis_label'])
+
+            ax.tick_params(axis='y', labelsize=cfg['font_tick'])
+            ax.grid(True, alpha=0.3, zorder=1)
+
+            # Build legend once
+            if not legend_built and c == 0 and r == 0:
+                if show_onset_lines:
+                    if has_p_wave:
+                        legend_elements.append(plt.Line2D(
+                            [0], [0], color=onset_colors['p'],
+                            linewidth=cfg['linewidth_onset'], label='P onset'))
+                    if has_s_wave:
+                        legend_elements.append(plt.Line2D(
+                            [0], [0], color=onset_colors['s'],
+                            linewidth=cfg['linewidth_onset'], label='S onset'))
+                    if has_coda:
+                        legend_elements.append(plt.Line2D(
+                            [0], [0], color=onset_colors['coda'],
+                            linewidth=cfg['linewidth_onset'],
+                            label=f'Coda onset ({coda_method})'))
+                    if has_post_event:
+                        legend_elements.append(plt.Line2D(
+                            [0], [0], color=onset_colors['coda_end'],
+                            linewidth=cfg['linewidth_onset'],
+                            linestyle=':', alpha=0.8, label='Coda end'))
+                if show_window_backgrounds:
+                    for window_name, label in [
+                        ('pre_event', 'Pre-event'), ('p_wave', 'P-wave'),
+                        ('s_wave', 'S-wave'), ('coda', 'Coda'),
+                        ('post_event', 'Post-event'),
+                    ]:
+                        if window_name in windows:
+                            legend_elements.append(mpatches.Patch(
+                                color=window_colors[window_name],
+                                alpha=max(cfg['window_alpha'], 0.5),
+                                label=label))
+                legend_built = True
+
+    # ── Figure title ──────────────────────────────────────────────────────────
+    fig.suptitle(suptitle, fontsize=cfg['font_title'], fontweight='bold', y=0.97)
+
+    # ── External legend ───────────────────────────────────────────────────────
+    if legend_elements:
+        fig.legend(
+            handles=legend_elements,
+            loc='upper center',
+            bbox_to_anchor=(0.5, 0.90),
+            ncol=len(legend_elements),
+            fontsize=cfg['font_legend'],
+            framealpha=0.9,
+            handlelength=1.5,
+            columnspacing=1.0,
+        )
+
+    # ── Save ─────────────────────────────────────────────────────────────────
+    if output_path is not None:
+        suffix = _mode_settings[mode]['output_suffix']
+        output_path = Path(output_path).with_suffix(suffix)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=cfg['dpi_save'], bbox_inches='tight')
+
+    return fig

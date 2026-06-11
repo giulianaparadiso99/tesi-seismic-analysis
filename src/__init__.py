@@ -199,7 +199,8 @@ from .visualization.plots_segmentation import (
     plot_correlation_matrix_heatmap,
     plot_station_windows,
     plot_multiple_stations,
-    plot_window_comparison
+    plot_window_comparison,
+    plot_station_windows_multitype
 )
 
 from .visualization.plots_moment_scaling import (
