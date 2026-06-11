@@ -1387,6 +1387,7 @@ def plot_station_windows(
     windowed_signals: Dict[str, Dict[str, Dict[str, Dict]]],
     df_onsets: Optional[pd.DataFrame] = None,
     signal_unit: str = 'cm/s²',
+    signal_type: Optional[str] = None,
     coda_method: str = 'rautian',
     output_path: Optional[Union[str, Path]] = None,
     show_onset_lines: bool = True,
@@ -1412,6 +1413,8 @@ def plot_station_windows(
         DataFrame with onset times; used to retrieve EPICENTRAL_DISTANCE_KM
     signal_unit : str, optional
         Y-axis unit label (default: 'cm/s²')
+    signal_type : str, optional
+        Type of signal (default: 'acceleration')
     coda_method : str, optional
         Coda method name shown in legend (default: 'rautian')
     output_path : str or Path, optional
@@ -1427,6 +1430,7 @@ def plot_station_windows(
         - 'interactive': screen display, PDF output, 150 dpi (default)
         - 'paper': publication quality, PNG output, 600 dpi, 17.5cm width
         - 'poster': conference poster, PNG output, 300 dpi, 15cm width
+        - 'thesis': thesis figure, PDF output, 5.5 inch width
 
     Returns
     -------
@@ -1508,6 +1512,12 @@ def plot_station_windows(
         output_suffix    = '.pdf',
     ),
     }
+    _gridspec_settings = {
+        'paper':  dict(hspace=0.05, top=0.82, bottom=0.10, left=0.20, right=0.97),
+        'poster': dict(hspace=0.05, top=0.82, bottom=0.10, left=0.20, right=0.97),
+        'thesis': dict(hspace=0.05, top=0.82, bottom=0.10, left=0.20, right=0.97),
+    }
+
     cfg = _mode_settings[mode]
 
     # ── Component ordering ────────────────────────────────────────────────────
@@ -1540,8 +1550,17 @@ def plot_station_windows(
         if mask.any():
             dist = df_onsets.loc[mask, 'EPICENTRAL_DISTANCE_KM'].iloc[0]
             if not pd.isna(dist):
-                title_parts.append(f"{dist:.1f} km")
-    suptitle = ' — '.join(title_parts) + title_suffix
+                title_parts.append(f"$d_{{\\mathrm{{epi}}}}$ = {dist:.1f} km")
+    meta_parts = []
+    if signal_type is not None:
+        meta_parts.append(signal_type)
+    if coda_method:
+        meta_parts.append(coda_method)
+    if title_suffix:
+        meta_parts.append(title_suffix)
+    if meta_parts:
+        title_parts.append(f"({', '.join(meta_parts)})")
+    suptitle = ' — '.join(title_parts)
 
     # ── Colors ────────────────────────────────────────────────────────────────
     if mode == 'interactive':
@@ -1578,14 +1597,10 @@ def plot_station_windows(
 
     if cfg['external_legend']:
         fig = plt.figure(figsize=cfg['figsize'])
-        gs = fig.add_gridspec(
-            n_subplots, 1,
-            hspace=0.08,
-            top=0.82,
-            bottom=0.10,
-            left=0.10,
-            right=0.97,
-        )
+        gs_cfg = _gridspec_settings.get(mode, dict(
+            hspace=0.05, top=0.82, bottom=0.10, left=0.20, right=0.97
+        ))
+        gs = fig.add_gridspec(n_subplots, 1, **gs_cfg)
         axes = [fig.add_subplot(gs[i]) for i in range(n_subplots)]
         for i in range(n_subplots - 1):
             axes[i].sharex(axes[-1])
@@ -1656,10 +1671,17 @@ def plot_station_windows(
 
         # ── Axis formatting ───────────────────────────────────────────────────
         ax.set_ylabel(
-            f'{comp_label}\n{component}\n({signal_unit})',
+            f'{comp_label} {component}\n({signal_unit})',
             fontsize=cfg['font_axis_label'],
+            rotation=0,
+            ha='right',
+            va='center',
+            labelpad=50,
         )
-        ax.tick_params(axis='both', labelsize=cfg['font_tick'])
+        if idx < n_subplots - 1:
+            ax.tick_params(axis='both', labelsize=cfg['font_tick'], labelbottom=False)
+        else:
+            ax.tick_params(axis='both', labelsize=cfg['font_tick'])
         ax.grid(True, alpha=0.3, zorder=1)
 
         # ── Duration annotations (interactive mode only) ──────────────────────
@@ -1770,6 +1792,8 @@ def plot_multiple_stations(
     windowed_signals: Dict,
     df_onsets: Optional[pd.DataFrame] = None,
     signal_unit: str = 'cm/s²',
+    signal_type: Optional[str] = None,
+    title_suffix: str = 'AR-AIC',
     coda_method: str = 'rautian',
     output_dir: Optional[Union[str, Path]] = None,
     close_after_save: bool = True,
@@ -1791,6 +1815,10 @@ def plot_multiple_stations(
         Onset times DataFrame
     signal_unit : str, optional
         Y-axis unit label (default: 'cm/s²')
+    signal_type : str, optional
+        Type of signal (default: None)
+    title_suffix : str
+        Suffix for the plot title (default: 'AR-AIC')
     coda_method : str, optional
         Coda detection method name (default: 'rautian')
     output_dir : str, optional
@@ -1798,6 +1826,12 @@ def plot_multiple_stations(
         If None, plots are not saved automatically
     close_after_save : bool, optional
         If True, close figures after saving to free memory (default: True)
+    mode : str, optional
+        Output mode. One of:
+        - 'interactive': screen display, PDF output, 150 dpi (default)
+        - 'paper': publication quality, PNG output, 600 dpi, 17.5cm width
+        - 'poster': conference poster, PNG output, 300 dpi, 15cm width
+        - 'thesis': thesis figure, PDF output, 5.5 inch width
     **kwargs
         Additional arguments passed to plot_station_windows()
         
@@ -1841,6 +1875,8 @@ def plot_multiple_stations(
                 windowed_signals=windowed_signals,
                 df_onsets=df_onsets,
                 signal_unit=signal_unit,
+                signal_type=signal_type,
+                title_suffix=title_suffix,
                 coda_method=coda_method,
                 output_path=output_path,
                 mode=mode,
