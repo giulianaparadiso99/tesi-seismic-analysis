@@ -2222,10 +2222,10 @@ def plot_station_windows_multitype(
     }
     for c, st in enumerate(signal_types):
         axes[0][c].set_title(
-            col_labels[st],
+            f"{col_labels[st]} ({signal_units[st]})",
             fontsize=cfg['font_col_label'],
             fontweight='bold',
-            pad=4,
+            pad=10,
         )
 
     # ── Legend handles ────────────────────────────────────────────────────────
@@ -2312,7 +2312,7 @@ def plot_station_windows_multitype(
             # Y-axis label (only on leftmost column)
             if c == 0:
                 ax.set_ylabel(
-                    f'{comp_code}\n({signal_unit[st]})',
+                    f'{comp_code}',
                     fontsize=cfg['font_axis_label'],
                     rotation=0,
                     ha='right',
@@ -2321,17 +2321,16 @@ def plot_station_windows_multitype(
                 )
             else:
                 ax.set_ylabel('')
-                ax.tick_params(axis='y', labelleft=False)
+                ax.tick_params(axis='y', left=False, labelleft=False)
 
+            ax.tick_params(axis='y', labelsize=cfg['font_tick'])
+            ax.grid(True, alpha=0.3, zorder=1)
             # X-axis ticks (only on bottom row)
             if r < n_rows - 1:
                 ax.tick_params(axis='x', labelbottom=False)
             else:
                 ax.tick_params(axis='x', labelsize=cfg['font_tick'])
                 ax.set_xlabel('Time (s)', fontsize=cfg['font_axis_label'])
-
-            ax.tick_params(axis='y', labelsize=cfg['font_tick'])
-            ax.grid(True, alpha=0.3, zorder=1)
 
             # Build legend once
             if not legend_built and c == 0 and r == 0:
