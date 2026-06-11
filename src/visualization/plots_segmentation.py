@@ -1554,12 +1554,10 @@ def plot_station_windows(
     meta_parts = []
     if signal_type is not None:
         meta_parts.append(signal_type)
-    if coda_method:
-        meta_parts.append(coda_method)
     if title_suffix:
         meta_parts.append(title_suffix)
     if meta_parts:
-        title_parts.append(f"({', '.join(meta_parts)})")
+        title_parts.append(', '.join(meta_parts))
     suptitle = ' — '.join(title_parts)
 
     # ── Colors ────────────────────────────────────────────────────────────────
@@ -1676,7 +1674,7 @@ def plot_station_windows(
             rotation=0,
             ha='right',
             va='center',
-            labelpad=50,
+            labelpad=40,
         )
         if idx < n_subplots - 1:
             ax.tick_params(axis='both', labelsize=cfg['font_tick'], labelbottom=False)
