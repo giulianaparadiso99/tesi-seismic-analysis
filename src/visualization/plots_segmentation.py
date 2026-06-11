@@ -1438,7 +1438,7 @@ def plot_station_windows(
         If station not found in signals_dict or windowed_signals, if no
         component has any window, or if mode is not one of the accepted values.
     """
-    _VALID_MODES = ('interactive', 'paper', 'poster')
+    _VALID_MODES = ('interactive', 'paper', 'poster', 'thesis')
     if mode not in _VALID_MODES:
         raise ValueError(
             f"Invalid mode '{mode}'. Must be one of: {_VALID_MODES}"
@@ -1493,6 +1493,20 @@ def plot_station_windows(
             show_durations   = False,
             output_suffix    = '.png',
         ),
+        'thesis': dict(
+        figsize          = (5.5, 6.0),
+        dpi_save         = 300,
+        font_title       = 11,
+        font_axis_label  = 9,
+        font_tick        = 8,
+        font_legend      = 8,
+        linewidth_signal = 0.5,
+        linewidth_onset  = 1.2,
+        window_alpha     = 0.25,
+        external_legend  = True,
+        show_durations   = False,
+        output_suffix    = '.pdf',
+    ),
     }
     cfg = _mode_settings[mode]
 
@@ -1755,6 +1769,7 @@ def plot_multiple_stations(
     signals_dict: Dict,
     windowed_signals: Dict,
     df_onsets: Optional[pd.DataFrame] = None,
+    signal_unit: str = 'cm/s²',
     coda_method: str = 'rautian',
     output_dir: Optional[Union[str, Path]] = None,
     close_after_save: bool = True,
@@ -1774,6 +1789,8 @@ def plot_multiple_stations(
         Windowed signals dictionary
     df_onsets : pd.DataFrame, optional
         Onset times DataFrame
+    signal_unit : str, optional
+        Y-axis unit label (default: 'cm/s²')
     coda_method : str, optional
         Coda detection method name (default: 'rautian')
     output_dir : str, optional
@@ -1823,6 +1840,7 @@ def plot_multiple_stations(
                 signals_dict=signals_dict,
                 windowed_signals=windowed_signals,
                 df_onsets=df_onsets,
+                signal_unit=signal_unit,
                 coda_method=coda_method,
                 output_path=output_path,
                 mode=mode,
