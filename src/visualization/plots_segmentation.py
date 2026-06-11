@@ -1552,10 +1552,10 @@ def plot_station_windows(
             if not pd.isna(dist):
                 title_parts.append(f"$d_{{\\mathrm{{epi}}}}$ = {dist:.1f} km")
     meta_parts = []
-    if signal_type is not None:
-        meta_parts.append(signal_type)
     if title_suffix:
         meta_parts.append(title_suffix)
+    if signal_type is not None:
+        meta_parts.append(signal_type)
     if meta_parts:
         title_parts.append(', '.join(meta_parts))
     suptitle = ' — '.join(title_parts)
