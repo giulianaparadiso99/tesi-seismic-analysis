@@ -614,13 +614,16 @@ def analyze_all_windows(
             r_squared = scaling_results['r_squared']
 
             if verbose:
+                idx_q1 = np.argmin(np.abs(q_values - 1.0))
+                idx_q2 = np.argmin(np.abs(q_values - 2.0))
+
                 print(f"Ensemble size: {n_signals} signals")
                 print(f"Tau range: [{tau.min():.4f}, {tau.max():.4f}] s")
                 print(f"Number of tau points: {len(tau)}")
                 print(f"Mean ζ(q): {np.nanmean(zeta):.4f} ± {np.nanstd(zeta):.4f}")
                 print(f"Mean R²: {np.nanmean(r_squared):.4f}")
-                print(f"ζ(q=1): {zeta[np.argmin(np.abs(q_values - 1.0))]:.4f}")
-                print(f"ζ(q=2): {zeta[np.argmin(np.abs(q_values - 2.0))]:.4f}")
+                print(f"ζ(q=1): {zeta[idx_q1]:.4f}, R²(q=1): {r_squared[idx_q1]:.4f}")
+                print(f"ζ(q=2): {zeta[idx_q2]:.4f}, R²(q=2): {r_squared[idx_q2]:.4f}")
             
         except ValueError as e:
             if verbose:
