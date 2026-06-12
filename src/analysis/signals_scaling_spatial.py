@@ -310,7 +310,7 @@ def compute_spatial_ensemble(
     # Extract signals and get tau_max in seconds
     signals_list, times_list, tau_max_seconds, n_signals = prepare_window_data(
         windowed_signals, window_name, signal_field=signal_field, 
-        exclude_components=exclude_components
+        sampling_rate=sampling_rate, exclude_components=exclude_components
     )
 
     # Apply tau_max_fraction if specified
@@ -389,7 +389,7 @@ def extract_scaling_exponents(
     moments_mean: np.ndarray,
     q_values: np.ndarray,
     fit_range: Optional[Tuple[float, float]] = None,
-    threshold: float = 1e-15
+    threshold: float = 1e-300
 ) -> Dict:
     """
     Extract scaling exponents ζ(q) from ensemble-averaged moments.
@@ -408,8 +408,12 @@ def extract_scaling_exponents(
     fit_range : tuple of float, optional
         (tau_min, tau_max) to restrict fit range. If None, uses all tau.
     threshold : float, optional
-        Minimum moment value to include in fit (default: 1e-15)
-        Values below threshold are excluded to avoid log(0)
+        Minimum moment value to include in fit (default: 1e-300)
+        Values below threshold are excluded to avoid log(0).
+        Not intended as a physical lower bound
+        on increment amplitudes: for signals with small absolute scale
+        (e.g. displacement), |Δx|^q for large q can legitimately be
+        much smaller than typical "small number" thresholds like 1e-15.
         
     Returns
     -------
@@ -618,7 +622,7 @@ def analyze_all_windows(
                 print(f"ζ(q=1): {zeta[np.argmin(np.abs(q_values - 1.0))]:.4f}")
                 print(f"ζ(q=2): {zeta[np.argmin(np.abs(q_values - 2.0))]:.4f}")
             
-        except Exception as e:
+        except ValueError as e:
             if verbose:
                 print(f"Error processing {window_name}: {e}")
             results[window_name] = None
