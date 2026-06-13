@@ -50,7 +50,8 @@ from .plots_segmentation import (
     plot_station_windows,
     plot_multiple_stations,
     plot_window_comparison,
-    plot_station_windows_multitype
+    plot_station_windows_multitype,
+    plot_ar_aic_onset_detection
 )
 
 from .plots_moment_scaling import (

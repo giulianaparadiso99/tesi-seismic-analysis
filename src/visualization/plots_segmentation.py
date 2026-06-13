@@ -2390,3 +2390,275 @@ def plot_station_windows_multitype(
         fig.savefig(output_path, dpi=cfg['dpi_save'], bbox_inches='tight')
 
     return fig
+
+def plot_ar_aic_onset_detection(
+    station: str,
+    signals_dicts: Dict[str, Dict],
+    df_results: pd.DataFrame,
+    signal_type: str = 'acceleration',
+    component: str = 'HNZ',
+    signal_units: Optional[Dict[str, str]] = None,
+    show_windows: bool = True,
+    output_path: Optional[Union[str, Path]] = None,
+    mode: str = 'thesis',
+) -> plt.Figure:
+    """
+    Plot a single-component signal with AR-AIC detected and theoretical
+    P/S onset times and optional search windows.
+
+    Parameters
+    ----------
+    station : str
+        Station code (e.g. 'OGDI').
+    signals_dicts : dict
+        Dictionary mapping signal type to signals_dict, structured as
+        {'acceleration': {...}, 'velocity': {...}, 'displacement': {...}}.
+        Each inner dict: {station: {component: array, 'time': array}}.
+    df_results : pd.DataFrame
+        AR-AIC onset detection results, one row per station. Expected columns:
+        STATION_CODE, EPICENTRAL_DISTANCE_KM,
+        t_p_theo_seconds, t_s_theo_seconds,
+        t_p_detected_seconds, t_s_detected_seconds,
+        p_residual_seconds, s_residual_seconds,
+        p_detection_success, s_detection_success,
+        p_window_start_seconds, p_window_end_seconds (if show_windows=True),
+        s_window_start_seconds, s_window_end_seconds (if show_windows=True).
+    signal_type : str, optional
+        Which signal type to plot (default: 'acceleration').
+    component : str, optional
+        Which component to plot (default: 'HNZ').
+    signal_units : dict, optional
+        Mapping from signal type to unit string, e.g.
+        {'acceleration': 'cm/s²', 'velocity': 'cm/s', 'displacement': 'cm'}.
+        If None, the y-axis label shows only the component name.
+    show_windows : bool, optional
+        If True, shade the P and S search windows (default: True).
+    output_path : str or Path, optional
+        If provided, save the figure to this path. The file extension is
+        set by the mode (.pdf for thesis/interactive, .png for paper/poster).
+    mode : str, optional
+        Output mode controlling figure size and font sizes.
+        One of 'thesis', 'paper', 'poster', 'interactive' (default: 'thesis').
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+
+    Raises
+    ------
+    ValueError
+        If mode is not one of the accepted values, or if signal_type or
+        component are not found in signals_dicts.
+    KeyError
+        If station is not found in signals_dicts or df_results.
+    """
+    _VALID_MODES = ('interactive', 'paper', 'poster', 'thesis')
+    if mode not in _VALID_MODES:
+        raise ValueError(
+            f"Invalid mode '{mode}'. Must be one of: {_VALID_MODES}"
+        )
+    if signal_type not in signals_dicts:
+        raise ValueError(
+            f"Signal type '{signal_type}' not found in signals_dicts. "
+            f"Available: {list(signals_dicts)}"
+        )
+
+    _mode_settings = {
+        'interactive': dict(
+            figsize=(10, 4),
+            dpi_save=150,
+            font_title=12,
+            font_axis_label=10,
+            font_tick=9,
+            font_legend=9,
+            linewidth_signal=0.6,
+            linewidth_onset=1.8,
+            window_alpha=0.15,
+            output_suffix='.pdf',
+        ),
+        'paper': dict(
+            figsize=(3.5, 2.5),
+            dpi_save=600,
+            font_title=8,
+            font_axis_label=7,
+            font_tick=6,
+            font_legend=6,
+            linewidth_signal=0.4,
+            linewidth_onset=1.0,
+            window_alpha=0.12,
+            output_suffix='.png',
+        ),
+        'poster': dict(
+            figsize=(7.0, 4.0),
+            dpi_save=300,
+            font_title=18,
+            font_axis_label=15,
+            font_tick=13,
+            font_legend=12,
+            linewidth_signal=0.8,
+            linewidth_onset=2.0,
+            window_alpha=0.15,
+            output_suffix='.png',
+        ),
+        'thesis': dict(
+            figsize=(6.5, 3.0),
+            dpi_save=300,
+            font_title=9,
+            font_axis_label=8,
+            font_tick=7,
+            font_legend=7,
+            linewidth_signal=0.4,
+            linewidth_onset=1.2,
+            window_alpha=0.12,
+            output_suffix='.pdf',
+        ),
+    }
+    cfg = _mode_settings[mode]
+
+    onset_colors = {
+        'p': '#C0392B',
+        's': '#00807F',
+    }
+
+    signals_dict = signals_dicts[signal_type]
+    if station not in signals_dict:
+        raise KeyError(
+            f"Station '{station}' not found in signals_dicts['{signal_type}']."
+        )
+
+    station_rows = df_results[df_results['STATION_CODE'] == station]
+    if station_rows.empty:
+        raise KeyError(
+            f"Station '{station}' not found in df_results."
+        )
+    row = station_rows.iloc[0]
+
+    data = signals_dict[station]
+    if component not in data:
+        raise ValueError(
+            f"Component '{component}' not found for station '{station}'. "
+            f"Available: {[k for k in data if k != 'time']}"
+        )
+
+    time = data['time']
+    signal = data[component]
+
+    t_p_theo = row.get('t_p_theo_seconds', np.nan)
+    t_s_theo = row.get('t_s_theo_seconds', np.nan)
+    t_p_det = row.get('t_p_detected_seconds', np.nan)
+    t_s_det = row.get('t_s_detected_seconds', np.nan)
+    p_res = row.get('p_residual_seconds', np.nan)
+    s_res = row.get('s_residual_seconds', np.nan)
+    p_success = bool(row.get('p_detection_success', False))
+    s_success = bool(row.get('s_detection_success', False))
+    p_win_start = row.get('p_window_start_seconds', np.nan)
+    p_win_end = row.get('p_window_end_seconds', np.nan)
+    s_win_start = row.get('s_window_start_seconds', np.nan)
+    s_win_end = row.get('s_window_end_seconds', np.nan)
+
+    fig, ax = plt.subplots(1, 1, figsize=cfg['figsize'])
+    fig.subplots_adjust(top=0.86, bottom=0.20, left=0.12, right=0.97)
+
+    ax.plot(time, signal, 'k-', linewidth=cfg['linewidth_signal'],
+            alpha=0.8, zorder=1)
+
+    if show_windows:
+        if not (pd.isna(p_win_start) or pd.isna(p_win_end)):
+            ax.axvspan(p_win_start, p_win_end,
+                       alpha=cfg['window_alpha'],
+                       color=onset_colors['p'], zorder=0)
+        if not (pd.isna(s_win_start) or pd.isna(s_win_end)):
+            ax.axvspan(s_win_start, s_win_end,
+                       alpha=cfg['window_alpha'],
+                       color=onset_colors['s'], zorder=0)
+
+    if not pd.isna(t_p_theo):
+        ax.axvline(t_p_theo, color=onset_colors['p'], linestyle='--',
+                   linewidth=cfg['linewidth_onset'], alpha=0.6, zorder=2,
+                   label='P theoretical')
+    if not pd.isna(t_s_theo):
+        ax.axvline(t_s_theo, color=onset_colors['s'], linestyle='--',
+                   linewidth=cfg['linewidth_onset'], alpha=0.6, zorder=2,
+                   label='S theoretical')
+    if p_success and not pd.isna(t_p_det):
+        ax.axvline(t_p_det, color=onset_colors['p'], linestyle='-',
+                   linewidth=cfg['linewidth_onset'], zorder=3,
+                   label='P detected')
+    if s_success and not pd.isna(t_s_det):
+        ax.axvline(t_s_det, color=onset_colors['s'], linestyle='-',
+                   linewidth=cfg['linewidth_onset'], zorder=3,
+                   label='S detected')
+
+    unit_str = ''
+    if signal_units is not None and signal_type in signal_units:
+        unit_str = f' ({signal_units[signal_type]})'
+    ax.set_xlabel('Time (s)', fontsize=cfg['font_axis_label'])
+    ax.set_ylabel(f'{component}{unit_str}', fontsize=cfg['font_axis_label'])
+    ax.tick_params(labelsize=cfg['font_tick'])
+    ax.grid(True, alpha=0.3, zorder=0)
+
+    legend_handles = []
+    if show_windows:
+        legend_handles.append(mpatches.Patch(
+            color=onset_colors['p'],
+            alpha=max(cfg['window_alpha'], 0.4),
+            label='P search window'))
+        legend_handles.append(mpatches.Patch(
+            color=onset_colors['s'],
+            alpha=max(cfg['window_alpha'], 0.4),
+            label='S search window'))
+    legend_handles += [
+        plt.Line2D([0], [0], color=onset_colors['p'], linestyle='--',
+                   linewidth=cfg['linewidth_onset'], alpha=0.6,
+                   label='P theoretical'),
+        plt.Line2D([0], [0], color=onset_colors['s'], linestyle='--',
+                   linewidth=cfg['linewidth_onset'], alpha=0.6,
+                   label='S theoretical'),
+        plt.Line2D([0], [0], color=onset_colors['p'], linestyle='-',
+                   linewidth=cfg['linewidth_onset'], label='P detected'),
+        plt.Line2D([0], [0], color=onset_colors['s'], linestyle='-',
+                   linewidth=cfg['linewidth_onset'], label='S detected'),
+    ]
+    fig.legend(
+        handles=legend_handles,
+        loc='upper center',
+        bbox_to_anchor=(0.5, 0.08),
+        ncol=len(legend_handles),
+        fontsize=cfg['font_legend'],
+        framealpha=0.9,
+        handlelength=1.5,
+        columnspacing=1.0,
+    )
+
+    if p_success and s_success and not (pd.isna(p_res) or pd.isna(s_res)):
+        residual_str = f'P residual: {p_res:+.2f} s  |  S residual: {s_res:+.2f} s'
+    elif p_success and not pd.isna(p_res):
+        residual_str = f'P residual: {p_res:+.2f} s  |  S detection failed'
+    elif s_success and not pd.isna(s_res):
+        residual_str = f'P detection failed  |  S residual: {s_res:+.2f} s'
+    else:
+        residual_str = 'Detection failed'
+
+    dist = row.get('EPICENTRAL_DISTANCE_KM', np.nan)
+    dist_str = f', $d_{{\\mathrm{{epi}}}}$ = {dist:.1f} km' if not pd.isna(dist) else ''
+    fig.suptitle(
+        f'Station {station}{dist_str} — AR-AIC onset detection',
+        fontsize=cfg['font_title'],
+        fontweight='bold',
+        y=0.97,
+    )
+    fig.text(
+        0.5, 0.91,
+        residual_str,
+        fontsize=cfg['font_title'] - 1,
+        ha='center',
+        va='top',
+    )
+
+    if output_path is not None:
+        suffix = cfg['output_suffix']
+        output_path = Path(output_path).with_suffix(suffix)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=cfg['dpi_save'], bbox_inches='tight')
+
+    return fig
