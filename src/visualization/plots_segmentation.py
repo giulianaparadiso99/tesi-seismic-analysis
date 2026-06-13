@@ -2503,10 +2503,10 @@ def plot_ar_aic_onset_detection(
         'thesis': dict(
             figsize=(6.5, 3.0),
             dpi_save=300,
-            font_title=9,
-            font_axis_label=8,
-            font_tick=7,
-            font_legend=7,
+            font_title=11,        # era 9
+            font_axis_label=10,   # era 8
+            font_tick=9,          # era 7
+            font_legend=8,        # era 7
             linewidth_signal=0.4,
             linewidth_onset=1.2,
             window_alpha=0.12,
@@ -2557,7 +2557,7 @@ def plot_ar_aic_onset_detection(
     s_win_end = row.get('s_window_end_seconds', np.nan)
 
     fig, ax = plt.subplots(1, 1, figsize=cfg['figsize'])
-    fig.subplots_adjust(top=0.86, bottom=0.20, left=0.12, right=0.97)
+    fig.subplots_adjust(top=0.83, bottom=0.20, left=0.12, right=0.97)
 
     ax.plot(time, signal, 'k-', linewidth=cfg['linewidth_signal'],
             alpha=0.8, zorder=1)
@@ -2648,7 +2648,7 @@ def plot_ar_aic_onset_detection(
         y=0.97,
     )
     fig.text(
-        0.5, 0.91,
+        0.5, 0.88,
         residual_str,
         fontsize=cfg['font_title'] - 1,
         ha='center',
