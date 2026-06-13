@@ -16,7 +16,9 @@ from .latex_export import (
     metadata_table_to_latex,
     constant_fields_to_latex,
     onset_detection_to_latex,
-    coda_onset_comparison_to_latex
+    coda_onset_comparison_to_latex,
+    moment_scaling_to_latex,
+    _moment_scaling_caption_and_label
 )
 
 __all__ = [

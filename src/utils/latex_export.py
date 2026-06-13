@@ -20,6 +20,7 @@ Usage:
 from pathlib import Path
 from typing import Optional, List, Tuple, Union
 import pandas as pd
+import numpy as np
 
 # ===============================================================================================
 # ======================================= Helpers ===============================================
@@ -864,4 +865,282 @@ def coda_onset_comparison_to_latex(df_onsets_full: pd.DataFrame,
         
         print(f"LaTeX table saved: {output_path}")
     
+    return latex_str
+
+# ===============================================================================================
+# ========================== Moment scaling results table =======================================
+# ===============================================================================================
+
+WINDOW_LABELS = {
+    'p_wave': 'P-wave',
+    's_wave': 'S-wave',
+    'coda': 'Coda',
+}
+
+CODA_METHOD_LABELS = {
+    'rautian': 'Rautian',
+    'arias': 'Arias',
+    'envelope': 'Envelope',
+    'median': 'Median',
+}
+
+CODA_METHOD_ORDER = ['rautian', 'arias', 'envelope', 'median']
+
+
+def _format_zeta_r2_cell(zeta: float, r_squared: float) -> str:
+    """
+    Format a (zeta, R^2) pair as a single LaTeX table cell "zeta (R^2)".
+
+    Parameters
+    ----------
+    zeta : float
+        Scaling exponent value. If NaN, the cell is rendered as '--'.
+    r_squared : float
+        Coefficient of determination of the corresponding fit.
+
+    Returns
+    -------
+    str
+        Formatted cell content, e.g. "0.53 (0.79)" or "--" if not available.
+    """
+    if zeta is None or pd.isna(zeta):
+        return '--'
+    return f"{zeta:.2f} ({r_squared:.2f})"
+
+# ===============================================================================================
+# ========================== Moment scaling: caption/label dictionaries =========================
+# ===============================================================================================
+
+EVENT_LABELS = {
+    'INT-41004391': {'caption': 'INT-41004391', 'label': 'queyras'},
+    'IT-2009-0009': {'caption': 'IT-2009-0009', 'label': 'laquila'},
+}
+
+PICKER_LABELS = {
+    'ar_pick': {'caption': 'AR-AIC', 'label': 'ar_aic'},
+    'phasenet': {'caption': 'PhaseNet', 'label': 'phasenet'},
+}
+
+CONFIG_LABELS = {
+    'no_filter': {'caption': 'no residual filter', 'label': 'nothresh'},
+    'no_thresh': {'caption': 'no probability threshold', 'label': 'nothresh'},
+    'thresh_30': {'caption': r'probability threshold $P \geq 0.3$', 'label': 'thresh30'},
+}
+
+DATA_TYPE_LABELS = {
+    'acceleration': {'caption': 'acceleration', 'label': 'acc'},
+    'velocity': {'caption': 'velocity', 'label': 'vel'},
+    'displacement': {'caption': 'displacement', 'label': 'disp'},
+}
+
+
+def _moment_scaling_caption_and_label(
+    event_id: str,
+    data_type: str,
+    picking_method: str,
+    config: str,
+    q_subset: Tuple[float, float] = (1.0, 2.0),
+) -> Tuple[str, str]:
+    """
+    Build the caption and label for a moment scaling LaTeX table, following
+    the standard naming convention: 'tab:{picker}_scaling_{signal}_{config}_{event}'.
+
+    Parameters
+    ----------
+    event_id : str
+        Event identifier, must be a key of EVENT_LABELS.
+    data_type : str
+        Signal type, must be a key of DATA_TYPE_LABELS.
+    picking_method : str
+        Phase picker, must be a key of PICKER_LABELS.
+    config : str
+        Segmentation configuration, must be a key of CONFIG_LABELS.
+    q_subset : tuple of float, default=(1.0, 2.0)
+        The two moment orders reported in the table.
+
+    Returns
+    -------
+    tuple of str
+        (caption, label) pair for use in moment_scaling_to_latex().
+
+    Raises
+    ------
+    KeyError
+        If any of event_id, data_type, picking_method, or config is not
+        found in the corresponding label dictionary.
+    """
+    for value, mapping, name in [
+        (event_id, EVENT_LABELS, 'event_id'),
+        (data_type, DATA_TYPE_LABELS, 'data_type'),
+        (picking_method, PICKER_LABELS, 'picking_method'),
+        (config, CONFIG_LABELS, 'config'),
+    ]:
+        if value not in mapping:
+            raise KeyError(f"Unknown {name} '{value}'. Expected one of {list(mapping)}.")
+
+    q1, q2 = q_subset
+    q1_str = f"{q1:g}"
+    q2_str = f"{q2:g}"
+
+    caption = (
+        f"Moment scaling results for \\textbf{{{DATA_TYPE_LABELS[data_type]['caption']}}} signals, "
+        f"obtained from {PICKER_LABELS[picking_method]['caption']} segmentation "
+        f"({CONFIG_LABELS[config]['caption']}), for the {EVENT_LABELS[event_id]['caption']} event. "
+        f"For each window and coda-onset method, $N$ is the ensemble size (number of "
+        f"station-component traces), and $\\tau_{{\\max}}$ is the maximum time lag used in the fit. "
+        f"The columns $\\zeta({q1_str})$ and $\\zeta({q2_str})$ report the scaling exponents for "
+        f"$q={q1_str}$ and $q={q2_str}$, with the corresponding coefficient of determination $R^2$ "
+        f"of the log-log fit given in parentheses."
+    )
+
+    label = (
+        f"tab:{PICKER_LABELS[picking_method]['label']}_scaling_"
+        f"{DATA_TYPE_LABELS[data_type]['label']}_"
+        f"{CONFIG_LABELS[config]['label']}_"
+        f"{EVENT_LABELS[event_id]['label']}"
+    )
+
+    return caption, label
+
+
+def moment_scaling_to_latex(
+    results_by_method: dict,
+    event_id: str,
+    data_type: str,
+    picking_method: str,
+    config: str,
+    q_subset: Tuple[float, float] = (1.0, 2.0),
+    windows: Tuple[str, ...] = ('p_wave', 's_wave', 'coda'),
+    caption: Optional[str] = None,
+    label: Optional[str] = None,
+    output_path: Optional[Union[str, Path]] = None,
+) -> str:
+    """
+    Generate a LaTeX table of moment scaling results for multiple coda
+    onset methods and seismic windows.
+
+    For each window and coda onset method, the table reports the ensemble
+    size N, the maximum time lag tau_max used in the fit, and the scaling
+    exponents zeta(q) with their coefficient of determination R^2 for the
+    two moment orders given in q_subset.
+
+    Parameters
+    ----------
+    results_by_method : dict
+        Dictionary mapping coda method names ('rautian', 'arias',
+        'envelope', 'median') to the results dictionaries returned by
+        analyze_all_windows(). Each results dictionary must be keyed by
+        window name ('p_wave', 's_wave', 'coda', ...), with each entry
+        either None (window not analyzed) or a dict containing 'ensemble'
+        (with keys 'n_signals', 'tau', 'q') and 'scaling' (with keys
+        'zeta', 'r_squared').
+    caption : str
+        LaTeX caption text for the table.
+    label : str
+        LaTeX label for cross-referencing (without leading backslash,
+        e.g. 'tab:phasenet_nofilter_scaling_vel_laquila').
+    q_subset : tuple of float, default=(1.0, 2.0)
+        The two moment orders for which zeta(q) and R^2 are reported.
+    windows : tuple of str, default=('p_wave', 's_wave', 'coda')
+        Window names to include as table sections, in order.
+    output_path : str or Path, optional
+        If provided, the LaTeX string is also saved to this path.
+
+    Returns
+    -------
+    str
+        Complete LaTeX table environment as a string.
+
+    Examples
+    --------
+    >>> results_by_method = {
+    ...     'rautian': results_rautian,
+    ...     'arias': results_arias,
+    ...     'envelope': results_envelope,
+    ...     'median': results_median,
+    ... }
+    >>> latex_str = moment_scaling_to_latex(
+    ...     results_by_method,
+    ...     event_id='INT-41004391',
+    ...     data_type='velocity',
+    ...     picking_method='phasenet',
+    ...     config='no_filter',
+    ...     caption="Moment scaling results for velocity signals...",
+    ...     label="tab:phasenet_nofilter_scaling_vel_laquila",
+    ...     output_path="latex_tables/phasenet_nofilter_scaling_vel_laquila.tex",
+    ... )
+    """
+    q1, q2 = q_subset
+    if caption is None or label is None:
+        auto_caption, auto_label = _moment_scaling_caption_and_label(
+            event_id, data_type, picking_method, config, q_subset
+        )
+        caption = caption if caption is not None else auto_caption
+        label = label if label is not None else auto_label
+
+    rows = []
+    for window_idx, window in enumerate(windows):
+        window_label = WINDOW_LABELS.get(window, window)
+
+        for method_idx, method in enumerate(CODA_METHOD_ORDER):
+            method_label = CODA_METHOD_LABELS[method]
+            window_results = results_by_method.get(method, {}).get(window)
+
+            if window_results is None:
+                n_str = '--'
+                tau_max_str = '--'
+                cell_q1 = '--'
+                cell_q2 = '--'
+            else:
+                ensemble = window_results['ensemble']
+                scaling = window_results['scaling']
+                q_values = ensemble['q']
+
+                n_str = str(ensemble['n_signals'])
+                tau_max_str = f"{ensemble['tau'].max():.2f}"
+
+                idx_q1 = (abs(q_values - q1)).argmin()
+                idx_q2 = (abs(q_values - q2)).argmin()
+                cell_q1 = _format_zeta_r2_cell(scaling['zeta'][idx_q1], scaling['r_squared'][idx_q1])
+                cell_q2 = _format_zeta_r2_cell(scaling['zeta'][idx_q2], scaling['r_squared'][idx_q2])
+
+            if method_idx == 0:
+                row = f"\\multirow{{4}}{{*}}{{{window_label}}}\n& {method_label} & {n_str} & {tau_max_str} & {cell_q1} & {cell_q2} \\\\"
+            else:
+                row = f"& {method_label} & {n_str} & {tau_max_str} & {cell_q1} & {cell_q2} \\\\"
+            rows.append(row)
+
+        if window_idx < len(windows) - 1:
+            rows.append(r"\midrule")
+
+    body = "\n".join(rows)
+
+    q1_str = f"{q1:g}"
+    q2_str = f"{q2:g}"
+
+    latex_str = (
+        r"\begin{table}[H]" + "\n"
+        r"\centering" + "\n"
+        r"\small" + "\n"
+        r"\begin{tabular}{llcccc}" + "\n"
+        r"\toprule" + "\n"
+        rf"\textbf{{Window}} & \textbf{{Method}} & \textbf{{N}} & $\bm{{\tau_{{\max}}}}$ \textbf{{(s)}} & "
+        rf"$\bm{{\zeta({q1_str})}}$ \textbf{{(}}$\bm{{R^2}}$\textbf{{)}} & "
+        rf"$\bm{{\zeta({q2_str})}}$ \textbf{{(}}$\bm{{R^2}}$\textbf{{)}} \\" + "\n"
+        r"\midrule" + "\n"
+        + body + "\n"
+        + r"\bottomrule" + "\n"
+        r"\end{tabular}" + "\n"
+        rf"\caption{{{caption}}}" + "\n"
+        rf"\label{{{label}}}" + "\n"
+        r"\end{table}"
+    )
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(latex_str)
+        print(f"Saved to: {output_path}")
+
     return latex_str
