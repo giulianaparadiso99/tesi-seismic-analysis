@@ -1,0 +1,29 @@
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Window} & \textbf{Method} & \textbf{N} & $\bm{\tau_{\max}}$ \textbf{(s)} & $\bm{\zeta(1)}$ \textbf{(}$\bm{R^2}$\textbf{)} & $\bm{\zeta(2)}$ \textbf{(}$\bm{R^2}$\textbf{)} \\
+\midrule
+\multirow{4}{*}{P-wave}
+& Rautian & 117 & 2.27 & 1.28 (0.87) & 2.00 (0.70) \\
+& Arias & 117 & 2.27 & 1.28 (0.87) & 2.00 (0.70) \\
+& Envelope & 117 & 2.27 & 1.28 (0.87) & 2.00 (0.70) \\
+& Median & 117 & 2.27 & 1.28 (0.87) & 2.00 (0.70) \\
+\midrule
+\multirow{4}{*}{S-wave}
+& Rautian & 180 & 4.92 & -0.12 (0.27) & -0.27 (0.21) \\
+& Arias & 180 & 4.86 & -0.13 (0.28) & -0.33 (0.29) \\
+& Envelope & 170 & 2.77 & -0.13 (0.19) & -0.35 (0.22) \\
+& Median & 180 & 4.88 & -0.15 (0.32) & -0.36 (0.38) \\
+\midrule
+\multirow{4}{*}{Coda}
+& Rautian & 144 & 2.88 & -0.17 (0.40) & -0.28 (0.27) \\
+& Arias & 183 & 2.31 & -0.11 (0.31) & -0.20 (0.26) \\
+& Envelope & 185 & 2.08 & -0.03 (0.01) & 0.02 (0.00) \\
+& Median & 185 & 2.08 & -0.10 (0.12) & -0.17 (0.05) \\
+\bottomrule
+\end{tabular}
+\caption{Moment scaling results for \textbf{acceleration} signals, obtained from AR-AIC segmentation (no residual filter), for the IT-2009-0009 event. For each window and coda-onset method, $N$ is the ensemble size (number of station-component traces), and $\tau_{\max}$ is the maximum time lag used in the fit. The columns $\zeta(1)$ and $\zeta(2)$ report the scaling exponents for $q=1$ and $q=2$, with the corresponding coefficient of determination $R^2$ of the log-log fit given in parentheses.}
+\label{tab:ar_aic_scaling_acc_nothresh_laquila}
+\end{table}

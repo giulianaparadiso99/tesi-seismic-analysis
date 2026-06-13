@@ -1,0 +1,29 @@
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Window} & \textbf{Method} & \textbf{N} & $\bm{\tau_{\max}}$ \textbf{(s)} & $\bm{\zeta(1)}$ \textbf{(}$\bm{R^2}$\textbf{)} & $\bm{\zeta(2)}$ \textbf{(}$\bm{R^2}$\textbf{)} \\
+\midrule
+\multirow{4}{*}{P-wave}
+& Rautian & 123 & 2.42 & 1.80 (0.96) & 3.85 (0.95) \\
+& Arias & 123 & 2.42 & 1.80 (0.96) & 3.85 (0.95) \\
+& Envelope & 123 & 2.42 & 1.80 (0.96) & 3.85 (0.95) \\
+& Median & 123 & 2.42 & 1.80 (0.96) & 3.85 (0.95) \\
+\midrule
+\multirow{4}{*}{S-wave}
+& Rautian & 180 & 4.92 & 0.14 (0.47) & -0.24 (0.27) \\
+& Arias & 180 & 3.15 & 0.15 (0.47) & -0.25 (0.21) \\
+& Envelope & 168 & 2.21 & 0.22 (0.61) & -0.11 (0.07) \\
+& Median & 180 & 3.58 & 0.17 (0.57) & -0.18 (0.13) \\
+\midrule
+\multirow{4}{*}{Coda}
+& Rautian & 148 & 2.49 & 0.11 (0.43) & -0.25 (0.18) \\
+& Arias & 178 & 2.25 & 0.27 (0.93) & -0.09 (0.32) \\
+& Envelope & 182 & 2.04 & 0.34 (0.71) & 0.46 (0.30) \\
+& Median & 185 & 3.04 & 0.25 (0.58) & 0.32 (0.26) \\
+\bottomrule
+\end{tabular}
+\caption{Moment scaling results for \textbf{displacement} signals, obtained from AR-AIC segmentation (no residual filter), for the IT-2009-0009 event. For each window and coda-onset method, $N$ is the ensemble size (number of station-component traces), and $\tau_{\max}$ is the maximum time lag used in the fit. The columns $\zeta(1)$ and $\zeta(2)$ report the scaling exponents for $q=1$ and $q=2$, with the corresponding coefficient of determination $R^2$ of the log-log fit given in parentheses.}
+\label{tab:ar_aic_scaling_disp_nothresh_laquila}
+\end{table}
