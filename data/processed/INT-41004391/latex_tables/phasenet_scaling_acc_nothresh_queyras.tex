@@ -1,0 +1,29 @@
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Window} & \textbf{Method} & \textbf{N} & $\bm{\tau_{\max}}$ \textbf{(s)} & $\bm{\zeta(1)}$ \textbf{(}$\bm{R^2}$\textbf{)} & $\bm{\zeta(2)}$ \textbf{(}$\bm{R^2}$\textbf{)} \\
+\midrule
+\multirow{4}{*}{P-wave}
+& Rautian & 63 & 2.60 & -0.27 (0.36) & -1.00 (0.52) \\
+& Arias & 63 & 2.60 & -0.27 (0.36) & -1.00 (0.52) \\
+& Envelope & 63 & 2.60 & -0.27 (0.36) & -1.00 (0.52) \\
+& Median & 63 & 2.60 & -0.27 (0.36) & -1.00 (0.52) \\
+\midrule
+\multirow{4}{*}{S-wave}
+& Rautian & 63 & 6.59 & -0.30 (0.80) & -0.80 (0.75) \\
+& Arias & 63 & 3.87 & -0.26 (0.64) & -0.87 (0.55) \\
+& Envelope & 62 & 2.45 & -0.24 (0.54) & -0.96 (0.54) \\
+& Median & 63 & 3.87 & -0.26 (0.64) & -0.87 (0.55) \\
+\midrule
+\multirow{4}{*}{Coda}
+& Rautian & 63 & 11.64 & -0.08 (0.40) & -0.20 (0.21) \\
+& Arias & 63 & 6.84 & -0.03 (0.06) & -0.07 (0.03) \\
+& Envelope & 63 & 12.54 & -0.14 (0.57) & -0.39 (0.55) \\
+& Median & 63 & 14.16 & -0.05 (0.40) & -0.11 (0.17) \\
+\bottomrule
+\end{tabular}
+\caption{Moment scaling results for \textbf{acceleration} signals, obtained from PhaseNet segmentation (no residual filter), for the INT-41004391 event. For each window and coda-onset method, $N$ is the ensemble size (number of station-component traces), and $\tau_{\max}$ is the maximum time lag used in the fit. The columns $\zeta(1)$ and $\zeta(2)$ report the scaling exponents for $q=1$ and $q=2$, with the corresponding coefficient of determination $R^2$ of the log-log fit given in parentheses.}
+\label{tab:phasenet_scaling_acc_nothresh_queyras}
+\end{table}
