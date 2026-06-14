@@ -57,6 +57,8 @@ from .plots_segmentation import (
 from .plots_moment_scaling import (
     plot_scaling_curves,
     plot_scaling_exponents,
+    plot_scaling_curves_v2,
+    plot_scaling_exponents_v2
 )
 
 from .plots_sensitivity import (

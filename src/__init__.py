@@ -206,7 +206,9 @@ from .visualization.plots_segmentation import (
 
 from .visualization.plots_moment_scaling import (
     plot_scaling_curves,
-    plot_scaling_exponents
+    plot_scaling_exponents,
+    plot_scaling_exponents_v2,
+    plot_scaling_curves_v2
 )
 
 from .visualization.plots_sensitivity import (
