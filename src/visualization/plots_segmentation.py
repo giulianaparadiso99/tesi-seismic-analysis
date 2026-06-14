@@ -2506,7 +2506,7 @@ def plot_ar_aic_onset_detection(
             font_title=11,        # era 9
             font_axis_label=10,   # era 8
             font_tick=9,          # era 7
-            font_legend=8,        # era 7
+            font_legend=10,        # era 7
             linewidth_signal=0.4,
             linewidth_onset=1.2,
             window_alpha=0.12,
@@ -2645,10 +2645,10 @@ def plot_ar_aic_onset_detection(
         f'Station {station}{dist_str} — AR-AIC onset detection',
         fontsize=cfg['font_title'],
         fontweight='bold',
-        y=0.97,
+        y=0.98,
     )
     fig.text(
-        0.5, 0.88,
+        0.5, 0.90,
         residual_str,
         fontsize=cfg['font_title'] - 1,
         ha='center',
