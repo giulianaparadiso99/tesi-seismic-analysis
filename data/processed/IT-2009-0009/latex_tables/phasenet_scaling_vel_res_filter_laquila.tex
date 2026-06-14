@@ -1,0 +1,29 @@
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Window} & \textbf{Method} & \textbf{N} & $\bm{\tau_{\max}}$ \textbf{(s)} & $\bm{\zeta(1)}$ \textbf{(}$\bm{R^2}$\textbf{)} & $\bm{\zeta(2)}$ \textbf{(}$\bm{R^2}$\textbf{)} \\
+\midrule
+\multirow{4}{*}{P-wave}
+& Rautian & 87 & 2.79 & 0.73 (0.64) & 0.97 (0.23) \\
+& Arias & 87 & 2.79 & 0.73 (0.64) & 0.97 (0.23) \\
+& Envelope & 87 & 2.79 & 0.73 (0.64) & 0.97 (0.23) \\
+& Median & 87 & 2.79 & 0.73 (0.64) & 0.97 (0.23) \\
+\midrule
+\multirow{4}{*}{S-wave}
+& Rautian & 150 & 3.11 & -0.46 (0.73) & -1.22 (0.75) \\
+& Arias & 150 & 7.17 & -0.27 (0.57) & -0.79 (0.66) \\
+& Envelope & 123 & 2.03 & -0.63 (0.79) & -1.77 (0.83) \\
+& Median & 150 & 3.11 & -0.46 (0.73) & -1.22 (0.75) \\
+\midrule
+\multirow{4}{*}{Coda}
+& Rautian & 123 & 5.61 & -0.17 (0.47) & -0.34 (0.35) \\
+& Arias & 150 & 2.10 & -0.18 (0.56) & -0.40 (0.46) \\
+& Envelope & 150 & 2.42 & 0.13 (0.12) & 0.09 (0.01) \\
+& Median & 151 & 3.71 & -0.16 (0.30) & -0.32 (0.19) \\
+\bottomrule
+\end{tabular}
+\caption{Moment scaling results for \textbf{velocity} signals, obtained from PhaseNet segmentation (residual filter), for the IT-2009-0009 event. For each window and coda-onset method, $N$ is the ensemble size (number of station-component traces), and $\tau_{\max}$ is the maximum time lag used in the fit. The columns $\zeta(1)$ and $\zeta(2)$ report the scaling exponents for $q=1$ and $q=2$, with the corresponding coefficient of determination $R^2$ of the log-log fit given in parentheses.}
+\label{tab:phasenet_scaling_vel_res_filter_laquila}
+\end{table}

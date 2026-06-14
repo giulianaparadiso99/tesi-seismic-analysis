@@ -925,6 +925,7 @@ CONFIG_LABELS = {
     'no_filter': {'caption': 'no residual filter', 'label': 'nothresh'},
     'no_thresh': {'caption': 'no probability threshold', 'label': 'nothresh'},
     'thresh_30': {'caption': r'probability threshold $P \geq 0.3$', 'label': 'thresh30'},
+    'residual_filter': {'caption': 'residual filter', 'label': 'res_filter'},
 }
 
 DATA_TYPE_LABELS = {
