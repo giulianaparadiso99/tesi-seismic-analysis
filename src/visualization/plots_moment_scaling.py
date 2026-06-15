@@ -398,8 +398,7 @@ def plot_scaling_curves_v2(
 
     fig, axes = plt.subplots(
         3, 3,
-        figsize=cfg['figsize'],
-        sharex='col',
+        figsize=cfg['figsize']
     )
     fig.subplots_adjust(
         top=0.88, bottom=0.08, left=0.10, right=0.97,
@@ -408,7 +407,6 @@ def plot_scaling_curves_v2(
 
     legend_elements = []
     legend_built = False
-
     for row, signal_type in enumerate(signal_types):
         results = results_by_signal.get(signal_type)
 
@@ -437,12 +435,6 @@ def plot_scaling_curves_v2(
                 ax.set_xlabel(r'$\tau$ (s)', fontsize=cfg['font_axis_label'])
 
             ax.tick_params(labelsize=cfg['font_tick'])
-
-            ax.xaxis.set_major_locator(mpl.ticker.LogLocator(base=10, numticks=10))
-            ax.xaxis.set_minor_locator(mpl.ticker.NullLocator())
-            ax.yaxis.set_major_locator(mpl.ticker.LogLocator(base=10, numticks=10))
-            ax.yaxis.set_minor_locator(mpl.ticker.NullLocator())
-
             ax.grid(True, alpha=0.3, which='major', linewidth=0.5)
 
             if results is None or window_name not in results or results[window_name] is None:
@@ -458,7 +450,36 @@ def plot_scaling_curves_v2(
             moments_mean = ensemble['moments_mean']
             zeta = scaling['zeta']
             intercepts = scaling['intercepts']
+            # Genera tacche x basate su tau effettivo
+            tau_lo = tau.min()
+            tau_hi = tau.max()
+            x_ticks = np.logspace(np.log10(tau_lo), np.log10(tau_hi), num=4)
+            ax.xaxis.set_major_locator(mpl.ticker.FixedLocator(x_ticks))
+            ax.xaxis.set_major_formatter(mpl.ticker.LogFormatterMathtext())
+            ax.xaxis.set_minor_locator(mpl.ticker.NullLocator())
 
+            # Raccogliere tutti i M_q validi per questo subplot
+            M_q_all_valid = []
+            for q_val in q_colors.keys():
+                q_idx = np.where(np.isclose(q_values, q_val))[0]
+                if len(q_idx) == 0:
+                    continue
+                q_idx = q_idx[0]
+                M_q = moments_mean[:, q_idx]
+                valid = (M_q > 0) & np.isfinite(M_q)
+                M_q_all_valid.extend(M_q[valid])
+
+            # Genera tacche y basate sui dati effettivi
+            if M_q_all_valid:
+                M_lo = np.min(M_q_all_valid)
+                M_hi = np.max(M_q_all_valid)
+                y_ticks = np.logspace(np.log10(M_lo), np.log10(M_hi), num=4)
+                ax.yaxis.set_major_locator(mpl.ticker.FixedLocator(y_ticks))
+                ax.yaxis.set_major_formatter(mpl.ticker.LogFormatterMathtext())
+            else:
+                ax.yaxis.set_major_locator(mpl.ticker.LogLocator(base=10, subs=[1.0, 2.0, 5.0], numticks=10))
+
+            ax.yaxis.set_minor_locator(mpl.ticker.NullLocator())
             for q_val, color in q_colors.items():
                 q_idx = np.where(np.isclose(q_values, q_val))[0]
                 if len(q_idx) == 0:
@@ -713,20 +734,6 @@ def plot_scaling_exponents_v2(
                 alpha=0.7, zorder=2,
             )
 
-            mean_r2 = np.nanmean(r_squared[valid])
-            ax.text(
-                0.97, 0.05,
-                f'$\\bar{{R}}^2 = {mean_r2:.2f}$',
-                transform=ax.transAxes,
-                fontsize=cfg['font_tick'],
-                ha='right', va='bottom',
-                bbox=dict(
-                    boxstyle='round,pad=0.3',
-                    facecolor='white',
-                    alpha=0.7,
-                    edgecolor='lightgray',
-                ),
-            )
 
             ax.set_xlim(q_values.min() - 0.2, q_values.max() + 0.2)
             if valid.any():
