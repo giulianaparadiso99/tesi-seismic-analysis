@@ -299,6 +299,14 @@ def plot_scaling_exponents(
     
     return fig
 
+def clean_log_formatter(x, pos):
+    exp = int(np.floor(np.log10(x)))
+    coeff = round(x / 10**exp)
+    if coeff == 1:
+        return r'$10^{%d}$' % exp
+    else:
+        return r'$%d \times 10^{%d}$' % (coeff, exp)
+
 def plot_scaling_curves_v2(
     results_by_signal: Dict[str, Dict],
     coda_method: str = 'rautian',
@@ -376,7 +384,7 @@ def plot_scaling_curves_v2(
             font_title=10,
             font_axis_label=9,
             font_tick=8,
-            font_legend=8,
+            font_legend=10,
             linewidth_fit=1.5,
             markersize=4,
             output_suffix='.pdf',
@@ -388,7 +396,6 @@ def plot_scaling_curves_v2(
     windows = ['p_wave', 's_wave', 'coda']
     window_titles = {'p_wave': 'P-wave', 's_wave': 'S-wave', 'coda': 'Coda'}
 
-    q_subset = np.array([0.5, 1.0, 2.0, 3.0])
     q_colors = {
         0.5: '#00807F',
         1.0: '#C8861D',
@@ -398,15 +405,16 @@ def plot_scaling_curves_v2(
 
     fig, axes = plt.subplots(
         3, 3,
-        figsize=cfg['figsize']
+        figsize=cfg['figsize'],
     )
     fig.subplots_adjust(
         top=0.88, bottom=0.08, left=0.10, right=0.97,
-        hspace=0.10, wspace=0.12,
+        hspace=0.35, wspace=0.35,
     )
 
     legend_elements = []
     legend_built = False
+
     for row, signal_type in enumerate(signal_types):
         results = results_by_signal.get(signal_type)
 
@@ -420,7 +428,6 @@ def plot_scaling_curves_v2(
                 )
             else:
                 ax.set_ylabel('')
-                ax.tick_params(axis='y', labelleft=False)
 
             if row == 0:
                 ax.set_title(
@@ -429,9 +436,7 @@ def plot_scaling_curves_v2(
                     fontweight='bold',
                 )
 
-            if row < 2:
-                ax.tick_params(axis='x', labelbottom=False)
-            else:
+            if row == 2:
                 ax.set_xlabel(r'$\tau$ (s)', fontsize=cfg['font_axis_label'])
 
             ax.tick_params(labelsize=cfg['font_tick'])
@@ -450,16 +455,10 @@ def plot_scaling_curves_v2(
             moments_mean = ensemble['moments_mean']
             zeta = scaling['zeta']
             intercepts = scaling['intercepts']
-            # Genera tacche x basate su tau effettivo
-            tau_lo = tau.min()
-            tau_hi = tau.max()
-            x_ticks = np.logspace(np.log10(tau_lo), np.log10(tau_hi), num=4)
-            ax.xaxis.set_major_locator(mpl.ticker.FixedLocator(x_ticks))
-            ax.xaxis.set_major_formatter(mpl.ticker.LogFormatterMathtext())
-            ax.xaxis.set_minor_locator(mpl.ticker.NullLocator())
 
-            # Raccogliere tutti i M_q validi per questo subplot
-            M_q_all_valid = []
+            # Raccogliere tau e M_q validi da tutti i q che verranno plottati
+            tau_valid_all = []
+            M_q_valid_all = []
             for q_val in q_colors.keys():
                 q_idx = np.where(np.isclose(q_values, q_val))[0]
                 if len(q_idx) == 0:
@@ -467,19 +466,11 @@ def plot_scaling_curves_v2(
                 q_idx = q_idx[0]
                 M_q = moments_mean[:, q_idx]
                 valid = (M_q > 0) & np.isfinite(M_q)
-                M_q_all_valid.extend(M_q[valid])
+                if valid.sum() < 2:
+                    continue
+                tau_valid_all.extend(tau[valid])
+                M_q_valid_all.extend(M_q[valid])
 
-            # Genera tacche y basate sui dati effettivi
-            if M_q_all_valid:
-                M_lo = np.min(M_q_all_valid)
-                M_hi = np.max(M_q_all_valid)
-                y_ticks = np.logspace(np.log10(M_lo), np.log10(M_hi), num=4)
-                ax.yaxis.set_major_locator(mpl.ticker.FixedLocator(y_ticks))
-                ax.yaxis.set_major_formatter(mpl.ticker.LogFormatterMathtext())
-            else:
-                ax.yaxis.set_major_locator(mpl.ticker.LogLocator(base=10, subs=[1.0, 2.0, 5.0], numticks=10))
-
-            ax.yaxis.set_minor_locator(mpl.ticker.NullLocator())
             for q_val, color in q_colors.items():
                 q_idx = np.where(np.isclose(q_values, q_val))[0]
                 if len(q_idx) == 0:
@@ -524,6 +515,23 @@ def plot_scaling_curves_v2(
 
             if not legend_built:
                 legend_built = True
+
+            # Imposta locator DOPO il plot, così non vengono sovrascritti da loglog
+            if tau_valid_all and M_q_valid_all:
+                tau_lo = np.min(tau_valid_all)
+                tau_hi = np.max(tau_valid_all)
+                x_ticks = np.logspace(np.log10(tau_lo), np.log10(tau_hi), num=4)
+                ax.xaxis.set_major_locator(mpl.ticker.FixedLocator(x_ticks))
+                ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(clean_log_formatter))
+                ax.xaxis.set_minor_locator(mpl.ticker.NullLocator())
+
+                M_lo = np.min(M_q_valid_all)
+                M_hi = np.max(M_q_valid_all)
+                y_ticks = np.logspace(np.log10(M_lo), np.log10(M_hi), num=4)
+                ax.yaxis.set_major_locator(mpl.ticker.FixedLocator(y_ticks))
+                ax.yaxis.set_major_formatter(mpl.ticker.FuncFormatter(clean_log_formatter))
+                ax.yaxis.set_minor_locator(mpl.ticker.NullLocator())
+
 
     row_labels = ['Acceleration', 'Velocity', 'Displacement']
     for row, label in enumerate(row_labels):
@@ -660,7 +668,7 @@ def plot_scaling_exponents_v2(
     )
     fig.subplots_adjust(
         top=0.88, bottom=0.08, left=0.10, right=0.97,
-        hspace=0.10, wspace=0.12,
+        hspace=0.35, wspace=0.35,
     )
 
     legend_elements = [
@@ -687,9 +695,7 @@ def plot_scaling_exponents_v2(
                     r'$\zeta(q)$',
                     fontsize=cfg['font_axis_label'],
                 )
-            else:
-                ax.set_ylabel('')
-                ax.tick_params(axis='y', labelleft=False)
+
 
             if row == 0:
                 ax.set_title(
@@ -698,10 +704,7 @@ def plot_scaling_exponents_v2(
                     fontweight='bold',
                 )
 
-            if row < 2:
-                ax.tick_params(axis='x', labelbottom=False)
-            else:
-                ax.set_xlabel(r'$q$', fontsize=cfg['font_axis_label'])
+            ax.set_xlabel(r'$q$', fontsize=cfg['font_axis_label'])
 
             ax.tick_params(labelsize=cfg['font_tick'])
             ax.grid(True, alpha=0.3, linewidth=0.5)
