@@ -66,6 +66,7 @@ Examples
 """
 
 import numpy as np
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List, Union
@@ -263,12 +264,6 @@ def plot_scaling_exponents(
         ax.legend(fontsize=10, loc='upper left', framealpha=0.95,
                  edgecolor='gray', fancybox=False)
         
-        mean_r2 = np.nanmean(r_squared[valid])
-        ax.text(0.98, 0.05, f'Mean R² = {mean_r2:.3f}',
-               transform=ax.transAxes, fontsize=10,
-               verticalalignment='bottom', horizontalalignment='right',
-               bbox=dict(boxstyle='round,pad=0.5', facecolor='wheat', 
-                        alpha=0.7, edgecolor='gray'))
         
         ax.set_xlim(q_values.min() - 0.2, q_values.max() + 0.2)
         y_max_data = (zeta[valid] + zeta_err[valid]).max() if valid.any() else 1.0
@@ -442,7 +437,13 @@ def plot_scaling_curves_v2(
                 ax.set_xlabel(r'$\tau$ (s)', fontsize=cfg['font_axis_label'])
 
             ax.tick_params(labelsize=cfg['font_tick'])
-            ax.grid(True, alpha=0.3, which='both', linewidth=0.5)
+
+            ax.xaxis.set_major_locator(mpl.ticker.LogLocator(base=10, numticks=10))
+            ax.xaxis.set_minor_locator(mpl.ticker.NullLocator())
+            ax.yaxis.set_major_locator(mpl.ticker.LogLocator(base=10, numticks=10))
+            ax.yaxis.set_minor_locator(mpl.ticker.NullLocator())
+
+            ax.grid(True, alpha=0.3, which='major', linewidth=0.5)
 
             if results is None or window_name not in results or results[window_name] is None:
                 ax.text(0.5, 0.5, 'No data', ha='center', va='center',
