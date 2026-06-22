@@ -307,6 +307,17 @@ def clean_log_formatter(x, pos):
     else:
         return r'$%d \times 10^{%d}$' % (coeff, exp)
 
+def nice_log_ticks(lo, hi, n=4):
+    """Return n approximately evenly spaced round values in log scale."""
+    ticks = np.logspace(np.log10(lo), np.log10(hi), n)
+    # Round each tick to 1 significant figure
+    rounded = []
+    for t in ticks:
+        exp = np.floor(np.log10(t))
+        mantissa = t / 10**exp
+        rounded.append(round(mantissa) * 10**exp)
+    return sorted(set(rounded))
+
 def plot_scaling_curves_v2(
     results_by_signal: Dict[str, Dict],
     coda_method: str = 'rautian',
@@ -359,10 +370,10 @@ def plot_scaling_curves_v2(
         'paper': dict(
             figsize=(6.89, 5.5),
             dpi_save=600,
-            font_title=8,
-            font_axis_label=7,
-            font_tick=6,
-            font_legend=6,
+            font_title=10,
+            font_axis_label=9,
+            font_tick=8,
+            font_legend=8,
             linewidth_fit=1.0,
             markersize=3,
             output_suffix='.png',
@@ -380,14 +391,14 @@ def plot_scaling_curves_v2(
         ),
         'thesis': dict(
             figsize=(12, 9),
-            dpi_save=300,
+            dpi_save=600,
             font_title=10,
             font_axis_label=9,
             font_tick=8,
             font_legend=10,
             linewidth_fit=1.5,
             markersize=4,
-            output_suffix='.pdf',
+            output_suffix='.png',
         ),
     }
     cfg = _mode_settings[mode]
@@ -619,18 +630,19 @@ def plot_scaling_exponents_v2(
         'paper': dict(
             figsize=(6.89, 5.5),
             dpi_save=600,
-            font_title=8,
-            font_axis_label=7,
-            font_tick=6,
-            font_legend=6,
-            linewidth_ref=1.2,
+            font_title=10,
+            font_axis_label=9,
+            font_tick=8,
+            font_legend=8,
+            linewidth_fit=1.0,
+            linewidth_ref=0.8,
             markersize=3,
-            capsize=2,
+            capsize=4,
             output_suffix='.png',
         ),
         'poster': dict(
             figsize=(14.85, 11.0),
-            dpi_save=300,
+            dpi_save=600,
             font_title=18,
             font_axis_label=15,
             font_tick=13,
@@ -642,7 +654,7 @@ def plot_scaling_exponents_v2(
         ),
         'thesis': dict(
             figsize=(12, 9),
-            dpi_save=300,
+            dpi_save=600,
             font_title=10,
             font_axis_label=9,
             font_tick=8,
@@ -650,7 +662,7 @@ def plot_scaling_exponents_v2(
             linewidth_ref=1.8,
             markersize=5,
             capsize=3,
-            output_suffix='.pdf',
+            output_suffix='.png',
         ),
     }
     cfg = _mode_settings[mode]
