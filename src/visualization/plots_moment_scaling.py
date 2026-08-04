@@ -266,29 +266,19 @@ def plot_scaling_exponents(
         
         
         ax.set_xlim(q_values.min() - 0.2, q_values.max() + 0.2)
-        y_max_data = (zeta[valid] + zeta_err[valid]).max() if valid.any() else 1.0
         y_max_ref = (q_values.max() / 2) * 1.05
-        ax.set_ylim(bottom=0, top=max(y_max_data * 1.1, y_max_ref))
+        if valid.any():
+            y_min_data = (zeta[valid] - zeta_err[valid]).min()
+            y_max_data = (zeta[valid] + zeta_err[valid]).max()
+            y_bottom = min(0.0, y_min_data * 1.1)
+            y_top = max(y_max_data * 1.1, y_max_ref)
+        else:
+            y_bottom = 0.0
+            y_top = y_max_ref
+        ax.set_ylim(bottom=y_bottom, top=y_top)
             
     plt.tight_layout()
 
-    row_labels = ['Acceleration', 'Velocity', 'Displacement']
-    row_label_x = 0.01  # coordinata x in unità figura
-    row_label_y_positions = []
-    for row in range(3):
-        # calcola il centro verticale della riga dall'oggetto axes
-        bbox = axes[row][0].get_position()
-        y_center = (bbox.y0 + bbox.y1) / 2
-        row_label_y_positions.append(y_center)
-
-    for row, (label, y_pos) in enumerate(zip(row_labels, row_label_y_positions)):
-        fig.text(
-            row_label_x, y_pos, label,
-            fontsize=cfg['font_axis_label'],
-            ha='left', va='center',
-            rotation=90,
-            fontweight='bold',
-        )
     
     if output_dir is not None:
         output_dir = Path(output_dir)
