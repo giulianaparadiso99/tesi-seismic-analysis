@@ -2662,3 +2662,85 @@ def plot_ar_aic_onset_detection(
         fig.savefig(output_path, dpi=cfg['dpi_save'], bbox_inches='tight')
 
     return fig
+
+def plot_crustal_velocity_diagram(
+    df_profile: pd.DataFrame,
+    hypo_depth_km: float,
+    output_path: Path,
+    traversed_color: Tuple[float, float, float, float],
+    untraversed_color: str = '#d9d9d9',
+) -> None:
+    """
+    Plot a stratigraphic column diagram of the CRUST1.0 layer profile,
+    marking the hypocenter depth and distinguishing traversed from
+    untraversed layers.
+
+    Parameters
+    ----------
+    df_profile : pd.DataFrame
+        Output of extract_full_crustal_profile().
+    hypo_depth_km : float
+        Hypocenter depth in kilometers, used to draw a reference line.
+    output_path : Path
+        Full file path to save the figure (.pdf or .png).
+    traversed_color : tuple of float
+        RGBA color for traversed layers, e.g. one of the colors
+        returned by set_plot_style().
+    untraversed_color : str, default='#d9d9d9'
+        Fill color for layers not traversed by the ray.
+
+    Raises
+    ------
+    ValueError
+        If df_profile is empty.
+    """
+    if df_profile.empty:
+        raise ValueError("df_profile is empty, nothing to plot")
+
+    layer_display_names = {
+        'upper_sediments': 'Upper sediments',
+        'middle_sediments': 'Middle sediments',
+        'lower_sediments': 'Lower sediments',
+        'upper_crust': 'Upper crust',
+        'middle_crust': 'Middle crust',
+        'lower_crust': 'Lower crust',
+    }
+
+    fig, ax = plt.subplots(figsize=(6, 8))
+    max_depth = df_profile['bottom_depth_km'].max()
+
+    for _, row in df_profile.iterrows():
+        color = traversed_color if row['traversed'] else untraversed_color
+        ax.add_patch(mpatches.Rectangle(
+            (0, row['top_depth_km']),
+            1,
+            row['thickness_km'],
+            facecolor=color,
+            edgecolor='black',
+            linewidth=0.8,
+        ))
+        label = layer_display_names.get(row['layer'], row['layer'])
+        mid_depth = row['top_depth_km'] + row['thickness_km'] / 2
+        ax.text(
+            0.5, mid_depth,
+            f"{label}\n$v_P$={row['vp_km_s']:.2f}, $v_S$={row['vs_km_s']:.2f} km/s",
+            ha='center', va='center', fontsize=9,
+        )
+
+    ax.axhline(
+        hypo_depth_km, color='red', linestyle='--', linewidth=1.5,
+        label=f'Hypocenter depth ({hypo_depth_km:.1f} km)',
+    )
+
+    ax.set_xlim(0, 1)
+    ax.set_ylim(max_depth, 0)
+    ax.set_xticks([])
+    ax.set_ylabel('Depth (km)', fontsize=11)
+    ax.legend(loc='lower right', fontsize=9, framealpha=0.9)
+
+    plt.tight_layout()
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, bbox_inches='tight')
+    print(f"Saved: {output_path}")
+    plt.close()

@@ -77,7 +77,8 @@ from .segmentation.search_windows import (
     add_hypocentral_distance,
     calculate_distance_thresholds,
     calculate_search_windows,
-    calculate_adaptive_windows
+    calculate_adaptive_windows,
+    extract_full_crustal_profile
 )
 
 from .segmentation.onset_detection import (
@@ -202,7 +203,8 @@ from .visualization.plots_segmentation import (
     plot_multiple_stations,
     plot_window_comparison,
     plot_station_windows_multitype,
-    plot_ar_aic_onset_detection
+    plot_ar_aic_onset_detection,
+    plot_crustal_velocity_diagram
 )
 
 from .visualization.plots_moment_scaling import (

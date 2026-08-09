@@ -80,7 +80,8 @@ from .search_windows import (
     add_theoretical_arrivals,
     calculate_distance_thresholds,
     calculate_search_windows,
-    calculate_adaptive_windows
+    calculate_adaptive_windows,
+    extract_full_crustal_profile
 )
 
 # AR-AIC phase detection

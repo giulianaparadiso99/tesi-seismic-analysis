@@ -128,6 +128,22 @@ except ImportError as e:
         f"Original error: {e}"
     )
 
+# Layer names in order from surface to depth
+# Note: CRUST1.0 may use different naming conventions
+LAYER_ORDER = [
+    'upper_sediments', 'middle_sediments', 'lower_sediments',
+    'upper_crust', 'middle_crust', 'lower_crust'
+]
+
+# Alternative naming conventions in CRUST1.0
+LAYER_ALIASES = {
+    'upper_sediments': ['upper_sediments', 'upper_seds.', 'soft_sed'],
+    'middle_sediments': ['middle_sediments', 'middle_seds.', 'hard_sed'],
+    'lower_sediments': ['lower_sediments', 'lower_seds.'],
+    'upper_crust': ['upper_crust', 'upper.crust'],
+    'middle_crust': ['middle_crust', 'middle.crust'],
+    'lower_crust': ['lower_crust', 'lower.crust']
+}
 
 # ============================================================================
 # LEVEL 1: ATOMIC FUNCTIONS
@@ -193,22 +209,6 @@ def extract_crustal_velocities(
     >>> print(f"Traversed layers: {layers}")
     Traversed layers: ['upper_sediments', 'middle_sediments', 'lower_sediments', 'upper_crust']
     """
-    # Layer names in order from surface to depth
-    # Note: CRUST1.0 may use different naming conventions
-    layer_order = [
-        'upper_sediments', 'middle_sediments', 'lower_sediments',
-        'upper_crust', 'middle_crust', 'lower_crust'
-    ]
-    
-    # Alternative naming conventions in CRUST1.0
-    layer_aliases = {
-        'upper_sediments': ['upper_sediments', 'upper_seds.', 'soft_sed'],
-        'middle_sediments': ['middle_sediments', 'middle_seds.', 'hard_sed'],
-        'lower_sediments': ['lower_sediments', 'lower_seds.'],
-        'upper_crust': ['upper_crust', 'upper.crust'],
-        'middle_crust': ['middle_crust', 'middle.crust'],
-        'lower_crust': ['lower_crust', 'lower.crust']
-    }
     
     # Convert hypocenter depth to CRUST1.0 convention (negative below surface)
     hypo_depth_crust = -abs(hypo_depth_km)
@@ -218,12 +218,12 @@ def extract_crustal_velocities(
     thicknesses = []
     traversed_layers = []
     
-    for layer_name in layer_order:
+    for layer_name in LAYER_ORDER:
         # Try to find layer with possible aliases
         layer_data = None
         actual_key = None
         
-        for possible_name in layer_aliases.get(layer_name, [layer_name]):
+        for possible_name in LAYER_ALIASES.get(layer_name, [layer_name]):
             if possible_name in crust_profile:
                 layer_data = crust_profile[possible_name]
                 actual_key = possible_name
@@ -1143,3 +1143,124 @@ def calculate_adaptive_windows(
         
     return df_result
 
+def _find_layer_data(
+    crust_profile: Dict[str, List[float]], layer_name: str
+) -> Tuple[List[float], str]:
+    """
+    Locate a layer's data in the CRUST1.0 profile, trying known aliases.
+
+    Parameters
+    ----------
+    crust_profile : dict
+        Output from crustModel.get_point(lat, lon).
+    layer_name : str
+        Canonical layer name (key of LAYER_ALIASES).
+
+    Returns
+    -------
+    layer_data : list of float
+        [vp, vs, rho, thickness, top] for the layer.
+    actual_key : str
+        The key actually found in crust_profile.
+
+    Raises
+    ------
+    KeyError
+        If no alias of layer_name is found in crust_profile.
+    """
+    for possible_name in LAYER_ALIASES.get(layer_name, [layer_name]):
+        if possible_name in crust_profile:
+            return crust_profile[possible_name], possible_name
+    raise KeyError(f"Layer '{layer_name}' not found in CRUST1.0 profile")
+
+
+def extract_full_crustal_profile(
+    lat: float,
+    lon: float,
+    hypo_depth_km: float,
+) -> pd.DataFrame:
+    """
+    Extract the full CRUST1.0 layered velocity profile at a given point,
+    marking which layers are traversed by a vertical ray from the
+    hypocenter to the surface.
+
+    Unlike extract_crustal_velocities(), which returns only the
+    thickness-weighted average v_P and v_S, this function returns the
+    complete per-layer profile (including untraversed layers), intended
+    for illustrative purposes such as a crustal velocity model diagram.
+
+    Parameters
+    ----------
+    lat : float
+        Latitude in degrees.
+    lon : float
+        Longitude in degrees.
+    hypo_depth_km : float
+        Hypocenter depth in kilometers (positive downward from surface).
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per layer (upper_sediments through lower_crust), with
+        columns: layer, vp_km_s, vs_km_s, rho_g_cm3, top_depth_km,
+        bottom_depth_km, thickness_km, traversed, partial.
+        Depths are reported as positive values increasing downward.
+
+    Raises
+    ------
+    ValueError
+        If hypo_depth_km is not positive, or if no valid layers are
+        found at the given location.
+    """
+    if hypo_depth_km <= 0:
+        raise ValueError(f"hypo_depth_km must be positive, got {hypo_depth_km}")
+
+    model = crustModel()
+    crust_profile = model.get_point(lat, lon)
+    hypo_depth_crust = -abs(hypo_depth_km)
+
+    rows = []
+    ray_stopped = False
+
+    for layer_name in LAYER_ORDER:
+        try:
+            layer_data, actual_key = _find_layer_data(crust_profile, layer_name)
+        except KeyError:
+            continue
+
+        vp, vs, rho, thickness, top_depth = layer_data
+        if thickness <= 0:
+            continue
+
+        bottom_depth = top_depth - thickness
+
+        if ray_stopped:
+            traversed, partial = False, False
+        elif hypo_depth_crust <= top_depth:
+            traversed, partial = True, False
+        elif hypo_depth_crust > top_depth and hypo_depth_crust >= bottom_depth:
+            traversed, partial = True, True
+            ray_stopped = True
+        else:
+            traversed, partial = False, False
+            ray_stopped = True
+
+        rows.append({
+            'layer': layer_name,
+            'vp_km_s': vp,
+            'vs_km_s': vs,
+            'rho_g_cm3': rho,
+            'top_depth_km': abs(top_depth),
+            'bottom_depth_km': abs(bottom_depth),
+            'thickness_km': thickness,
+            'traversed': traversed,
+            'partial': partial,
+        })
+
+    if not rows:
+        raise ValueError(
+            f"No valid crustal layers found at ({lat}, {lon}) for "
+            f"hypo_depth_km={hypo_depth_km}"
+        )
+
+    return pd.DataFrame(rows)
