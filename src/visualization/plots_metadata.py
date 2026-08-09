@@ -36,13 +36,17 @@ Usage:
 """
 
 from pathlib import Path
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Tuple, Dict
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import matplotlib.cm as cm
 import seaborn as sns
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import logging
+logger = logging.getLogger(__name__)
 from adjustText import adjust_text
 from src.visualization.plot_settings import set_plot_style
 
@@ -512,7 +516,178 @@ def plot_station_map(
     plt.show()
     plt.close()
 
- 
+def plot_station_map_v2(
+    df: pd.DataFrame,
+    event_lat: float,
+    event_lon: float,
+    event_depth_km: float,
+    output_path: Optional[Union[str, Path]] = None,
+    distance_bins_km: Tuple[float, float] = (82.62, 175.66),
+    distance_labels: Tuple[str, str, str] = ('Near', 'Regional', 'Far'),
+) -> Dict[str, int]:
+    """
+    Map of seismic stations colored by hypocentral distance group, with
+    epicenter, station labels, and a locator inset showing the study
+    area within Italy. Uses Cartopy for vector-based high-quality output.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain STATION_LONGITUDE_DEGREE, STATION_LATITUDE_DEGREE,
+        EPICENTRAL_DISTANCE_KM, STATION_CODE.
+    event_lat : float
+        Epicenter latitude in degrees.
+    event_lon : float
+        Epicenter longitude in degrees.
+    event_depth_km : float
+        Hypocentral depth in km, used to convert epicentral distance to
+        hypocentral distance for the near/regional/far grouping.
+    output_path : str or Path, optional
+        Full file path to save the figure.
+    distance_bins_km : tuple of float, default=(82.62, 175.66)
+        Two cutoff values (km) separating near/regional/far station
+        groups by hypocentral distance. Defaults match the tertile
+        boundaries reported in Table A1 (adaptive AR-AIC search windows).
+    distance_labels : tuple of str, default=('Near', 'Regional', 'Far')
+        Labels for the three distance groups, used in the legend.
+    Returns
+    -------
+    dict
+        Number of stations per distance group ('Near', 'Regional', 'Far')
+        and total station count, under the key 'total'.
+    """
+    required_cols = {
+        'STATION_LONGITUDE_DEGREE', 'STATION_LATITUDE_DEGREE',
+        'EPICENTRAL_DISTANCE_KM', 'STATION_CODE',
+    }
+    missing_cols = required_cols - set(df.columns)
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+
+    _ = set_plot_style()
+    inferno = cm.get_cmap('inferno')
+    group_colors = [inferno(p) for p in (0.15, 0.5, 0.85)]
+
+    # One row per station, with hypocentral distance and group assignment
+    df_stations = df.drop_duplicates('STATION_CODE').copy()
+    df_stations['HYPOCENTRAL_DISTANCE_KM'] = np.sqrt(
+        df_stations['EPICENTRAL_DISTANCE_KM'] ** 2 + event_depth_km ** 2
+    )
+    bin_edges = [0, distance_bins_km[0], distance_bins_km[1], np.inf]
+    df_stations['DISTANCE_GROUP'] = pd.cut(
+        df_stations['HYPOCENTRAL_DISTANCE_KM'],
+        bins=bin_edges,
+        labels=distance_labels,
+    )
+
+    station_counts = {
+        label: int((df_stations['DISTANCE_GROUP'] == label).sum())
+        for label in distance_labels
+    }
+    station_counts['total'] = len(df_stations)
+
+    logger.info(f"Station map: {station_counts['total']} stations total")
+    for label in distance_labels:
+        logger.info(f"  {label}: {station_counts[label]} stations")
+
+    fig = plt.figure(figsize=(12, 10))
+    ax = plt.axes(projection=ccrs.PlateCarree())
+
+    lon_margin = 0.3
+    lat_margin = 0.3
+    lon_min = df_stations['STATION_LONGITUDE_DEGREE'].min() - lon_margin
+    lon_max = df_stations['STATION_LONGITUDE_DEGREE'].max() + lon_margin
+    lat_min = df_stations['STATION_LATITUDE_DEGREE'].min() - lat_margin
+    lat_max = df_stations['STATION_LATITUDE_DEGREE'].max() + lat_margin
+    ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
+
+    ax.add_feature(cfeature.LAND.with_scale('10m'), facecolor='#f5f5f5', edgecolor='none', zorder=0)
+    ax.add_feature(cfeature.OCEAN.with_scale('10m'), facecolor='#e3f2fd', zorder=0)
+    ax.add_feature(cfeature.COASTLINE.with_scale('10m'), linewidth=0.8, edgecolor='#555555', zorder=1)
+    ax.add_feature(cfeature.BORDERS.with_scale('10m'), linewidth=1.2, edgecolor='#333333', linestyle='--', zorder=1)
+    ax.add_feature(cfeature.RIVERS.with_scale('10m'), linewidth=0.5, edgecolor='#64b5f6', zorder=1)
+    ax.add_feature(cfeature.LAKES.with_scale('10m'), facecolor='#e3f2fd', edgecolor='#64b5f6', linewidth=0.3, zorder=1)
+
+    gl = ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.4, linestyle='--', zorder=2)
+    gl.top_labels = False
+    gl.right_labels = False
+    gl.xlabel_style = {'size': 10}
+    gl.ylabel_style = {'size': 10}
+
+    # Stations, colored by distance group
+    for label, color in zip(distance_labels, group_colors):
+        df_group = df_stations[df_stations['DISTANCE_GROUP'] == label]
+        ax.scatter(
+            df_group['STATION_LONGITUDE_DEGREE'],
+            df_group['STATION_LATITUDE_DEGREE'],
+            color=color,
+            s=100,
+            zorder=5,
+            label=f'{label} stations',
+            edgecolors='black',
+            linewidths=1.5,
+            transform=ccrs.PlateCarree(),
+        )
+
+    
+    ax.scatter(
+        event_lon, event_lat,
+        marker='*',
+        color='red',
+        s=500,
+        zorder=7,
+        label='Epicenter',
+        edgecolors='black',
+        linewidths=1.5,
+        transform=ccrs.PlateCarree(),
+    )
+
+    ax.set_xlabel('Longitude', fontsize=11)
+    ax.set_ylabel('Latitude', fontsize=11)
+    ax.legend(
+        loc='upper center',
+        bbox_to_anchor=(0.5, -0.08),
+        ncol=4,
+        fontsize=10,
+        framealpha=0.9,
+    )
+
+    # Locator inset: Italy-wide context with a box marking the main map extent
+    inset_ax = fig.add_axes([0.04, 0.14, 0.28, 0.28], projection=ccrs.PlateCarree())
+    inset_ax.set_extent([6, 19, 35, 47.5], crs=ccrs.PlateCarree())
+    inset_ax.add_feature(cfeature.LAND.with_scale('50m'), facecolor='#e0e0e0', edgecolor='none', zorder=0)
+    inset_ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor='#e3f2fd', zorder=0)
+    inset_ax.add_feature(cfeature.COASTLINE.with_scale('50m'), linewidth=0.5, edgecolor='#555555', zorder=1)
+    inset_ax.add_feature(cfeature.BORDERS.with_scale('50m'), linewidth=0.6, edgecolor='#333333', zorder=1)
+    inset_ax.set_xticks([])
+    inset_ax.set_yticks([])
+    inset_ax.add_patch(mpatches.Rectangle(
+        (lon_min, lat_min), lon_max - lon_min, lat_max - lat_min,
+        transform=ccrs.PlateCarree(),
+        facecolor='none',
+        edgecolor='red',
+        linewidth=1.5,
+        zorder=5,
+    ))
+
+    plt.tight_layout()
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        if output_path.suffix == '':
+            output_path = output_path.with_suffix('.pdf')
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_path, bbox_inches='tight')
+        print(f"Saved: {output_path}")
+
+        png_path = output_path.with_suffix('.png')
+        plt.savefig(png_path, bbox_inches='tight', dpi=300)
+        print(f"Saved: {png_path}")
+
+    plt.show()
+    plt.close()
+
+    return station_counts
 # ===============================================================================================
 # ============================= Metadata — PGA and duration analysis =============================
 # ===============================================================================================
