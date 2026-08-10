@@ -73,6 +73,35 @@ from typing import Dict, Optional, Tuple, List, Union
 from src.visualization.plot_settings import set_plot_style
 colors, colors1 = set_plot_style()
 
+# Shared figure-mode presets, used by plot_scaling_exponents_v2 and
+# plot_scaling_exponents_comparison.
+_MODE_SETTINGS = {
+    'interactive': dict(
+        figsize=(16, 12), dpi_save=150,
+        font_title=13, font_axis_label=11, font_tick=10, font_legend=10,
+        linewidth_ref=2.0, linewidth_fit=2.0, markersize=6, capsize=4,
+        output_suffix='.pdf',
+    ),
+    'paper': dict(
+        figsize=(6.89, 5.5), dpi_save=600,
+        font_title=10, font_axis_label=9, font_tick=8, font_legend=8,
+        linewidth_fit=1.0, linewidth_ref=0.8, markersize=3, capsize=4,
+        output_suffix='.png',
+    ),
+    'poster': dict(
+        figsize=(14.85, 11.0), dpi_save=600,
+        font_title=18, font_axis_label=15, font_tick=13, font_legend=13,
+        linewidth_ref=2.5, linewidth_fit=2.5, markersize=6, capsize=4,
+        output_suffix='.png',
+    ),
+    'thesis': dict(
+        figsize=(14.85, 6.86), dpi_save=600,
+        font_title=10, font_axis_label=9, font_tick=8, font_legend=10,
+        linewidth_ref=1.8, linewidth_fit=1.8, markersize=5, capsize=3,
+        output_suffix='.png',
+    ),
+}
+
 def plot_scaling_curves(
     results: Dict,
     output_dir: Optional[str] = None,
@@ -339,63 +368,12 @@ def plot_scaling_curves_v2(
     -------
     fig : matplotlib.figure.Figure
     """
-    _VALID_MODES = ('interactive', 'paper', 'poster', 'thesis')
-    if mode not in _VALID_MODES:
-        raise ValueError(
-            f"Invalid mode '{mode}'. Must be one of: {_VALID_MODES}"
-        )
 
-    _mode_settings = {
-        'interactive': dict(
-            figsize=(16, 12),
-            dpi_save=150,
-            font_title=13,
-            font_axis_label=11,
-            font_tick=10,
-            font_legend=10,
-            linewidth_fit=1.5,
-            markersize=5,
-            output_suffix='.pdf',
-        ),
-        'paper': dict(
-            figsize=(6.89, 5.5),
-            dpi_save=600,
-            font_title=10,
-            font_axis_label=9,
-            font_tick=8,
-            font_legend=8,
-            linewidth_fit=1.0,
-            markersize=3,
-            output_suffix='.png',
-        ),
-        'poster': dict(
-            figsize          = (14.85, 6.86),
-            dpi_save         = 300,
-            font_title       = 22,
-            font_col_label   = 18,
-            font_axis_label  = 16,
-            font_tick        = 14,
-            font_legend      = 13,
-            linewidth_signal = 0.8,
-            linewidth_onset  = 1.8,
-            window_alpha     = 0.25,
-            output_suffix    = '.png',
-            markersize=4,
-            linewidth_fit=1.5
-        ),
-        'thesis': dict(
-            figsize=(14.85, 6.86),
-            dpi_save=300,
-            font_title=10,
-            font_axis_label=9,
-            font_tick=8,
-            font_legend=10,
-            linewidth_fit=1.5,
-            markersize=4,
-            output_suffix='.png',
-        ),
-    }
-    cfg = _mode_settings[mode]
+    if mode not in _MODE_SETTINGS:
+        raise ValueError(
+            f"Invalid mode '{mode}'. Must be one of: {tuple(_MODE_SETTINGS)}"
+        )
+    cfg = _MODE_SETTINGS[mode]
 
     signal_types = ['acceleration', 'velocity', 'displacement']
     windows = ['p_wave', 's_wave', 'coda']
@@ -602,64 +580,11 @@ def plot_scaling_exponents_v2(
     -------
     fig : matplotlib.figure.Figure
     """
-    _VALID_MODES = ('interactive', 'paper', 'poster', 'thesis')
-    if mode not in _VALID_MODES:
+    if mode not in _MODE_SETTINGS:
         raise ValueError(
-            f"Invalid mode '{mode}'. Must be one of: {_VALID_MODES}"
+            f"Invalid mode '{mode}'. Must be one of: {tuple(_MODE_SETTINGS)}"
         )
-
-    _mode_settings = {
-        'interactive': dict(
-            figsize=(16, 12),
-            dpi_save=150,
-            font_title=13,
-            font_axis_label=11,
-            font_tick=10,
-            font_legend=10,
-            linewidth_ref=2.0,
-            markersize=6,
-            capsize=4,
-            output_suffix='.pdf',
-        ),
-        'paper': dict(
-            figsize=(6.89, 5.5),
-            dpi_save=600,
-            font_title=10,
-            font_axis_label=9,
-            font_tick=8,
-            font_legend=8,
-            linewidth_fit=1.0,
-            linewidth_ref=0.8,
-            markersize=3,
-            capsize=4,
-            output_suffix='.png',
-        ),
-        'poster': dict(
-            figsize=(14.85, 11.0),
-            dpi_save=600,
-            font_title=18,
-            font_axis_label=15,
-            font_tick=13,
-            font_legend=13,
-            linewidth_ref=2.5,
-            markersize=6,
-            capsize=4,
-            output_suffix='.png',
-        ),
-        'thesis': dict(
-            figsize=(14.85, 6.86),
-            dpi_save=600,
-            font_title=10,
-            font_axis_label=9,
-            font_tick=8,
-            font_legend=10,
-            linewidth_ref=1.8,
-            markersize=5,
-            capsize=3,
-            output_suffix='.png',
-        ),
-    }
-    cfg = _mode_settings[mode]
+    cfg = _MODE_SETTINGS[mode]
 
     point_color = "#010A0A"
     ref_color = '#C0392B'
@@ -776,6 +701,225 @@ def plot_scaling_exponents_v2(
         framealpha=0.9,
         handlelength=2.0,
         columnspacing=1.5,
+    )
+
+    if output_path is not None:
+        suffix = cfg['output_suffix']
+        output_path = Path(output_path).with_suffix(suffix)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=cfg['dpi_save'], bbox_inches='tight')
+
+    return fig
+
+def plot_scaling_exponents_comparison(
+    results_by_method: Dict[str, Dict[str, Dict]],
+    output_path: Optional[Union[str, Path]] = None,
+    mode: str = 'thesis',
+    show_uncertainty: bool = True,
+    uncertainty_style: str = 'band',
+) -> plt.Figure:
+    """
+    Plot scaling exponents zeta(q) vs q for P-wave, S-wave, and coda
+    windows, across acceleration, velocity, and displacement signals
+    (3x3 grid), comparing all four coda onset methods in each panel.
+
+    The P-wave column shows a single curve, since P-wave window
+    boundaries do not depend on the coda onset method and results are
+    therefore identical across methods. The S-wave and coda columns
+    overlay one curve per coda method.
+
+    Parameters
+    ----------
+    results_by_method : dict
+        Dictionary mapping coda method name to the output of
+        load_scaling_results_by_signal(): {method_name:
+        results_by_signal}. Expected keys: 'rautian', 'arias',
+        'envelope', 'median'.
+    output_path : str or Path, optional
+        If provided, save the figure to this path. File extension is
+        set by the mode (.pdf for interactive, .png otherwise).
+    mode : str, optional
+        Output mode controlling figure size and font sizes. One of
+        'thesis', 'paper', 'poster', 'interactive' (default: 'thesis').
+    show_uncertainty : bool, default=True
+        If False, only the central zeta(q) curves are drawn, with no
+        uncertainty representation.
+    uncertainty_style : str, default='band'
+        Only used if show_uncertainty is True. One of 'band' (shaded
+        semi-transparent region) or 'errorbar' (classic error bars,
+        horizontally dodged per method to remain distinguishable).
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+
+    Raises
+    ------
+    ValueError
+        If mode or uncertainty_style is not a recognized option.
+    """
+    if mode not in _MODE_SETTINGS:
+        raise ValueError(
+            f"Invalid mode '{mode}'. Must be one of: {tuple(_MODE_SETTINGS)}"
+        )
+    if uncertainty_style not in ('band', 'errorbar'):
+        raise ValueError(
+            f"Invalid uncertainty_style '{uncertainty_style}'. "
+            f"Must be one of: ('band', 'errorbar')"
+        )
+    cfg = _MODE_SETTINGS[mode]
+
+    method_order = ['rautian', 'arias', 'envelope', 'median']
+    method_colors = {
+        'rautian': '#00807F',
+        'arias': '#C8861D',
+        'envelope': '#729EC1',
+        'median': '#8B6BAE',
+    }
+    method_labels = {
+        'rautian': 'Rautian', 'arias': 'Arias',
+        'envelope': 'Envelope', 'median': 'Median',
+    }
+    p_wave_color = "#010A0A"
+    ref_color = '#C0392B'
+
+    signal_types = ['acceleration', 'velocity', 'displacement']
+    windows = ['p_wave', 's_wave', 'coda']
+    window_titles = {'p_wave': 'P-wave', 's_wave': 'S-wave', 'coda': 'Coda'}
+
+    fig, axes = plt.subplots(3, 3, figsize=cfg['figsize'])
+    fig.subplots_adjust(
+        top=0.86, bottom=0.10, left=0.10, right=0.97,
+        hspace=0.35, wspace=0.35,
+    )
+
+    dodge_fractions = np.linspace(-0.4, 0.4, len(method_order))
+
+    for row, signal_type in enumerate(signal_types):
+        for col, window_name in enumerate(windows):
+            ax = axes[row][col]
+
+            if col == 0:
+                ax.set_ylabel(r'$\zeta(q)$', fontsize=cfg['font_axis_label'])
+            if row == 0:
+                ax.set_title(
+                    window_titles[window_name],
+                    fontsize=cfg['font_title'], fontweight='bold',
+                )
+            ax.set_xlabel(r'$q$', fontsize=cfg['font_axis_label'])
+            ax.tick_params(labelsize=cfg['font_tick'])
+            ax.grid(True, alpha=0.3, linewidth=0.5)
+
+            methods_to_plot = [method_order[0]] if window_name == 'p_wave' else method_order
+
+            q_min, q_max = None, None
+            y_bottom, y_top = 0.0, None
+            any_data = False
+
+            for m_idx, method in enumerate(methods_to_plot):
+                results = results_by_method.get(method, {}).get(signal_type)
+                if results is None or window_name not in results or results[window_name] is None:
+                    continue
+
+                q_values = results[window_name]['ensemble']['q']
+                zeta = results[window_name]['scaling']['zeta']
+                zeta_err = results[window_name]['scaling']['zeta_err']
+                valid = np.isfinite(zeta)
+                if not valid.any():
+                    continue
+                any_data = True
+
+                color = p_wave_color if window_name == 'p_wave' else method_colors[method]
+                q_step = np.median(np.diff(np.sort(q_values[valid]))) if valid.sum() > 1 else 0.25
+                q_dodge = q_values[valid] + dodge_fractions[m_idx] * q_step * 0.5
+
+                if show_uncertainty and uncertainty_style == 'band':
+                    ax.fill_between(
+                        q_values[valid],
+                        zeta[valid] - zeta_err[valid],
+                        zeta[valid] + zeta_err[valid],
+                        color=color, alpha=0.15, zorder=1,
+                    )
+                    ax.plot(
+                        q_values[valid], zeta[valid],
+                        color=color, linewidth=cfg['linewidth_fit'],
+                        zorder=3,
+                    )
+                elif show_uncertainty and uncertainty_style == 'errorbar':
+                    ax.errorbar(
+                        q_dodge, zeta[valid], yerr=zeta_err[valid],
+                        fmt='o', markersize=cfg['markersize'] * 0.7,
+                        capsize=cfg['capsize'] * 0.7, capthick=1.0,
+                        color=color, ecolor=color, alpha=0.85, zorder=3,
+                    )
+                else:
+                    ax.plot(
+                        q_values[valid], zeta[valid],
+                        color=color, linewidth=cfg['linewidth_fit'],
+                        marker='o', markersize=cfg['markersize'] * 0.7,
+                        zorder=3,
+                    )
+
+                q_min = q_values.min() if q_min is None else min(q_min, q_values.min())
+                q_max = q_values.max() if q_max is None else max(q_max, q_values.max())
+                y_lo = (zeta[valid] - zeta_err[valid]).min() if show_uncertainty else zeta[valid].min()
+                y_hi = (zeta[valid] + zeta_err[valid]).max() if show_uncertainty else zeta[valid].max()
+                y_bottom = min(y_bottom, y_lo * 1.1)
+                y_top = y_hi * 1.1 if y_top is None else max(y_top, y_hi * 1.1)
+
+            if not any_data:
+                ax.text(0.5, 0.5, 'No data', ha='center', va='center',
+                        transform=ax.transAxes,
+                        fontsize=cfg['font_axis_label'], color='gray')
+                continue
+
+            q_ref = np.linspace(q_min, q_max, 100)
+            ax.plot(
+                q_ref, q_ref / 2, '--',
+                color=ref_color, linewidth=cfg['linewidth_ref'],
+                alpha=0.7, zorder=2,
+            )
+            y_top = max(y_top, (q_max / 2) * 1.05)
+
+            ax.set_xlim(q_min - 0.2, q_max + 0.2)
+            ax.set_ylim(bottom=y_bottom, top=y_top)
+
+    row_labels = ['Acceleration', 'Velocity', 'Displacement']
+    for row, label in enumerate(row_labels):
+        bbox = axes[row][0].get_position()
+        y_center = (bbox.y0 + bbox.y1) / 2
+        fig.text(
+            0.01, y_center, label,
+            fontsize=cfg['font_axis_label'], ha='left', va='center',
+            rotation=90, fontweight='bold',
+        )
+
+    legend_elements = [
+        plt.Line2D([0], [0], color=p_wave_color, marker='o',
+                   markersize=cfg['markersize'] * 0.7,
+                   label='P-wave (method-independent)'),
+    ]
+    legend_elements += [
+        plt.Line2D([0], [0], color=method_colors[m], marker='o',
+                   markersize=cfg['markersize'] * 0.7,
+                   label=method_labels[m])
+        for m in method_order
+    ]
+    legend_elements.append(
+        plt.Line2D([0], [0], color=ref_color, linestyle='--',
+                   linewidth=cfg['linewidth_ref'], alpha=0.7,
+                   label=r'Normal diffusion ($\zeta = q/2$)')
+    )
+
+    fig.legend(
+        handles=legend_elements,
+        loc='upper center',
+        bbox_to_anchor=(0.5, 0.98),
+        ncol=len(legend_elements),
+        fontsize=cfg['font_legend'],
+        framealpha=0.9,
+        handlelength=1.5,
+        columnspacing=1.2,
     )
 
     if output_path is not None:

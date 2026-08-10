@@ -79,7 +79,8 @@ from .signals_scaling_spatial import (
     compute_moments_single_signal,
     compute_spatial_ensemble,
     extract_scaling_exponents,
-    analyze_single_signal
+    analyze_single_signal,
+    compute_tau_subinterval_sensitivity
 )
 
 # Sensitivity Analysis

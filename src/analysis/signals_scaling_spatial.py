@@ -879,3 +879,83 @@ def analyze_single_signal(
     }
     
     return results
+
+def compute_tau_subinterval_sensitivity(
+    tau: np.ndarray,
+    moments_mean: np.ndarray,
+    q_values: np.ndarray,
+    threshold: float = 1e-300,
+) -> pd.DataFrame:
+    """
+    Assess the sensitivity of scaling exponents zeta(q) to the choice
+    of tau sub-interval used in the log-log regression, by splitting
+    the available tau range in half (in log10 space) and re-fitting
+    zeta(q) independently on each half.
+
+    Parameters
+    ----------
+    tau : np.ndarray
+        Time lags in seconds, as used in the baseline fit.
+    moments_mean : np.ndarray
+        Ensemble-averaged moments (n_tau, n_q), as used in the
+        baseline fit.
+    q_values : np.ndarray
+        Moment orders (n_q,).
+    threshold : float, optional
+        Minimum moment value to include in fit, passed through to
+        extract_scaling_exponents() (default: 1e-300).
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per q, with columns: q, zeta_baseline, zeta_err_baseline,
+        zeta_lower_half, zeta_err_lower_half, zeta_upper_half,
+        zeta_err_upper_half, z_score_lower, z_score_upper, where
+        z_score_X = |zeta_X - zeta_baseline| /
+        sqrt(zeta_err_X^2 + zeta_err_baseline^2).
+
+    Notes
+    -----
+    The split point is the midpoint of the tau range in log10 space,
+    not in linear seconds, consistent with the log-uniform spacing of
+    tau values used elsewhere in the pipeline.
+    """
+    tau_min, tau_max = tau.min(), tau.max()
+    log_tau_split = (np.log10(tau_min) + np.log10(tau_max)) / 2
+    tau_split = 10 ** log_tau_split
+
+    baseline = extract_scaling_exponents(
+        tau, moments_mean, q_values, fit_range=None, threshold=threshold
+    )
+    lower_half = extract_scaling_exponents(
+        tau, moments_mean, q_values,
+        fit_range=(tau_min, tau_split), threshold=threshold,
+    )
+    upper_half = extract_scaling_exponents(
+        tau, moments_mean, q_values,
+        fit_range=(tau_split, tau_max), threshold=threshold,
+    )
+
+    def _z_score(zeta_a, err_a, zeta_b, err_b):
+        return np.abs(zeta_a - zeta_b) / np.sqrt(err_a**2 + err_b**2)
+
+    return pd.DataFrame({
+        'q': q_values,
+        'zeta_baseline': baseline['zeta'],
+        'zeta_err_baseline': baseline['zeta_err'],
+        'n_points_baseline': baseline['n_points'],
+        'zeta_lower_half': lower_half['zeta'],
+        'zeta_err_lower_half': lower_half['zeta_err'],
+        'n_points_lower_half': lower_half['n_points'],
+        'zeta_upper_half': upper_half['zeta'],
+        'zeta_err_upper_half': upper_half['zeta_err'],
+        'n_points_upper_half': upper_half['n_points'],
+        'z_score_lower': _z_score(
+            lower_half['zeta'], lower_half['zeta_err'],
+            baseline['zeta'], baseline['zeta_err'],
+        ),
+        'z_score_upper': _z_score(
+            upper_half['zeta'], upper_half['zeta_err'],
+            baseline['zeta'], baseline['zeta_err'],
+        ),
+    })
