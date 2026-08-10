@@ -1250,8 +1250,8 @@ def extract_full_crustal_profile(
             'vp_km_s': vp,
             'vs_km_s': vs,
             'rho_g_cm3': rho,
-            'top_depth_km': abs(top_depth),
-            'bottom_depth_km': abs(bottom_depth),
+            'top_depth_km': -top_depth,
+            'bottom_depth_km': -bottom_depth,
             'thickness_km': thickness,
             'traversed': traversed,
             'partial': partial,
@@ -1264,3 +1264,54 @@ def extract_full_crustal_profile(
         )
 
     return pd.DataFrame(rows)
+
+def _build_velocity_depth_steps(
+    df_profile: pd.DataFrame,
+    velocity_col: str,
+    hypo_depth_km: float,
+) -> Tuple[List[float], List[float], List[float], List[float]]:
+    """
+    Build step-function depth/velocity arrays for a velocity-depth
+    profile, split into traversed and untraversed segments at the
+    hypocenter depth.
+
+    Parameters
+    ----------
+    df_profile : pd.DataFrame
+        Output of extract_full_crustal_profile(), sorted by depth.
+    velocity_col : str
+        Column name to use for velocity ('vp_km_s' or 'vs_km_s').
+    hypo_depth_km : float
+        Hypocenter depth in kilometers, used as the traversed/
+        untraversed split point.
+
+    Returns
+    -------
+    depths_traversed, velocities_traversed : list of float
+        Step coordinates for the segment from the surface down to
+        hypo_depth_km.
+    depths_untraversed, velocities_untraversed : list of float
+        Step coordinates for the segment from hypo_depth_km to the
+        base of the profile.
+    """
+    depths_traversed: List[float] = []
+    velocities_traversed: List[float] = []
+    depths_untraversed: List[float] = []
+    velocities_untraversed: List[float] = []
+
+    for _, row in df_profile.iterrows():
+        top, bottom, v = row['top_depth_km'], row['bottom_depth_km'], row[velocity_col]
+
+        if bottom <= hypo_depth_km:
+            depths_traversed.extend([top, bottom])
+            velocities_traversed.extend([v, v])
+        elif top >= hypo_depth_km:
+            depths_untraversed.extend([top, bottom])
+            velocities_untraversed.extend([v, v])
+        else:
+            depths_traversed.extend([top, hypo_depth_km])
+            velocities_traversed.extend([v, v])
+            depths_untraversed.extend([hypo_depth_km, bottom])
+            velocities_untraversed.extend([v, v])
+
+    return depths_traversed, velocities_traversed, depths_untraversed, velocities_untraversed

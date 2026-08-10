@@ -117,6 +117,7 @@ from typing import Dict, List, Optional, Tuple, Any, Union
 from IPython.display import display
 from src.visualization.plot_settings import set_plot_style
 colors, colors1 = set_plot_style()
+from src.segmentation.search_windows import _build_velocity_depth_steps
 
 def display_theoretical_arrivals_table(df_stations, n_rows=10):
     """
@@ -2663,84 +2664,138 @@ def plot_ar_aic_onset_detection(
 
     return fig
 
+
 def plot_crustal_velocity_diagram(
     df_profile: pd.DataFrame,
     hypo_depth_km: float,
     output_path: Path,
-    traversed_color: Tuple[float, float, float, float],
-    untraversed_color: str = '#d9d9d9',
+    vp_color: str = '#1f4e8c',
+    vs_color: str = '#c0392b',
 ) -> None:
     """
-    Plot a stratigraphic column diagram of the CRUST1.0 layer profile,
-    marking the hypocenter depth and distinguishing traversed from
-    untraversed layers.
-
-    Parameters
-    ----------
-    df_profile : pd.DataFrame
-        Output of extract_full_crustal_profile().
-    hypo_depth_km : float
-        Hypocenter depth in kilometers, used to draw a reference line.
-    output_path : Path
-        Full file path to save the figure (.pdf or .png).
-    traversed_color : tuple of float
-        RGBA color for traversed layers, e.g. one of the colors
-        returned by set_plot_style().
-    untraversed_color : str, default='#d9d9d9'
-        Fill color for layers not traversed by the ray.
-
-    Raises
-    ------
-    ValueError
-        If df_profile is empty.
-    """
+        Plot a velocity-depth profile of the CRUST1.0 layer structure,
+        with P- and S-wave velocities shown as step functions and the
+        hypocenter depth marked.
+    
+        Parameters
+        ----------
+        df_profile : pd.DataFrame
+            Output of extract_full_crustal_profile().
+        hypo_depth_km : float
+            Hypocenter depth in kilometers.
+        output_path : Path
+            Full file path to save the figure (.pdf or .png).
+        vp_color : str, default='#1f4e8c'
+            Color for the P-wave velocity profile (standard seismological
+            convention: blue for P).
+        vs_color : str, default='#c0392b'
+            Color for the S-wave velocity profile (standard seismological
+            convention: red for S).
+    
+        Raises
+        ------
+        ValueError
+            If df_profile is empty.
+        """
     if df_profile.empty:
         raise ValueError("df_profile is empty, nothing to plot")
 
-    layer_display_names = {
-        'upper_sediments': 'Upper sediments',
-        'middle_sediments': 'Middle sediments',
-        'lower_sediments': 'Lower sediments',
-        'upper_crust': 'Upper crust',
-        'middle_crust': 'Middle crust',
-        'lower_crust': 'Lower crust',
-    }
-
-    fig, ax = plt.subplots(figsize=(6, 8))
+    df_profile = df_profile.sort_values('top_depth_km').reset_index(drop=True)
     max_depth = df_profile['bottom_depth_km'].max()
+    min_depth = min(0.0, df_profile['top_depth_km'].min())
+
+    fig, ax = plt.subplots(figsize=(5.5, 7))
+
+    for velocity_col, color, label in [
+        ('vp_km_s', vp_color, 'P-velocity'),
+        ('vs_km_s', vs_color, 'S-velocity'),
+    ]:
+        depths, velocities = [], []
+        for _, row in df_profile.iterrows():
+            depths.extend([row['top_depth_km'], row['bottom_depth_km']])
+            velocities.extend([row[velocity_col], row[velocity_col]])
+        ax.plot(velocities, depths, color=color, linewidth=2.0, label=label)
+
+    boundary_depths = df_profile['bottom_depth_km'].iloc[1:-1].tolist()
+
+    default_ticks = np.arange(0, max_depth + 1, 5)
+    if min_depth < 0:
+        default_ticks = default_ticks[default_ticks >= min_depth]
+    all_ticks = sorted(set(default_ticks) | set(round(d, 1) for d in boundary_depths))
+
+    ax.set_yticks(all_ticks)
+    ax.set_yticklabels([f"{t:g}" for t in all_ticks], fontsize=8)
 
     for _, row in df_profile.iterrows():
-        color = traversed_color if row['traversed'] else untraversed_color
-        ax.add_patch(mpatches.Rectangle(
-            (0, row['top_depth_km']),
-            1,
-            row['thickness_km'],
-            facecolor=color,
-            edgecolor='black',
-            linewidth=0.8,
-        ))
-        label = layer_display_names.get(row['layer'], row['layer'])
-        mid_depth = row['top_depth_km'] + row['thickness_km'] / 2
-        ax.text(
-            0.5, mid_depth,
-            f"{label}\n$v_P$={row['vp_km_s']:.2f}, $v_S$={row['vs_km_s']:.2f} km/s",
-            ha='center', va='center', fontsize=9,
-        )
+        if row['top_depth_km'] <= 0:
+            continue
+        ax.axhline(row['top_depth_km'], color='#cccccc', linewidth=0.6, zorder=0)
+
+    x_max = max(df_profile['vp_km_s'].max(), df_profile['vs_km_s'].max()) * 1.1
+    for _, row in df_profile.iterrows():
+        layer_label = row['layer'].replace('_', ' ').capitalize()
+        mid_depth = (row['top_depth_km'] + row['bottom_depth_km']) / 2
+    
+        for _, row in df_profile.iterrows():
+            layer_label = row['layer'].replace('_', ' ').capitalize()
+            velocity_label = f"$v_P$={row['vp_km_s']:.2f}, $v_S$={row['vs_km_s']:.2f} km/s"
+            mid_depth = (row['top_depth_km'] + row['bottom_depth_km']) / 2
+
+            ax.annotate(
+                layer_label,
+                xy=(x_max * 1.05, mid_depth - 0.5),
+                xycoords='data',
+                fontsize=9,
+                fontweight='bold',
+                color='#333333',
+                va='center',
+                ha='left',
+                annotation_clip=False,
+            )
+            ax.annotate(
+                velocity_label,
+                xy=(x_max * 1.05, mid_depth + 0.5),
+                xycoords='data',
+                fontsize=8,
+                fontweight='normal',
+                color='#555555',
+                va='center',
+                ha='left',
+                annotation_clip=False,
+            )
 
     ax.axhline(
-        hypo_depth_km, color='red', linestyle='--', linewidth=1.5,
-        label=f'Hypocenter depth ({hypo_depth_km:.1f} km)',
+        hypo_depth_km, color='black', linestyle='--', linewidth=1.2,
+        label=f'Hypocenter ({hypo_depth_km:.1f} km)',
     )
 
-    ax.set_xlim(0, 1)
-    ax.set_ylim(max_depth, 0)
-    ax.set_xticks([])
     ax.set_ylabel('Depth (km)', fontsize=11)
-    ax.legend(loc='lower right', fontsize=9, framealpha=0.9)
+    ax.set_ylim(max_depth, min_depth)
+    ax.set_xlim(0, x_max)
+
+    ax.xaxis.set_label_position('top')
+    ax.xaxis.tick_top()
+    ax.set_xlabel('Velocity (km/s)', fontsize=11, labelpad=10)
+
+    ax.legend(
+        loc='upper center',
+        bbox_to_anchor=(0.5, -0.06),
+        ncol=3,
+        fontsize=9,
+        framealpha=0.9,
+    )
 
     plt.tight_layout()
+
     output_path = Path(output_path)
+    if output_path.suffix == '':
+        output_path = output_path.with_suffix('.pdf')
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, bbox_inches='tight')
     print(f"Saved: {output_path}")
+
+    png_path = output_path.with_suffix('.png')
+    plt.savefig(png_path, bbox_inches='tight', dpi=300)
+    print(f"Saved: {png_path}")
+
     plt.close()
