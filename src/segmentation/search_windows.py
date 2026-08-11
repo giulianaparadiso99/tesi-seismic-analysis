@@ -1380,18 +1380,3 @@ def derive_threshold_run_config(
         return f"_end{tag_value}", ['rautian', 'envelope', 'median']
 
     return '', ['rautian', 'arias', 'envelope', 'median']
-
-
-# Coda threshold configuration
-THRESHOLD_CODA_ONSET = 0.30  # Options: 0.20, 0.25, 0.30 (baseline), 0.35, 0.40
-THRESHOLD_CODA_END = 0.20    # Options: 0.05, 0.10 (baseline), 0.15, 0.20
-
-THRESHOLD_TAG, AFFECTED_METHODS = derive_threshold_run_config(
-    threshold_coda_onset=THRESHOLD_CODA_ONSET,
-    threshold_coda_end=THRESHOLD_CODA_END,
-)
-logger.info(
-    f"Threshold configuration: onset={THRESHOLD_CODA_ONSET}, "
-    f"end={THRESHOLD_CODA_END}"
-)
-logger.info(f"Threshold tag: '{THRESHOLD_TAG}' | Affected methods: {AFFECTED_METHODS}")

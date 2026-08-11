@@ -73,6 +73,7 @@ import warnings
 from scipy import stats
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from src import _load_results_for_method
 
 def prepare_window_data(
     windowed_signals: Dict,
@@ -1058,3 +1059,69 @@ def summarize_sign_test_by_signal(
             'p_value': result['p_value'],
         })
     return pd.DataFrame(rows)
+
+def load_threshold_sensitivity_results(
+    project_root: Path,
+    event_id: str,
+    data_type: str,
+    picking_method: str,
+    config: str,
+    threshold_tags: Dict[str, str],
+) -> Dict[str, Dict[str, Dict]]:
+    """
+    Load moment scaling results for a set of coda threshold sensitivity
+    runs, previously saved by 04a_moment_scaling_spatial.ipynb.
+
+    Parameters
+    ----------
+    project_root : Path
+        Project root directory.
+    event_id : str
+        Event identifier (e.g. 'IT-2009-0009').
+    data_type : str
+        Signal type (e.g. 'acceleration').
+    picking_method : str
+        Picking method label (e.g. 'ar_pick').
+    config : str
+        Filter configuration label (e.g. 'no_filter').
+    threshold_tags : dict
+        Mapping from a human-readable run label to the THRESHOLD_TAG
+        used when saving that run, e.g.
+        {'baseline': '', 'thresh_env_020': '_env020', ...}.
+        Coda methods present in each run are inferred automatically
+        from which parquet subdirectories exist on disk.
+
+    Returns
+    -------
+    dict
+        {run_label: {coda_method: results_dict}}, where results_dict
+        is the output of load_scaling_results_by_signal-style loading
+        (per-window ensemble/scaling dicts), for whichever coda
+        methods were actually saved under that run.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no coda method subdirectory is found for a given run.
+    """
+    results_by_threshold: Dict[str, Dict[str, Dict]] = {}
+
+    for run_label, tag in threshold_tags.items():
+        run_dir = (
+            project_root / 'data' / 'processed' / event_id
+            / '04a_moment_scaling_spatial' / picking_method / config
+            / f'{data_type}{tag}'
+        )
+        if not run_dir.exists():
+            raise FileNotFoundError(f"No results directory for run '{run_label}': {run_dir}")
+
+        method_dirs = [d for d in run_dir.iterdir() if d.is_dir()]
+        if not method_dirs:
+            raise FileNotFoundError(f"No coda method subdirectories found under {run_dir}")
+
+        results_by_threshold[run_label] = {}
+        for method_dir in method_dirs:
+            method = method_dir.name
+            results_by_threshold[run_label][method] = _load_results_for_method(method_dir)
+
+    return results_by_threshold
