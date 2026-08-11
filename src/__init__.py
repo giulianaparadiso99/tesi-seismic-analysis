@@ -144,7 +144,10 @@ from .analysis.signals_scaling_spatial import (
     analyze_single_signal,
     compute_tau_subinterval_sensitivity,
     sign_test_tau_subinterval,
-    summarize_sign_test_by_signal
+    summarize_sign_test_by_signal,
+    load_threshold_sensitivity_results,
+    load_scaling_results_by_signal,
+    get_scaling_results_path
 )
 
 # ===============================================================================

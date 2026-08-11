@@ -73,7 +73,7 @@ import warnings
 from scipy import stats
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from src import _load_results_for_method
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 def prepare_window_data(
     windowed_signals: Dict,
@@ -1061,26 +1061,22 @@ def summarize_sign_test_by_signal(
     return pd.DataFrame(rows)
 
 def load_threshold_sensitivity_results(
-    project_root: Path,
     event_id: str,
-    data_type: str,
-    picking_method: str,
+    picker: str,
     config: str,
     threshold_tags: Dict[str, str],
+    methods_by_run: Dict[str, List[str]],
 ) -> Dict[str, Dict[str, Dict]]:
     """
     Load moment scaling results for a set of coda threshold sensitivity
-    runs, previously saved by 04a_moment_scaling_spatial.ipynb.
+    runs, reusing load_scaling_results_by_signal for each (run, method)
+    combination.
 
     Parameters
     ----------
-    project_root : Path
-        Project root directory.
     event_id : str
         Event identifier (e.g. 'IT-2009-0009').
-    data_type : str
-        Signal type (e.g. 'acceleration').
-    picking_method : str
+    picker : str
         Picking method label (e.g. 'ar_pick').
     config : str
         Filter configuration label (e.g. 'no_filter').
@@ -1088,40 +1084,94 @@ def load_threshold_sensitivity_results(
         Mapping from a human-readable run label to the THRESHOLD_TAG
         used when saving that run, e.g.
         {'baseline': '', 'thresh_env_020': '_env020', ...}.
-        Coda methods present in each run are inferred automatically
-        from which parquet subdirectories exist on disk.
+    methods_by_run : dict
+        Mapping from the same run labels to the list of coda methods
+        saved under that run, e.g. {'baseline': ['rautian', 'arias',
+        'envelope', 'median'], 'thresh_env_020': ['envelope', 'median']}.
 
     Returns
     -------
     dict
-        {run_label: {coda_method: results_dict}}, where results_dict
-        is the output of load_scaling_results_by_signal-style loading
-        (per-window ensemble/scaling dicts), for whichever coda
-        methods were actually saved under that run.
-
-    Raises
-    ------
-    FileNotFoundError
-        If no coda method subdirectory is found for a given run.
+        {run_label: {coda_method: results_by_signal}}, where
+        results_by_signal is the output of load_scaling_results_by_signal
+        (keyed by signal type: 'acceleration', 'velocity', 'displacement').
     """
     results_by_threshold: Dict[str, Dict[str, Dict]] = {}
 
     for run_label, tag in threshold_tags.items():
-        run_dir = (
-            project_root / 'data' / 'processed' / event_id
-            / '04a_moment_scaling_spatial' / picking_method / config
-            / f'{data_type}{tag}'
-        )
-        if not run_dir.exists():
-            raise FileNotFoundError(f"No results directory for run '{run_label}': {run_dir}")
-
-        method_dirs = [d for d in run_dir.iterdir() if d.is_dir()]
-        if not method_dirs:
-            raise FileNotFoundError(f"No coda method subdirectories found under {run_dir}")
-
         results_by_threshold[run_label] = {}
-        for method_dir in method_dirs:
-            method = method_dir.name
-            results_by_threshold[run_label][method] = _load_results_for_method(method_dir)
+        for method in methods_by_run[run_label]:
+            results_by_threshold[run_label][method] = load_scaling_results_by_signal(
+                event_id=event_id,
+                picker=picker,
+                config=config,
+                coda_method=method,
+                threshold_tag=tag,
+            )
 
     return results_by_threshold
+
+def get_scaling_results_path(event_id: str, signal_type: str,
+                              picker: str, config: str,
+                              coda_method: str,
+                              threshold_tag: str = '') -> Path:
+    return (
+        PROJECT_ROOT / 'data' / 'processed' / event_id
+        / '04a_moment_scaling_spatial' / picker / config
+        / f'{signal_type}{threshold_tag}' / coda_method
+    )
+
+def load_scaling_results_by_signal(event_id: str, picker: str,
+                                    config: str, coda_method: str,
+                                    threshold_tag: str = '',
+                                    windows: tuple = ('p_wave', 's_wave', 'coda')
+                                    ) -> Dict[str, Dict]:
+    signal_types = ('acceleration', 'velocity', 'displacement')
+    results_by_signal = {}
+    for signal_type in signal_types:
+        base_path = get_scaling_results_path(
+            event_id, signal_type, picker, config, coda_method, threshold_tag
+        )
+        summary_path = base_path / 'ensemble_spatial_summary.parquet'
+        if not summary_path.exists():
+            results_by_signal[signal_type] = None
+            continue
+        df_summary = pd.read_parquet(summary_path)
+        results = {}
+        for window_name in windows:
+            moments_path = base_path / f'ensemble_spatial_moments_{window_name}.parquet'
+            if not moments_path.exists():
+                results[window_name] = None
+                continue
+            df_moments = pd.read_parquet(moments_path)
+            df_win = df_summary[df_summary['window'] == window_name]
+            if df_win.empty:
+                results[window_name] = None
+                continue
+            q_values = df_win['q'].values
+            tau_values = df_moments['tau'].unique()
+            tau_values.sort()
+            moments_mean = np.zeros((len(tau_values), len(q_values)))
+            for j, q_val in enumerate(q_values):
+                df_q = df_moments[np.isclose(df_moments['q'], q_val)]
+                for i, tau_val in enumerate(tau_values):
+                    row = df_q[np.isclose(df_q['tau'], tau_val)]
+                    if not row.empty:
+                        moments_mean[i, j] = row['moment_mean'].values[0]
+            results[window_name] = {
+                'ensemble': {
+                    'tau': tau_values,
+                    'q': q_values,
+                    'moments_mean': moments_mean,
+                    'n_signals': df_win['n_signals'].values[0],
+                },
+                'scaling': {
+                    'zeta': df_win['zeta'].values,
+                    'zeta_err': df_win['zeta_err'].values,
+                    'r_squared': df_win['r_squared'].values,
+                    'intercepts': df_win['intercept'].values,
+                    'n_points': df_win['n_points'].values,
+                },
+            }
+        results_by_signal[signal_type] = results
+    return results_by_signal
