@@ -82,7 +82,8 @@ from .search_windows import (
     calculate_search_windows,
     calculate_adaptive_windows,
     extract_full_crustal_profile,
-    _build_velocity_depth_steps
+    _build_velocity_depth_steps,
+    derive_threshold_run_config
 )
 
 # AR-AIC phase detection

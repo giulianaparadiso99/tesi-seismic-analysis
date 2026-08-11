@@ -1315,3 +1315,83 @@ def _build_velocity_depth_steps(
             velocities_untraversed.extend([v, v])
 
     return depths_traversed, velocities_traversed, depths_untraversed, velocities_untraversed
+
+def derive_threshold_run_config(
+    threshold_coda_onset: float,
+    threshold_coda_end: float,
+    baseline_coda_onset: float = 0.30,
+    baseline_coda_end: float = 0.10,
+) -> Tuple[str, List[str]]:
+    """
+    Derive the output filename tag and the list of coda methods affected
+    by the current threshold configuration, relative to baseline.
+
+    Exactly one of threshold_coda_onset / threshold_coda_end may differ
+    from its baseline value in a single run, consistent with a
+    one-at-a-time sensitivity analysis design.
+
+    Parameters
+    ----------
+    threshold_coda_onset : float
+        Envelope threshold used to detect coda onset. Affects the
+        'envelope' and 'median' coda methods.
+    threshold_coda_end : float
+        Amplitude threshold used to detect coda end. Affects the
+        'rautian', 'envelope', and 'median' coda methods ('arias' uses
+        a separate fixed threshold and is never affected).
+    baseline_coda_onset : float, optional
+        Baseline value for threshold_coda_onset (default: 0.30).
+    baseline_coda_end : float, optional
+        Baseline value for threshold_coda_end (default: 0.10).
+
+    Returns
+    -------
+    threshold_tag : str
+        Suffix to append to output filenames. Empty string for the
+        baseline run (both thresholds at their baseline values).
+    affected_methods : list of str
+        Coda methods whose windowed signals differ from baseline and
+        must be recomputed and saved with threshold_tag. Equals all
+        four methods for the baseline run.
+
+    Raises
+    ------
+    ValueError
+        If both threshold_coda_onset and threshold_coda_end differ
+        from their baseline values in the same run.
+    """
+    onset_changed = not np.isclose(threshold_coda_onset, baseline_coda_onset)
+    end_changed = not np.isclose(threshold_coda_end, baseline_coda_end)
+
+    if onset_changed and end_changed:
+        raise ValueError(
+            "Both THRESHOLD_CODA_ONSET and THRESHOLD_CODA_END differ from "
+            "baseline. The sensitivity analysis varies one threshold at a "
+            "time; reset one of the two to its baseline value before "
+            "running."
+        )
+
+    if onset_changed:
+        tag_value = f"{threshold_coda_onset:.2f}".replace('.', '')
+        return f"_env{tag_value}", ['envelope', 'median']
+
+    if end_changed:
+        tag_value = f"{threshold_coda_end:.2f}".replace('.', '')
+        return f"_end{tag_value}", ['rautian', 'envelope', 'median']
+
+    return '', ['rautian', 'arias', 'envelope', 'median']
+
+
+# Coda threshold configuration
+THRESHOLD_CODA_ONSET = 0.30  # Options: 0.20, 0.25, 0.30 (baseline), 0.35, 0.40
+THRESHOLD_CODA_END = 0.20    # Options: 0.05, 0.10 (baseline), 0.15, 0.20
+
+THRESHOLD_TAG, AFFECTED_METHODS = derive_threshold_run_config(
+    threshold_coda_onset=THRESHOLD_CODA_ONSET,
+    threshold_coda_end=THRESHOLD_CODA_END,
+)
+logger.info(
+    f"Threshold configuration: onset={THRESHOLD_CODA_ONSET}, "
+    f"end={THRESHOLD_CODA_END}"
+)
+logger.info(f"Threshold tag: '{THRESHOLD_TAG}' | Affected methods: {AFFECTED_METHODS}")

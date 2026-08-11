@@ -78,7 +78,8 @@ from .segmentation.search_windows import (
     calculate_distance_thresholds,
     calculate_search_windows,
     calculate_adaptive_windows,
-    extract_full_crustal_profile
+    extract_full_crustal_profile,
+    derive_threshold_run_config
 )
 
 from .segmentation.onset_detection import (
