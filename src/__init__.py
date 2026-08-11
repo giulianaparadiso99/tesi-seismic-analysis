@@ -141,7 +141,9 @@ from .analysis.signals_scaling_spatial import (
     compute_spatial_ensemble,
     extract_scaling_exponents,
     analyze_single_signal,
-    compute_tau_subinterval_sensitivity
+    compute_tau_subinterval_sensitivity,
+    sign_test_tau_subinterval,
+    summarize_sign_test_by_signal
 )
 
 # ===============================================================================
@@ -213,7 +215,8 @@ from .visualization.plots_moment_scaling import (
     plot_scaling_exponents,
     plot_scaling_exponents_v2,
     plot_scaling_curves_v2,
-    plot_scaling_exponents_comparison
+    plot_scaling_exponents_comparison,
+    plot_tau_subinterval_sensitivity
 )
 
 from .visualization.plots_sensitivity import (

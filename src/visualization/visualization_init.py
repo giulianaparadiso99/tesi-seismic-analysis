@@ -61,7 +61,8 @@ from .plots_moment_scaling import (
     plot_scaling_exponents,
     plot_scaling_curves_v2,
     plot_scaling_exponents_v2,
-    plot_scaling_exponents_comparison
+    plot_scaling_exponents_comparison,
+    plot_tau_subinterval_sensitivity
 )
 
 from .plots_sensitivity import (

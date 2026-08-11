@@ -959,3 +959,102 @@ def compute_tau_subinterval_sensitivity(
             baseline['zeta'], baseline['zeta_err'],
         ),
     })
+
+def sign_test_tau_subinterval(df_sensitivity: pd.DataFrame) -> Dict:
+    """
+    Test whether zeta(q) estimated on the upper tau sub-interval is
+    consistently larger (or smaller) than on the lower sub-interval,
+    across all moment orders q, using a two-sided binomial sign test.
+
+    A consistent sign across many values of q is unlikely to arise
+    from independent fit-to-fit noise, and indicates a systematic
+    departure from a single power-law scaling within the analysed
+    window, rather than sampling fluctuation.
+
+    Parameters
+    ----------
+    df_sensitivity : pd.DataFrame
+        Output of compute_tau_subinterval_sensitivity(), must contain
+        columns 'zeta_lower_half' and 'zeta_upper_half'.
+
+    Returns
+    -------
+    dict
+        {
+            'n_total': int - number of q values with valid estimates
+                on both sub-intervals
+            'n_upper_greater': int - number of q where
+                zeta_upper_half > zeta_lower_half
+            'n_lower_greater': int - number of q where
+                zeta_lower_half > zeta_upper_half
+            'p_value': float - two-sided binomial test p-value under
+                the null hypothesis that each sign is equally likely
+                by chance (p=0.5)
+        }
+
+    Notes
+    -----
+    The binomial test assumes independence across the q values
+    tested. Adjacent q values are estimated from largely overlapping
+    tau data and are therefore correlated, so the resulting p-value
+    should be read as indicative of a consistent directional trend,
+    not as a fully independent statistical test.
+    """
+    valid = (
+        df_sensitivity['zeta_lower_half'].notna()
+        & df_sensitivity['zeta_upper_half'].notna()
+    )
+    zeta_lower = df_sensitivity.loc[valid, 'zeta_lower_half'].to_numpy()
+    zeta_upper = df_sensitivity.loc[valid, 'zeta_upper_half'].to_numpy()
+
+    n_total = int(valid.sum())
+    n_upper_greater = int((zeta_upper > zeta_lower).sum())
+    n_lower_greater = int((zeta_lower > zeta_upper).sum())
+    n_consistent = max(n_upper_greater, n_lower_greater)
+
+    p_value = stats.binomtest(
+        n_consistent, n_total, p=0.5, alternative='greater'
+    ).pvalue
+
+    return {
+        'n_total': n_total,
+        'n_upper_greater': n_upper_greater,
+        'n_lower_greater': n_lower_greater,
+        'p_value': p_value,
+    }
+
+def summarize_sign_test_by_signal(
+    sign_test_by_signal: Dict[str, Dict],
+) -> pd.DataFrame:
+    """
+    Assemble a summary table of the tau sub-interval sign test results
+    across signal types.
+
+    Parameters
+    ----------
+    sign_test_by_signal : dict
+        Dictionary mapping signal type to the output of
+        sign_test_tau_subinterval(): {'acceleration': result_acc,
+        'velocity': result_vel, 'displacement': result_disp}.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per signal type, with columns: signal_type, n_total,
+        n_upper_greater, n_lower_greater, p_value.
+    """
+    signal_titles = {
+        'acceleration': 'Acceleration',
+        'velocity': 'Velocity',
+        'displacement': 'Displacement',
+    }
+    rows = []
+    for signal_type, result in sign_test_by_signal.items():
+        rows.append({
+            'signal_type': signal_titles.get(signal_type, signal_type),
+            'n_total': result['n_total'],
+            'n_upper_greater': result['n_upper_greater'],
+            'n_lower_greater': result['n_lower_greater'],
+            'p_value': result['p_value'],
+        })
+    return pd.DataFrame(rows)

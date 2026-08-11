@@ -65,6 +65,7 @@ Examples
 >>> plt.show()
 """
 
+import pandas as pd
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -920,6 +921,138 @@ def plot_scaling_exponents_comparison(
         framealpha=0.9,
         handlelength=1.5,
         columnspacing=1.2,
+    )
+
+    if output_path is not None:
+        suffix = cfg['output_suffix']
+        output_path = Path(output_path).with_suffix(suffix)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=cfg['dpi_save'], bbox_inches='tight')
+
+    return fig
+
+def plot_tau_subinterval_sensitivity(
+    df_by_signal: Dict[str, pd.DataFrame],
+    output_path: Optional[Union[str, Path]] = None,
+    mode: str = 'thesis',
+) -> plt.Figure:
+    """
+    Plot zeta(q) vs q for the P-wave window, comparing the baseline fit
+    (full tau range) against fits restricted to the lower and upper
+    tau sub-intervals, across acceleration, velocity, and displacement
+    signals (1x3 grid).
+
+    Parameters
+    ----------
+    df_by_signal : dict
+        Dictionary mapping signal type to the output of
+        compute_tau_subinterval_sensitivity(): {'acceleration': df_acc,
+        'velocity': df_vel, 'displacement': df_disp}.
+    output_path : str or Path, optional
+        If provided, save the figure to this path. File extension is
+        set by the mode (.pdf for interactive, .png otherwise).
+    mode : str, optional
+        Output mode controlling figure size and font sizes. One of
+        'thesis', 'paper', 'poster', 'interactive' (default: 'thesis').
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+
+    Raises
+    ------
+    ValueError
+        If mode is not a recognized option.
+    """
+    if mode not in _MODE_SETTINGS:
+        raise ValueError(
+            f"Invalid mode '{mode}'. Must be one of: {tuple(_MODE_SETTINGS)}"
+        )
+    cfg = _MODE_SETTINGS[mode]
+
+    signal_types = ['acceleration', 'velocity', 'displacement']
+    signal_titles = {
+        'acceleration': 'Acceleration',
+        'velocity': 'Velocity',
+        'displacement': 'Displacement',
+    }
+    series_colors = {
+        'baseline': '#010A0A',
+        'lower_half': '#3B7EA1',
+        'upper_half': '#D17A22',
+    }
+    series_labels = {
+        'baseline': 'Baseline (full range)',
+        'lower_half': 'Lower half of $\\tau$',
+        'upper_half': 'Upper half of $\\tau$',
+    }
+
+    fig, axes = plt.subplots(1, 3, figsize=(cfg['figsize'][0], cfg['figsize'][0] / 3))
+    fig.subplots_adjust(top=0.72, bottom=0.18, left=0.08, right=0.98, wspace=0.35)
+
+    for col, signal_type in enumerate(signal_types):
+        ax = axes[col]
+        ax.set_title(
+            signal_titles[signal_type],
+            fontsize=cfg['font_title'], fontweight='bold',
+        )
+        ax.set_xlabel(r'$q$', fontsize=cfg['font_axis_label'])
+        if col == 0:
+            ax.set_ylabel(r'$\zeta(q)$', fontsize=cfg['font_axis_label'])
+        ax.tick_params(labelsize=cfg['font_tick'])
+        ax.grid(True, alpha=0.3, linewidth=0.5)
+
+        df = df_by_signal.get(signal_type)
+        if df is None:
+            ax.text(0.5, 0.5, 'No data', ha='center', va='center',
+                    transform=ax.transAxes,
+                    fontsize=cfg['font_axis_label'], color='gray')
+            continue
+
+        for series_key, zeta_col, err_col in [
+            ('baseline', 'zeta_baseline', 'zeta_err_baseline'),
+            ('lower_half', 'zeta_lower_half', 'zeta_err_lower_half'),
+            ('upper_half', 'zeta_upper_half', 'zeta_err_upper_half'),
+        ]:
+            valid = df[zeta_col].notna()
+            color = series_colors[series_key]
+            ax.fill_between(
+                df.loc[valid, 'q'],
+                df.loc[valid, zeta_col] - df.loc[valid, err_col],
+                df.loc[valid, zeta_col] + df.loc[valid, err_col],
+                color=color, alpha=0.15, zorder=1,
+            )
+            ax.plot(
+                df.loc[valid, 'q'], df.loc[valid, zeta_col],
+                color=color, linewidth=cfg['linewidth_fit'], zorder=3,
+            )
+
+        q_ref = np.linspace(df['q'].min(), df['q'].max(), 100)
+        ax.plot(
+            q_ref, q_ref / 2, '--',
+            color='#C0392B', linewidth=cfg['linewidth_ref'],
+            alpha=0.7, zorder=2,
+        )
+
+    legend_elements = [
+        plt.Line2D([0], [0], color=series_colors[k], linewidth=cfg['linewidth_fit'],
+                   label=series_labels[k])
+        for k in ('baseline', 'lower_half', 'upper_half')
+    ]
+    legend_elements.append(
+        plt.Line2D([0], [0], color='#C0392B', linestyle='--',
+                   linewidth=cfg['linewidth_ref'], alpha=0.7,
+                   label=r'Normal diffusion ($\zeta = q/2$)')
+    )
+    fig.legend(
+        handles=legend_elements,
+        loc='upper center',
+        bbox_to_anchor=(0.5, 0.98),
+        ncol=len(legend_elements),
+        fontsize=cfg['font_legend'],
+        framealpha=0.9,
+        handlelength=1.8,
+        columnspacing=1.3,
     )
 
     if output_path is not None:
