@@ -147,7 +147,9 @@ from .analysis.signals_scaling_spatial import (
     summarize_sign_test_by_signal,
     load_threshold_sensitivity_results,
     load_scaling_results_by_signal,
-    get_scaling_results_path
+    get_scaling_results_path,
+    compute_coda_threshold_sensitivity,
+    compute_pointwise_zscore
 )
 
 # ===============================================================================
@@ -245,7 +247,8 @@ from .utils.latex_export import (
     onset_detection_to_latex,
     coda_onset_comparison_to_latex,
     moment_scaling_to_latex,
-    _moment_scaling_caption_and_label
+    _moment_scaling_caption_and_label,
+    coda_threshold_sensitivity_to_latex
 )
 
 # ===============================================================================

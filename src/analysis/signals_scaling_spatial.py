@@ -73,6 +73,7 @@ import warnings
 from scipy import stats
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from src import derive_threshold_run_config
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 def prepare_window_data(
@@ -1175,3 +1176,217 @@ def load_scaling_results_by_signal(event_id: str, picker: str,
             }
         results_by_signal[signal_type] = results
     return results_by_signal
+
+def compute_pointwise_zscore(
+    zeta_baseline: np.ndarray,
+    zeta_baseline_err: np.ndarray,
+    zeta_alt: np.ndarray,
+    zeta_alt_err: np.ndarray,
+) -> np.ndarray:
+    """
+    Compute the pointwise z-score between two sets of scaling exponents.
+
+    Implements Eq. (z_score_sensitivity): the absolute difference between
+    two zeta(q) estimates, normalised by their combined standard error.
+
+    Parameters
+    ----------
+    zeta_baseline : np.ndarray
+        Baseline scaling exponents, one value per q.
+    zeta_baseline_err : np.ndarray
+        Standard errors of the baseline exponents, aligned with
+        zeta_baseline.
+    zeta_alt : np.ndarray
+        Alternative-configuration scaling exponents, aligned with
+        zeta_baseline by q.
+    zeta_alt_err : np.ndarray
+        Standard errors of the alternative-configuration exponents,
+        aligned with zeta_alt.
+
+    Returns
+    -------
+    np.ndarray
+        Pointwise z-score for each q. NaN where either input is NaN.
+    """
+    combined_std = np.sqrt(zeta_baseline_err**2 + zeta_alt_err**2)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        z_score = np.abs(zeta_alt - zeta_baseline) / combined_std
+    return z_score
+
+
+def _load_summary_window(
+    event_id: str,
+    signal_type: str,
+    picker: str,
+    config: str,
+    coda_method: str,
+    window_name: str,
+    threshold_tag: str = '',
+) -> pd.DataFrame:
+    """
+    Load the zeta(q) summary for a single method, window, and threshold tag.
+
+    Reuses get_scaling_results_path() for path construction, reading only
+    the summary file (not the moments files), since sensitivity comparison
+    operates on already-fitted exponents.
+
+    Parameters
+    ----------
+    event_id : str
+        Event identifier (e.g. 'IT-2009-0009').
+    signal_type : str
+        Signal type, e.g. 'acceleration'.
+    picker : str
+        Picking method label (e.g. 'ar_pick').
+    config : str
+        Filter configuration label (e.g. 'no_filter').
+    coda_method : str
+        Coda onset method: 'rautian', 'arias', 'envelope', or 'median'.
+    window_name : str
+        Analysis window to select, e.g. 's_wave' or 'coda'.
+    threshold_tag : str, optional
+        Threshold tag as returned by derive_threshold_run_config. Empty
+        string selects the baseline run (default: '').
+
+    Returns
+    -------
+    pd.DataFrame
+        Summary rows for the requested window, indexed by q, with
+        columns 'zeta' and 'zeta_err'.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the expected summary file does not exist.
+    """
+    base_path = get_scaling_results_path(
+        event_id, signal_type, picker, config, coda_method, threshold_tag
+    )
+    summary_path = base_path / 'ensemble_spatial_summary.parquet'
+    if not summary_path.exists():
+        raise FileNotFoundError(f"Summary file not found: {summary_path}")
+
+    df_summary = pd.read_parquet(summary_path)
+    df_window = df_summary.loc[df_summary['window'] == window_name, ['q', 'zeta', 'zeta_err']]
+    return df_window.set_index('q')
+
+
+def compute_coda_threshold_sensitivity(
+    event_id: str,
+    signal_type: str,
+    picker: str,
+    config: str,
+    threshold_configs: List[Dict[str, float]],
+    windows: Tuple[str, ...] = ('s_wave', 'coda'),
+    reference_q_values: Tuple[float, float] = (1.0, 2.0),
+) -> pd.DataFrame:
+    """
+    Compute z-score sensitivity of moment scaling exponents to coda thresholds.
+
+    For each alternative threshold configuration, compares the resulting
+    zeta(q) spectrum against the baseline for every coda method affected
+    by that configuration, over the requested windows.
+
+    Parameters
+    ----------
+    event_id : str
+        Event identifier (e.g. 'IT-2009-0009').
+    signal_type : str
+        Signal type to analyse, e.g. 'acceleration'.
+    picker : str
+        Picking method label (e.g. 'ar_pick').
+    config : str
+        Filter configuration label (e.g. 'no_filter').
+    threshold_configs : list of dict
+        Each dict has keys 'threshold_coda_onset' and 'threshold_coda_end',
+        passed directly to derive_threshold_run_config. Exactly one of the
+        two must differ from its baseline value per configuration.
+    windows : tuple of str, optional
+        Windows to evaluate (default: ('s_wave', 'coda')).
+    reference_q_values : tuple of float, optional
+        The two q values reported individually alongside z_max
+        (default: (1.0, 2.0)).
+
+    Returns
+    -------
+    pd.DataFrame
+        Long-format table with columns: threshold_type, threshold_value,
+        method, window, z1, z2, z_max.
+
+    Notes
+    -----
+    For each (configuration, method, window) combination, q values with
+    an undefined zeta in either the baseline or the alternative fit are
+    excluded from the z-score computation; the count of excluded values
+    is printed, not included in the returned table.
+    """
+    q_low, q_high = reference_q_values
+    records = []
+
+    for run_config in threshold_configs:
+        threshold_tag, affected_methods = derive_threshold_run_config(**run_config)
+        if threshold_tag == '':
+            raise ValueError(
+                f"Configuration {run_config} matches the baseline; "
+                "only alternative configurations should be passed."
+            )
+
+        baseline_onset = run_config.get('baseline_coda_onset', 0.30)
+        onset_changed = not np.isclose(
+            run_config['threshold_coda_onset'], baseline_onset
+        )
+        threshold_type = 'onset' if onset_changed else 'end'
+        threshold_value = (
+            run_config['threshold_coda_onset'] if onset_changed
+            else run_config['threshold_coda_end']
+        )
+
+        for coda_method in affected_methods:
+            for window_name in windows:
+                baseline_summary = _load_summary_window(
+                    event_id, signal_type, picker, config, coda_method,
+                    window_name, threshold_tag='',
+                )
+                alt_summary = _load_summary_window(
+                    event_id, signal_type, picker, config, coda_method,
+                    window_name, threshold_tag=threshold_tag,
+                )
+
+                merged = baseline_summary.join(
+                    alt_summary, how='inner', lsuffix='_base', rsuffix='_alt'
+                )
+
+                n_total = len(merged)
+                valid = merged.dropna(subset=['zeta_base', 'zeta_alt'])
+                n_excluded = n_total - len(valid)
+                if n_excluded > 0:
+                    print(
+                        f"[{signal_type} | {threshold_type}={threshold_value} | "
+                        f"{coda_method} | {window_name}] excluded "
+                        f"{n_excluded}/{n_total} q values with undefined zeta "
+                        "in baseline or alternative fit"
+                    )
+
+                z_score = compute_pointwise_zscore(
+                    valid['zeta_base'].to_numpy(),
+                    valid['zeta_err_base'].to_numpy(),
+                    valid['zeta_alt'].to_numpy(),
+                    valid['zeta_err_alt'].to_numpy(),
+                )
+                valid = valid.assign(z_score=z_score)
+
+                z1 = valid['z_score'].get(q_low, np.nan)
+                z2 = valid['z_score'].get(q_high, np.nan)
+                z_max = valid['z_score'].max() if len(valid) > 0 else np.nan
+
+                records.append({
+                    'threshold_type': threshold_type,
+                    'threshold_value': threshold_value,
+                    'method': coda_method,
+                    'window': window_name,
+                    'z1': z1,
+                    'z2': z2,
+                    'z_max': z_max,
+                })
+
+    return pd.DataFrame.from_records(records)

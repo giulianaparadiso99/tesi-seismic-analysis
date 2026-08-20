@@ -1145,3 +1145,235 @@ def moment_scaling_to_latex(
         print(f"Saved to: {output_path}")
 
     return latex_str
+
+BASELINE_THRESHOLD_VALUES = {
+    'onset': 0.30,
+    'end': 0.10,
+}
+
+THRESHOLD_TYPE_DESCRIPTIONS = {
+    'onset': 'coda onset envelope threshold',
+    'end': 'coda end amplitude threshold',
+}
+
+
+def _format_zscore_cell(value: float) -> str:
+    """
+    Format a z-score value for display in a LaTeX table cell.
+
+    Parameters
+    ----------
+    value : float
+        Z-score value. NaN is rendered as '--'.
+
+    Returns
+    -------
+    str
+        Formatted string with two decimal places, or '--' if NaN.
+    """
+    if pd.isna(value):
+        return '--'
+    return f"{value:.2f}"
+
+
+def _coda_threshold_sensitivity_caption_and_label(
+    threshold_type: str,
+    event_id: str,
+    data_type: str,
+    picking_method: str,
+    config: str,
+) -> Tuple[str, str]:
+    """
+    Build the caption and label for a coda threshold sensitivity LaTeX table.
+
+    Parameters
+    ----------
+    threshold_type : str
+        Either 'onset' or 'end'.
+    event_id : str
+        Event identifier, must be a key of EVENT_LABELS.
+    data_type : str
+        Signal type, must be a key of DATA_TYPE_LABELS.
+    picking_method : str
+        Phase picker, must be a key of PICKER_LABELS.
+    config : str
+        Segmentation configuration, must be a key of CONFIG_LABELS.
+
+    Returns
+    -------
+    tuple of str
+        (caption, label) pair for use in coda_threshold_sensitivity_to_latex().
+
+    Raises
+    ------
+    KeyError
+        If threshold_type, event_id, data_type, picking_method, or config
+        is not found in the corresponding label mapping.
+    """
+    if threshold_type not in THRESHOLD_TYPE_DESCRIPTIONS:
+        raise KeyError(
+            f"Unknown threshold_type '{threshold_type}'. "
+            f"Expected one of {list(THRESHOLD_TYPE_DESCRIPTIONS)}."
+        )
+    for value, mapping, name in [
+        (event_id, EVENT_LABELS, 'event_id'),
+        (data_type, DATA_TYPE_LABELS, 'data_type'),
+        (picking_method, PICKER_LABELS, 'picking_method'),
+        (config, CONFIG_LABELS, 'config'),
+    ]:
+        if value not in mapping:
+            raise KeyError(f"Unknown {name} '{value}'. Expected one of {list(mapping)}.")
+
+    baseline_pct = int(round(BASELINE_THRESHOLD_VALUES[threshold_type] * 100))
+    description = THRESHOLD_TYPE_DESCRIPTIONS[threshold_type]
+
+    caption = (
+        f"Sensitivity of \\textbf{{{DATA_TYPE_LABELS[data_type]['caption']}}} moment scaling "
+        f"exponents to the {description} (baseline {baseline_pct}\\%), for the "
+        f"{EVENT_LABELS[event_id]['caption']} event, {PICKER_LABELS[picking_method]['caption']} "
+        f"segmentation ({CONFIG_LABELS[config]['caption']}). For each affected coda method and "
+        f"alternative threshold value, $z(1)$ and $z(2)$ report the pointwise z-score "
+        f"(Eq.~\\eqref{{eq:z_score_sensitivity}}) at $q=1$ and $q=2$, and $z_{{\\max}}$ the maximum "
+        f"z-score over the full range $q \\in [0.25, 10.0]$, for the S-wave and coda windows."
+    )
+
+    label = (
+        f"tab:coda_threshold_sensitivity_{threshold_type}_"
+        f"{PICKER_LABELS[picking_method]['label']}_"
+        f"{DATA_TYPE_LABELS[data_type]['label']}_"
+        f"{CONFIG_LABELS[config]['label']}_"
+        f"{EVENT_LABELS[event_id]['label']}"
+    )
+
+    return caption, label
+
+
+def coda_threshold_sensitivity_to_latex(
+    df_sensitivity: pd.DataFrame,
+    threshold_type: str,
+    event_id: str,
+    data_type: str,
+    picking_method: str,
+    config: str,
+    windows: Tuple[str, str] = ('s_wave', 'coda'),
+    caption: Optional[str] = None,
+    label: Optional[str] = None,
+    output_path: Optional[Union[str, Path]] = None,
+) -> str:
+    """
+    Generate a LaTeX table of coda threshold sensitivity z-scores for one
+    threshold type (onset or end).
+
+    Rows are grouped by coda method, one row per alternative threshold
+    value tested for that method. Columns report z(1), z(2), and z_max
+    for each of the two windows, grouped under a multicolumn header.
+
+    Parameters
+    ----------
+    df_sensitivity : pd.DataFrame
+        Output of compute_coda_threshold_sensitivity(), with columns
+        threshold_type, threshold_value, method, window, z1, z2, z_max.
+    threshold_type : str
+        Either 'onset' or 'end'; selects the subset of df_sensitivity
+        to tabulate.
+    event_id, data_type, picking_method, config : str
+        Passed to _coda_threshold_sensitivity_caption_and_label() when
+        caption or label is not provided.
+    windows : tuple of str, default=('s_wave', 'coda')
+        The two windows to display as column groups, in order.
+    caption : str, optional
+        LaTeX caption text. Auto-generated if not provided.
+    label : str, optional
+        LaTeX label for cross-referencing. Auto-generated if not provided.
+    output_path : str or Path, optional
+        If provided, the LaTeX string is also saved to this path.
+
+    Returns
+    -------
+    str
+        Complete LaTeX table environment as a string.
+
+    Raises
+    ------
+    ValueError
+        If df_sensitivity contains no rows for the requested threshold_type.
+    """
+    subset = df_sensitivity[df_sensitivity['threshold_type'] == threshold_type]
+    if subset.empty:
+        raise ValueError(
+            f"No rows found in df_sensitivity for threshold_type='{threshold_type}'."
+        )
+
+    if caption is None or label is None:
+        auto_caption, auto_label = _coda_threshold_sensitivity_caption_and_label(
+            threshold_type, event_id, data_type, picking_method, config
+        )
+        caption = caption if caption is not None else auto_caption
+        label = label if label is not None else auto_label
+
+    window_a, window_b = windows
+    methods_present = [m for m in CODA_METHOD_ORDER if m in subset['method'].unique()]
+
+    rows = []
+    for method in methods_present:
+        method_subset = subset[subset['method'] == method].sort_values('threshold_value')
+        n_values = len(method_subset)
+
+        for row_idx, (_, record) in enumerate(method_subset.iterrows()):
+            value_pct = f"{record['threshold_value'] * 100:.0f}\\%"
+
+            cell_a = method_subset[method_subset['window'] == window_a]
+            cell_b = method_subset[method_subset['window'] == window_b]
+            row_a = cell_a[cell_a['threshold_value'] == record['threshold_value']]
+            row_b = cell_b[cell_b['threshold_value'] == record['threshold_value']]
+
+            z1_a = _format_zscore_cell(row_a['z1'].iloc[0]) if not row_a.empty else '--'
+            z2_a = _format_zscore_cell(row_a['z2'].iloc[0]) if not row_a.empty else '--'
+            zmax_a = _format_zscore_cell(row_a['z_max'].iloc[0]) if not row_a.empty else '--'
+            z1_b = _format_zscore_cell(row_b['z1'].iloc[0]) if not row_b.empty else '--'
+            z2_b = _format_zscore_cell(row_b['z2'].iloc[0]) if not row_b.empty else '--'
+            zmax_b = _format_zscore_cell(row_b['z_max'].iloc[0]) if not row_b.empty else '--'
+
+            if row_idx == 0:
+                row = (
+                    f"\\multirow{{{n_values}}}{{*}}{{{CODA_METHOD_LABELS[method]}}}\n"
+                    f"& {value_pct} & {z1_a} & {z2_a} & {zmax_a} & {z1_b} & {z2_b} & {zmax_b} \\\\"
+                )
+            else:
+                row = f"& {value_pct} & {z1_a} & {z2_a} & {zmax_a} & {z1_b} & {z2_b} & {zmax_b} \\\\"
+            rows.append(row)
+
+        if method != methods_present[-1]:
+            rows.append(r"\midrule")
+
+    body = "\n".join(rows)
+    window_a_label = WINDOW_LABELS.get(window_a, window_a)
+    window_b_label = WINDOW_LABELS.get(window_b, window_b)
+
+    latex_str = (
+        r"\begin{table}[htbp]" + "\n"
+        r"\centering" + "\n"
+        r"\small" + "\n"
+        r"\begin{tabular}{llcccccc}" + "\n"
+        r"\toprule" + "\n"
+        rf"& & \multicolumn{{3}}{{c}}{{\textbf{{{window_a_label}}}}} & "
+        rf"\multicolumn{{3}}{{c}}{{\textbf{{{window_b_label}}}}} \\" + "\n"
+        r"\textbf{Method} & \textbf{Value} & $\bm{z(1)}$ & $\bm{z(2)}$ & $\bm{z_{\max}}$ & "
+        r"$\bm{z(1)}$ & $\bm{z(2)}$ & $\bm{z_{\max}}$ \\" + "\n"
+        r"\midrule" + "\n"
+        + body + "\n"
+        + r"\bottomrule" + "\n"
+        r"\end{tabular}" + "\n"
+        rf"\caption{{{caption}}}" + "\n"
+        rf"\label{{{label}}}" + "\n"
+        r"\end{table}"
+    )
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(latex_str)
+        print(f"Saved to: {output_path}")
+
+    return latex_str
