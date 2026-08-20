@@ -1,0 +1,36 @@
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{llcccccc}
+\toprule
+& & \multicolumn{3}{c}{\textbf{S-wave}} & \multicolumn{3}{c}{\textbf{Coda}} \\
+\textbf{Method} & \textbf{Value} & $\bm{z(1)}$ & $\bm{z(2)}$ & $\bm{z_{\max}}$ & $\bm{z(1)}$ & $\bm{z(2)}$ & $\bm{z_{\max}}$ \\
+\midrule
+\multirow{6}{*}{Rautian}
+& 5\% & 0.01 & 0.00 & 0.32 & 0.00 & 0.01 & 0.18 \\
+& 5\% & 0.01 & 0.00 & 0.32 & 0.00 & 0.01 & 0.18 \\
+& 15\% & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.06 \\
+& 15\% & 0.00 & 0.00 & 0.00 & 0.00 & 0.00 & 0.06 \\
+& 20\% & 0.02 & 0.00 & 0.19 & 0.43 & 0.30 & 0.51 \\
+& 20\% & 0.02 & 0.00 & 0.19 & 0.43 & 0.30 & 0.51 \\
+\midrule
+\multirow{6}{*}{Envelope}
+& 5\% & 0.00 & 0.00 & 0.18 & 0.02 & 0.00 & 0.43 \\
+& 5\% & 0.00 & 0.00 & 0.18 & 0.02 & 0.00 & 0.43 \\
+& 15\% & 0.00 & 0.00 & 0.00 & 0.82 & 1.22 & 1.55 \\
+& 15\% & 0.00 & 0.00 & 0.00 & 0.82 & 1.22 & 1.55 \\
+& 20\% & 0.01 & 0.00 & 0.14 & 0.93 & 1.15 & 1.67 \\
+& 20\% & 0.01 & 0.00 & 0.14 & 0.93 & 1.15 & 1.67 \\
+\midrule
+\multirow{6}{*}{Median}
+& 5\% & 0.01 & 0.00 & 0.23 & 0.00 & 0.00 & 0.28 \\
+& 5\% & 0.01 & 0.00 & 0.23 & 0.00 & 0.00 & 0.28 \\
+& 15\% & 0.00 & 0.00 & 0.00 & 0.15 & 0.25 & 0.29 \\
+& 15\% & 0.00 & 0.00 & 0.00 & 0.15 & 0.25 & 0.29 \\
+& 20\% & 0.02 & 0.00 & 0.07 & 0.23 & 0.13 & 0.67 \\
+& 20\% & 0.02 & 0.00 & 0.07 & 0.23 & 0.13 & 0.67 \\
+\bottomrule
+\end{tabular}
+\caption{Sensitivity of \textbf{acceleration} moment scaling exponents to the coda end amplitude threshold (baseline 10\%), for the IT-2009-0009 event, AR-AIC segmentation (no residual filter). For each affected coda method and alternative threshold value, $z(1)$ and $z(2)$ report the pointwise z-score (Eq.~\eqref{eq:z_score_sensitivity}) at $q=1$ and $q=2$, and $z_{\max}$ the maximum z-score over the full range $q \in [0.25, 10.0]$, for the S-wave and coda windows.}
+\label{tab:coda_threshold_sensitivity_end_ar_aic_acc_nothresh_laquila}
+\end{table}
