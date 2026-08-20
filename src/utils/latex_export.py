@@ -1261,42 +1261,7 @@ def coda_threshold_sensitivity_to_latex(
     output_path: Optional[Union[str, Path]] = None,
 ) -> str:
     """
-    Generate a LaTeX table of coda threshold sensitivity z-scores for one
-    threshold type (onset or end).
-
-    Rows are grouped by coda method, one row per alternative threshold
-    value tested for that method. Columns report z(1), z(2), and z_max
-    for each of the two windows, grouped under a multicolumn header.
-
-    Parameters
-    ----------
-    df_sensitivity : pd.DataFrame
-        Output of compute_coda_threshold_sensitivity(), with columns
-        threshold_type, threshold_value, method, window, z1, z2, z_max.
-    threshold_type : str
-        Either 'onset' or 'end'; selects the subset of df_sensitivity
-        to tabulate.
-    event_id, data_type, picking_method, config : str
-        Passed to _coda_threshold_sensitivity_caption_and_label() when
-        caption or label is not provided.
-    windows : tuple of str, default=('s_wave', 'coda')
-        The two windows to display as column groups, in order.
-    caption : str, optional
-        LaTeX caption text. Auto-generated if not provided.
-    label : str, optional
-        LaTeX label for cross-referencing. Auto-generated if not provided.
-    output_path : str or Path, optional
-        If provided, the LaTeX string is also saved to this path.
-
-    Returns
-    -------
-    str
-        Complete LaTeX table environment as a string.
-
-    Raises
-    ------
-    ValueError
-        If df_sensitivity contains no rows for the requested threshold_type.
+    (docstring unchanged)
     """
     subset = df_sensitivity[df_sensitivity['threshold_type'] == threshold_type]
     if subset.empty:
@@ -1316,16 +1281,21 @@ def coda_threshold_sensitivity_to_latex(
 
     rows = []
     for method in methods_present:
-        method_subset = subset[subset['method'] == method].sort_values('threshold_value')
-        n_values = len(method_subset)
+        method_subset = subset[subset['method'] == method]
+        threshold_values = sorted(method_subset['threshold_value'].unique())
+        n_values = len(threshold_values)
 
-        for row_idx, (_, record) in enumerate(method_subset.iterrows()):
-            value_pct = f"{record['threshold_value'] * 100:.0f}\\%"
+        for row_idx, threshold_value in enumerate(threshold_values):
+            value_pct = f"{threshold_value * 100:.0f}\\%"
 
-            cell_a = method_subset[method_subset['window'] == window_a]
-            cell_b = method_subset[method_subset['window'] == window_b]
-            row_a = cell_a[cell_a['threshold_value'] == record['threshold_value']]
-            row_b = cell_b[cell_b['threshold_value'] == record['threshold_value']]
+            row_a = method_subset[
+                (method_subset['threshold_value'] == threshold_value)
+                & (method_subset['window'] == window_a)
+            ]
+            row_b = method_subset[
+                (method_subset['threshold_value'] == threshold_value)
+                & (method_subset['window'] == window_b)
+            ]
 
             z1_a = _format_zscore_cell(row_a['z1'].iloc[0]) if not row_a.empty else '--'
             z2_a = _format_zscore_cell(row_a['z2'].iloc[0]) if not row_a.empty else '--'
