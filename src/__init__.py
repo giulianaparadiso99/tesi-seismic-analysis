@@ -43,7 +43,10 @@ from .preprocessing.cleaning_metadata import (
 
 from .preprocessing.cleaning_signals import (
     preprocess_signals,
-    validate_preprocessing
+    validate_preprocessing,
+    resample_signal_to_target_rate,
+    resample_mismatched_sampling_rate_signals,
+    truncate_components_to_common_length
 )
 
 # ===============================================================================

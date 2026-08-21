@@ -10,11 +10,16 @@ Submodules:
     signals_integration - Integration (acceleration → velocity → displacement)
 """
 
-from .cleaning_metadata import clean_metadata
+from .cleaning_metadata import (
+    clean_metadata,
+    set_filter_band
+)
 from .cleaning_signals import (
     preprocess_signals,
     validate_preprocessing,
-    set_filter_band
+    resample_signal_to_target_rate,
+    resample_mismatched_sampling_rate_signals,
+    truncate_components_to_common_length
 )
 
 __all__ = [
