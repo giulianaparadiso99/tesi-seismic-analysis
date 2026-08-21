@@ -36,7 +36,10 @@ from .io.io import (
 # Preprocessing
 # ===============================================================================
 
-from .preprocessing.cleaning_metadata import clean_metadata
+from .preprocessing.cleaning_metadata import (
+    clean_metadata,
+    set_filter_band
+)
 
 from .preprocessing.cleaning_signals import (
     preprocess_signals,

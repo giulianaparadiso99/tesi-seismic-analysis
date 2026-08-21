@@ -25,6 +25,7 @@ Usage:
 
 import pandas as pd
 import numpy as np
+from typing import Dict, List, Literal, Optional, Tuple
 
 # ----------------
 # PRIVATE HELPERS
@@ -146,4 +147,126 @@ def clean_metadata(df_meta):
     df = _normalize_strings(df)
     df = _remove_duplicates(df)
     df = _calculate_sampling_rate(df)
+    return df
+
+from typing import Dict, List, Literal, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+
+FilterBandConfig = Literal['no_filter', 'itaca_baseline', 'narrow', 'wide']
+
+# Fixed bandpass corners (Hz) for the narrow/wide alternative configurations,
+# anchored to the extremes of the per-station range already used by ITACA
+# (low-cut in [0.02, 0.15] Hz, high-cut in [20, 50] Hz; see Materials and Methods).
+FILTER_BAND_FIXED_CORNERS: Dict[str, Tuple[float, float]] = {
+    'narrow': (0.15, 20.0),
+    'wide': (0.02, 50.0),
+}
+
+# Fraction of the Nyquist frequency used as the effective high-cut corner
+# for the 'no_filter' configuration, since ar_pick requires finite f1, f2
+# and cannot be run with filtering fully disabled.
+NO_FILTER_LOW_CUT_HZ = 0.001
+NO_FILTER_HIGH_CUT_FRACTION_OF_NYQUIST = 0.95
+
+
+def set_filter_band(
+    df_meta_raw: pd.DataFrame,
+    config: FilterBandConfig,
+    sampling_rate: float = 200.0,
+    df_meta_itaca_processed: Optional[pd.DataFrame] = None,
+    join_keys: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    """
+    Set LOW_CUT_FREQUENCY_HZ and HIGH_CUT_FREQUENCY_HZ on the raw (unprocessed)
+    metadata dataframe according to one of four filter band sensitivity
+    configurations.
+
+    The raw ITACA export does not populate these two columns, since the
+    waveforms have not yet been filtered. This function assigns the values
+    that detect_onsets_arpick() reads to configure its internal ar_pick
+    bandpass filter, making the raw metadata usable by the rest of the
+    pipeline under a chosen filter band configuration.
+
+    Parameters
+    ----------
+    df_meta_raw : pd.DataFrame
+        Cleaned raw metadata (output of clean_metadata() applied to the
+        unprocessed ITACA export). Must not already contain valid
+        LOW_CUT_FREQUENCY_HZ / HIGH_CUT_FREQUENCY_HZ values other than NaN.
+    config : {'no_filter', 'itaca_baseline', 'narrow', 'wide'}
+        Which filter band configuration to apply:
+        - 'no_filter': near-DC-to-near-Nyquist corners, approximating no
+          filtering within the constraint that ar_pick requires finite
+          corner frequencies.
+        - 'itaca_baseline': per-station corners taken from the processed
+          ITACA metadata (df_meta_itaca_processed is required).
+        - 'narrow': fixed corners (0.15, 20.0) Hz for all stations.
+        - 'wide': fixed corners (0.02, 50.0) Hz for all stations.
+    sampling_rate : float, optional
+        Sampling rate in Hz, used to compute the high-cut corner for
+        'no_filter' as a fraction of the Nyquist frequency (default: 200.0).
+    df_meta_itaca_processed : pd.DataFrame, optional
+        Processed ITACA metadata containing the per-station
+        LOW_CUT_FREQUENCY_HZ / HIGH_CUT_FREQUENCY_HZ values. Required only
+        when config='itaca_baseline'.
+    join_keys : list of str, optional
+        Columns used to match rows between df_meta_raw and
+        df_meta_itaca_processed when config='itaca_baseline'
+        (default: ['STATION_CODE', 'COMPONENT']).
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of df_meta_raw with LOW_CUT_FREQUENCY_HZ and
+        HIGH_CUT_FREQUENCY_HZ set according to the chosen configuration.
+
+    Raises
+    ------
+    ValueError
+        If config='itaca_baseline' and df_meta_itaca_processed is not
+        provided, or if the join produces missing values for any row.
+    """
+    df = df_meta_raw.copy()
+
+    if config == 'no_filter':
+        high_cut = NO_FILTER_HIGH_CUT_FRACTION_OF_NYQUIST * (sampling_rate / 2)
+        df['LOW_CUT_FREQUENCY_HZ'] = NO_FILTER_LOW_CUT_HZ
+        df['HIGH_CUT_FREQUENCY_HZ'] = high_cut
+
+    elif config in ('narrow', 'wide'):
+        low_cut, high_cut = FILTER_BAND_FIXED_CORNERS[config]
+        df['LOW_CUT_FREQUENCY_HZ'] = low_cut
+        df['HIGH_CUT_FREQUENCY_HZ'] = high_cut
+
+    elif config == 'itaca_baseline':
+        if df_meta_itaca_processed is None:
+            raise ValueError(
+                "df_meta_itaca_processed is required when config='itaca_baseline'."
+            )
+        if join_keys is None:
+            join_keys = ['STATION_CODE', 'COMPONENT']
+
+        corners = df_meta_itaca_processed[
+            join_keys + ['LOW_CUT_FREQUENCY_HZ', 'HIGH_CUT_FREQUENCY_HZ']
+        ].drop_duplicates(subset=join_keys)
+
+        df = df.drop(columns=['LOW_CUT_FREQUENCY_HZ', 'HIGH_CUT_FREQUENCY_HZ'], errors='ignore')
+        df = df.merge(corners, on=join_keys, how='left')
+
+        missing = df[df['LOW_CUT_FREQUENCY_HZ'].isna() | df['HIGH_CUT_FREQUENCY_HZ'].isna()]
+        if len(missing) > 0:
+            missing_keys = missing[join_keys].drop_duplicates()
+            raise ValueError(
+                f"No matching ITACA baseline filter corners found for "
+                f"{len(missing_keys)} row(s): {missing_keys.to_dict('records')}"
+            )
+
+    else:
+        raise ValueError(
+            f"Unknown config '{config}'. Expected one of "
+            f"{['no_filter', 'itaca_baseline', 'narrow', 'wide']}."
+        )
+
     return df

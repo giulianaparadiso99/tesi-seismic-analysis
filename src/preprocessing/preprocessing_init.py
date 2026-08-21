@@ -13,7 +13,8 @@ Submodules:
 from .cleaning_metadata import clean_metadata
 from .cleaning_signals import (
     preprocess_signals,
-    validate_preprocessing
+    validate_preprocessing,
+    set_filter_band
 )
 
 __all__ = [
