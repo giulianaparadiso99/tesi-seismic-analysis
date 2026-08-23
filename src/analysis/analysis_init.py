@@ -87,7 +87,8 @@ from .signals_scaling_spatial import (
     load_scaling_results_by_signal,
     get_scaling_results_path,
     compute_coda_threshold_sensitivity,
-    compute_pointwise_zscore
+    compute_pointwise_zscore,
+    compute_filter_band_sensitivity
 )
 
 # Sensitivity Analysis

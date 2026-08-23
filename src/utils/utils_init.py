@@ -19,7 +19,8 @@ from .latex_export import (
     coda_onset_comparison_to_latex,
     moment_scaling_to_latex,
     _moment_scaling_caption_and_label,
-    coda_threshold_sensitivity_to_latex
+    coda_threshold_sensitivity_to_latex,
+    filter_band_sensitivity_to_latex
 )
 
 __all__ = [

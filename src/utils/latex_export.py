@@ -1347,3 +1347,199 @@ def coda_threshold_sensitivity_to_latex(
         print(f"Saved to: {output_path}")
 
     return latex_str
+
+FILTER_CONFIG_LABELS = {
+    'no_filter': {'caption': 'near full-band configuration', 'label': 'nofilt'},
+    'itaca_baseline': {'caption': 'ITACA-equivalent per-station corners', 'label': 'itacabase'},
+    'narrow': {'caption': r'narrow band (0.15--20~Hz)', 'label': 'narrow'},
+    'wide': {'caption': r'wide band (0.02--50~Hz)', 'label': 'wide'},
+}
+
+FILTER_CONFIG_ORDER = ['no_filter', 'itaca_baseline', 'narrow', 'wide']
+
+def _filter_band_sensitivity_caption_and_label(
+    window: str,
+    event_id: str,
+    data_type: str,
+    picking_method: str,
+    config: str,
+) -> Tuple[str, str]:
+    """
+    Build the caption and label for a filter band sensitivity LaTeX table.
+
+    Parameters
+    ----------
+    window : str
+        Analysis window, must be a key of WINDOW_LABELS.
+    event_id : str
+        Baseline event identifier, must be a key of EVENT_LABELS.
+    data_type : str
+        Signal type, must be a key of DATA_TYPE_LABELS.
+    picking_method : str
+        Phase picker, must be a key of PICKER_LABELS.
+    config : str
+        AR-AIC configuration, must be a key of CONFIG_LABELS.
+
+    Returns
+    -------
+    tuple of str
+        (caption, label) pair for use in filter_band_sensitivity_to_latex().
+
+    Raises
+    ------
+    KeyError
+        If window, event_id, data_type, picking_method, or config is not
+        found in the corresponding label mapping.
+    """
+    if window not in WINDOW_LABELS:
+        raise KeyError(f"Unknown window '{window}'. Expected one of {list(WINDOW_LABELS)}.")
+    for value, mapping, name in [
+        (event_id, EVENT_LABELS, 'event_id'),
+        (data_type, DATA_TYPE_LABELS, 'data_type'),
+        (picking_method, PICKER_LABELS, 'picking_method'),
+        (config, CONFIG_LABELS, 'config'),
+    ]:
+        if value not in mapping:
+            raise KeyError(f"Unknown {name} '{value}'. Expected one of {list(mapping)}.")
+
+    caption = (
+        f"Sensitivity of \\textbf{{{DATA_TYPE_LABELS[data_type]['caption']}}} moment scaling "
+        f"exponents to the filter band applied to the ground motion signal, for the "
+        f"\\textbf{{{WINDOW_LABELS[window]}}} window of the {EVENT_LABELS[event_id]['caption']} "
+        f"event, {PICKER_LABELS[picking_method]['caption']} segmentation "
+        f"({CONFIG_LABELS[config]['caption']}). For each coda onset method and alternative filter "
+        f"band configuration, $z(1)$ and $z(2)$ report the pointwise z-score "
+        f"(Eq.~\\eqref{{eq:z_score_sensitivity}}) at $q=1$ and $q=2$, and $z_{{\\max}}$ the maximum "
+        f"z-score over the full range $q \\in [0.25, 10.0]$."
+    )
+
+    label = (
+        f"tab:filter_band_sensitivity_{window}_"
+        f"{PICKER_LABELS[picking_method]['label']}_"
+        f"{DATA_TYPE_LABELS[data_type]['label']}_"
+        f"{CONFIG_LABELS[config]['label']}_"
+        f"{EVENT_LABELS[event_id]['label']}"
+    )
+
+    return caption, label
+
+def filter_band_sensitivity_to_latex(
+    df_sensitivity: pd.DataFrame,
+    window: str,
+    event_id: str,
+    data_type: str,
+    picking_method: str,
+    config: str,
+    caption: Optional[str] = None,
+    label: Optional[str] = None,
+    output_path: Optional[Union[str, Path]] = None,
+) -> str:
+    """
+    Export filter band sensitivity results for a single window to a LaTeX
+    table, following the standard z-score sensitivity table format.
+
+    Parameters
+    ----------
+    df_sensitivity : pd.DataFrame
+        Output of compute_filter_band_sensitivity(), with columns
+        filter_config, method, window, z1, z2, z_max.
+    window : str
+        Window to select from df_sensitivity, e.g. 'p_wave', 's_wave', or
+        'coda'. One table is produced per window; call this function once
+        per window to cover all of them.
+    event_id : str
+        Baseline event identifier, used only for the auto-generated
+        caption/label (must be a key of EVENT_LABELS).
+    data_type : str
+        Signal type, e.g. 'acceleration'.
+    picking_method : str
+        Phase picker label, e.g. 'ar_pick'.
+    config : str
+        AR-AIC configuration label, e.g. 'no_filter'.
+    caption : str, optional
+        Custom caption. If None, auto-generated from the parameters above.
+    label : str, optional
+        Custom LaTeX label. If None, auto-generated from the parameters
+        above.
+    output_path : str or Path, optional
+        If given, the LaTeX table is written to this path.
+
+    Returns
+    -------
+    str
+        The LaTeX table source.
+
+    Raises
+    ------
+    ValueError
+        If df_sensitivity has no rows for the requested window.
+    """
+    subset = df_sensitivity[df_sensitivity['window'] == window]
+    if subset.empty:
+        raise ValueError(f"No rows found in df_sensitivity for window='{window}'.")
+
+    if caption is None or label is None:
+        auto_caption, auto_label = _filter_band_sensitivity_caption_and_label(
+            window, event_id, data_type, picking_method, config
+        )
+        caption = caption if caption is not None else auto_caption
+        label = label if label is not None else auto_label
+
+    methods_present = [m for m in CODA_METHOD_ORDER if m in subset['method'].unique()]
+
+    rows = []
+    for method in methods_present:
+        method_subset = subset[subset['method'] == method]
+        filter_configs_present = [
+            fc for fc in FILTER_CONFIG_ORDER if fc in method_subset['filter_config'].unique()
+        ]
+        n_values = len(filter_configs_present)
+
+        for row_idx, filter_config in enumerate(filter_configs_present):
+            config_caption = FILTER_CONFIG_LABELS.get(
+                filter_config, {'caption': filter_config}
+            )['caption']
+            row_data = method_subset[method_subset['filter_config'] == filter_config]
+
+            z1 = _format_zscore_cell(row_data['z1'].iloc[0]) if not row_data.empty else '--'
+            z2 = _format_zscore_cell(row_data['z2'].iloc[0]) if not row_data.empty else '--'
+            zmax = _format_zscore_cell(row_data['z_max'].iloc[0]) if not row_data.empty else '--'
+
+            if row_idx == 0:
+                row = (
+                    f"\\multirow{{{n_values}}}{{*}}{{{CODA_METHOD_LABELS[method]}}}\n"
+                    f"& {config_caption} & {z1} & {z2} & {zmax} \\\\"
+                )
+            else:
+                row = f"& {config_caption} & {z1} & {z2} & {zmax} \\\\"
+            rows.append(row)
+
+        if method != methods_present[-1]:
+            rows.append(r"\midrule")
+
+    body = "\n".join(rows)
+
+    latex_str = (
+        r"\begin{table}[htbp]" + "\n"
+        r"\centering" + "\n"
+        r"\small" + "\n"
+        r"\begin{tabular}{llccc}" + "\n"
+        r"\toprule" + "\n"
+        r"\textbf{Method} & \textbf{Filter config} & $\bm{z(1)}$ & $\bm{z(2)}$ & $\bm{z_{\max}}$ \\" + "\n"
+        r"\midrule" + "\n"
+        + body + "\n"
+        + r"\bottomrule" + "\n"
+        r"\end{tabular}" + "\n"
+        rf"\caption{{{caption}}}" + "\n"
+        rf"\label{{{label}}}" + "\n"
+        r"\end{table}"
+    )
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(latex_str)
+        print(f"Saved to: {output_path}")
+
+    return latex_str

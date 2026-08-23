@@ -1390,3 +1390,127 @@ def compute_coda_threshold_sensitivity(
                 })
 
     return pd.DataFrame.from_records(records)
+
+def compute_filter_band_sensitivity(
+    baseline_event_id: str,
+    alt_event_ids: Dict[str, str],
+    signal_type: str,
+    picker: str,
+    config: str,
+    windows: Tuple[str, ...] = ('p_wave', 's_wave', 'coda'),
+    reference_q_values: Tuple[float, float] = (1.0, 2.0),
+) -> pd.DataFrame:
+    """
+    Compute z-score sensitivity of moment scaling exponents to the filter
+    band applied to the ground motion signals.
+
+    For each alternative filter band configuration, compares the resulting
+    zeta(q) spectrum against the baseline event, for every coda method and
+    window requested. Baseline and alternative runs are assumed to use the
+    baseline coda thresholds (threshold_tag='').
+
+    Parameters
+    ----------
+    baseline_event_id : str
+        Event identifier for the baseline filter configuration
+        (e.g. 'IT-2009-0009').
+    alt_event_ids : dict
+        Mapping from a human-readable filter configuration label to the
+        event identifier under which that configuration's results were
+        saved, e.g. {'no_filter': 'IT-2009-0009 no_prep',
+        'narrow': 'IT-2009-0009 narrow', 'wide': 'IT-2009-0009 wide'}.
+    signal_type : str
+        Signal type to analyse, e.g. 'acceleration'.
+    picker : str
+        Picking method label (e.g. 'ar_pick').
+    config : str
+        AR-AIC configuration label (e.g. 'no_filter'), matching CONFIG in
+        notebook 04a. Unrelated to the filter band applied to the signal;
+        shared across all filter band configurations.
+    windows : tuple of str, optional
+        Windows to evaluate (default: ('p_wave', 's_wave', 'coda')).
+        Unlike the coda threshold sensitivity, the P-wave window is
+        included by default, since the filter band affects AR-AIC picking
+        there as well.
+    reference_q_values : tuple of float, optional
+        The two q values reported individually alongside z_max
+        (default: (1.0, 2.0)).
+
+    Returns
+    -------
+    pd.DataFrame
+        Long-format table with columns: filter_config, method, window,
+        z1, z2, z_max.
+
+    Raises
+    ------
+    ValueError
+        If any value in alt_event_ids equals baseline_event_id.
+
+    Notes
+    -----
+    For each (filter configuration, method, window) combination, q values
+    with an undefined zeta in either the baseline or the alternative fit
+    are excluded from the z-score computation; the count of excluded
+    values is printed, not included in the returned table.
+    """
+    coda_methods = ('rautian', 'arias', 'envelope', 'median')
+    q_low, q_high = reference_q_values
+    records = []
+
+    for filter_config, alt_event_id in alt_event_ids.items():
+        if alt_event_id == baseline_event_id:
+            raise ValueError(
+                f"alt_event_ids['{filter_config}'] equals baseline_event_id "
+                f"('{baseline_event_id}'); only alternative configurations "
+                "should be passed."
+            )
+
+        for coda_method in coda_methods:
+            for window_name in windows:
+                baseline_summary = _load_summary_window(
+                    baseline_event_id, signal_type, picker, config,
+                    coda_method, window_name, threshold_tag='',
+                )
+                alt_summary = _load_summary_window(
+                    alt_event_id, signal_type, picker, config,
+                    coda_method, window_name, threshold_tag='',
+                )
+
+                merged = baseline_summary.join(
+                    alt_summary, how='inner', lsuffix='_base', rsuffix='_alt'
+                )
+
+                n_total = len(merged)
+                valid = merged.dropna(subset=['zeta_base', 'zeta_alt'])
+                n_excluded = n_total - len(valid)
+                if n_excluded > 0:
+                    print(
+                        f"[{signal_type} | {filter_config} | "
+                        f"{coda_method} | {window_name}] excluded "
+                        f"{n_excluded}/{n_total} q values with undefined zeta "
+                        "in baseline or alternative fit"
+                    )
+
+                z_score = compute_pointwise_zscore(
+                    valid['zeta_base'].to_numpy(),
+                    valid['zeta_err_base'].to_numpy(),
+                    valid['zeta_alt'].to_numpy(),
+                    valid['zeta_err_alt'].to_numpy(),
+                )
+                valid = valid.assign(z_score=z_score)
+
+                z1 = valid['z_score'].get(q_low, np.nan)
+                z2 = valid['z_score'].get(q_high, np.nan)
+                z_max = valid['z_score'].max() if len(valid) > 0 else np.nan
+
+                records.append({
+                    'filter_config': filter_config,
+                    'method': coda_method,
+                    'window': window_name,
+                    'z1': z1,
+                    'z2': z2,
+                    'z_max': z_max,
+                })
+
+    return pd.DataFrame.from_records(records)
