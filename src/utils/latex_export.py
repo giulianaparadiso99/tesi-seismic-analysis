@@ -1,0 +1,1349 @@
+"""
+latex_export.py
+---------------
+Utility functions for exporting analysis results to LaTeX format.
+Each function takes a pandas DataFrame and returns a LaTeX table string,
+optionally saving it to a file.
+
+Functions are organized by analysis stage:
+    - Metadata tables: metadata_table_to_latex, constant_fields_to_latex
+    - Preprocessing checks: preprocess_checks_to_latex
+    - Correlation analysis: corr_diff_to_latex
+    - Phase detection: onset_detection_to_latex, coda_onset_comparison_to_latex
+    - Heavy-tail analysis: heavy_tail_to_latex
+
+Usage:
+    from src.utils.latex_export import metadata_table_to_latex
+    latex_str = metadata_table_to_latex(df_meta, output_path='tables/metadata.tex')
+"""
+
+from pathlib import Path
+from typing import Optional, List, Tuple, Union
+import pandas as pd
+import numpy as np
+
+# ===============================================================================================
+# ======================================= Helpers ===============================================
+# ===============================================================================================
+
+def _format_aic(val):
+    """
+    Format an AIC value as a LaTeX-compatible string.
+    Negative values are rendered with a proper LaTeX minus sign ($-$)
+    to avoid the short hyphen that plain text would produce.
+
+    Parameters
+    ----------
+    val : float
+        AIC value to format.
+
+    Returns
+    -------
+    str
+        LaTeX-formatted AIC string.
+    """
+    if val < 0:
+        return f"$-${abs(val):,.2f}"
+    else:
+        return f"{val:,.2f}"
+
+
+def _best_fit_label(label):
+    """
+    Convert a best-fit model label from the DataFrame into a
+    LaTeX-formatted string.
+
+    Parameters
+    ----------
+    label : str
+        One of 'Levy-stable', 'Student-t', 'Gaussian', 'Laplace'.
+
+    Returns
+    -------
+    str
+        LaTeX-formatted model name.
+    """
+    mapping = {
+        "Levy-stable": r"L\'evy-stable",
+        "Student-t":   r"Student-$t$",
+        "Gaussian":    "Gaussian",
+        "Laplace":     "Laplace",
+    }
+    return mapping.get(label, label)
+
+def _escape_latex(text: Union[str, int, float]) -> str:
+    """
+    Escape special LaTeX characters in text.
+    
+    Parameters
+    ----------
+    text : str, int, or float
+        Text to escape.
+    
+    Returns
+    -------
+    str
+        Escaped text safe for LaTeX.
+    """
+    if not isinstance(text, str):
+        text = str(text)
+    replacements = {
+        '&': r'\&',
+        '%': r'\%',
+        '$': r'\$',
+        '#': r'\#',
+        '_': r'\_',
+        '{': r'\{',
+        '}': r'\}',
+        '~': r'\textasciitilde{}',
+        '^': r'\textasciicircum{}',
+    }
+    for char, replacement in replacements.items():
+        text = text.replace(char, replacement)
+    return text
+
+# ===============================================================================================
+# ========================== Correlation differences table ======================================
+# ===============================================================================================
+
+def corr_diff_to_latex(df: pd.DataFrame, 
+                       output_path: Optional[Union[str, Path]] = None) -> str:
+    """
+    Generate a LaTeX table from the significant correlation differences
+    DataFrame produced by the Fisher z-test analysis.
+
+    The output is a self-contained table environment (not a longtable,
+    since the number of significant pairs is typically small) ready to
+    be pasted directly into the Overleaf document.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain the following columns:
+            'Comparison' : str   — group pair label (e.g. 'Near vs Mid')
+            'Variable 1' : str   — first metadata variable
+            'Variable 2' : str   — second metadata variable
+            'Corr. diff.': float — difference in correlation coefficients
+            'p-value'    : float — p-value from the Fisher z-test
+    output_path : str or Path, optional
+        If provided, the LaTeX string is also saved to this path.
+
+    Returns
+    -------
+    str
+        Complete LaTeX table environment as a string.
+    """
+    rows = []
+    for _, row in df.iterrows():
+        rows.append(
+            f"{row['Comparison']} & {row['Variable 1']} & "
+            f"{row['Variable 2']} & {row['Corr. diff.']} & "
+            f"{row['p-value']} \\\\"
+        )
+
+    latex_str = (
+        r"\begin{table}[H]" + "\n"
+        r"\centering" + "\n"
+        r"\caption{Statistically significant correlation differences "
+        r"by distance group ($p < 0.05$)}" + "\n"
+        r"\label{tab:corr_diff}" + "\n"
+        r"\begin{tabular}{lllrr}" + "\n"
+        r"\toprule" + "\n"
+        r"Comparison & Variable 1 & Variable 2 & Corr.\ diff. & $p$-value \\" + "\n"
+        r"\midrule" + "\n"
+        + "\n".join(rows) + "\n"
+        + r"\bottomrule" + "\n"
+        r"\end{tabular}" + "\n"
+        r"\end{table}"
+    )
+
+    if output_path is not None:
+        with open(output_path, 'w') as f:
+            f.write(latex_str)
+        print(f"Saved to: {output_path}")
+
+    return latex_str
+
+# ===============================================================================================
+# ========================== Preprocessing quality checks table =================================
+# ===============================================================================================
+
+def preprocess_checks_to_latex(rows: List[Tuple[str, str, str, str, str]], 
+                                output_path: Optional[Union[str, Path]] = None,
+                                col1_label: str = 'PDF Analysis',
+                                col2_label: str = 'Moment Scaling') -> str:
+    """
+    Generate a LaTeX table from post-preprocessing quality check results.
+
+    Parameters
+    ----------
+    rows : list of tuple of str
+        Each tuple contains five elements: (Check, Pipeline1, Pipeline2, Expected, Pass).
+        Example: ('Files retained', '66 / 66', '66 / 66', '—', '—')
+    output_path : str or Path, optional
+        If provided, save LaTeX string to this path.
+    col1_label : str, default='PDF Analysis'
+        Label for the first pipeline column.
+    col2_label : str, default='Moment Scaling'
+        Label for the second pipeline column.
+
+    Returns
+    -------
+    str
+        Complete LaTeX table environment as a string.
+    """
+    body = "\n".join(" & ".join(row) + r" \\" for row in rows)
+
+    latex_str = (
+        r"\begin{table}[H]" + "\n"
+        r"\centering" + "\n"
+        r"\begin{tabular}{lllll}" + "\n"
+        r"\toprule" + "\n"
+        rf"\textbf{{Check}} & \textbf{{{col1_label}}} & \textbf{{{col2_label}}} & "
+        r"\textbf{Expected} & \textbf{Pass} \\" + "\n"
+        r"\midrule" + "\n"
+        + body + "\n"
+        + r"\bottomrule" + "\n"
+        r"\end{tabular}" + "\n"
+        r"\caption{Post-preprocessing quality checks for the two preprocessing pipelines.}" + "\n"
+        r"\label{tab:postcheck}" + "\n"
+        r"\end{table}"
+    )
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(latex_str)
+        print(f"Saved to: {output_path}")
+
+    return latex_str
+
+# ===============================================================================================
+# ========================== Metadata header table ==============================================
+# ===============================================================================================
+
+def metadata_table_to_latex(df_meta: pd.DataFrame, 
+                           output_path: Optional[Union[str, Path]] = None) -> str:
+    """
+    Generate a LaTeX longtable describing metadata fields, their meaning,
+    and whether they are constant across files.
+
+    Parameters
+    ----------
+    df_meta : pd.DataFrame
+        Metadata DataFrame (one row per record).
+    output_path : str or Path, optional
+        If provided, the LaTeX string is also saved to this path.
+
+    Returns
+    -------
+    str
+        Complete LaTeX longtable environment.
+    """ 
+    descriptions = {
+        'file': 'File name',
+        'EVENT_NAME': 'Event name',
+        'EVENT_ID': 'Unique event identifier',
+        'EVENT_DATE_YYYYMMDD': 'Event date (YYYYMMDD)',
+        'EVENT_TIME_HHMMSS': 'UTC event time',
+        'EVENT_LATITUDE_DEGREE': 'Hypocentral latitude',
+        'EVENT_LONGITUDE_DEGREE': 'Hypocentral longitude',
+        'EVENT_DEPTH_KM': 'Hypocentral depth (km)',
+        'HYPOCENTER_REFERENCE': 'Source of hypocentral location',
+        'MAGNITUDE_W': r'Moment magnitude $M_w$',
+        'MAGNITUDE_W_REFERENCE': r'Source of $M_w$ estimate',
+        'MAGNITUDE_L': r'Local magnitude $M_L$',
+        'MAGNITUDE_L_REFERENCE': r'Source of $M_L$ estimate',
+        'FOCAL_MECHANISM': 'Focal mechanism (fault type)',
+        'NETWORK': 'Network code',
+        'STATION_CODE': 'Station identifier',
+        'STATION_NAME': 'Station name',
+        'STATION_LATITUDE_DEGREE': 'Station latitude',
+        'STATION_LONGITUDE_DEGREE': 'Station longitude',
+        'STATION_ELEVATION_M': 'Station elevation (m a.s.l.)',
+        'LOCATION': 'Sub-location code',
+        'SENSOR_DEPTH_M': 'Sensor depth below ground (m)',
+        'VS30_M/S': 'Average shear-wave velocity in top 30 m',
+        'SITE_CLASSIFICATION_EC8': 'EC8 site class',
+        'MORPHOLOGIC_CLASSIFICATION': 'Morphological site classification',
+        'EPICENTRAL_DISTANCE_KM': 'Epicentral distance (km)',
+        'EARTHQUAKE_BACKAZIMUTH_DEGREE': r'Back-azimuth ($^\circ$)',
+        'DATE_TIME_FIRST_SAMPLE_YYYYMMDD_HHMMSS': 'Timestamp of first sample',
+        'DATE_TIME_FIRST_SAMPLE_PRECISION': 'Precision of first sample timestamp',
+        'SAMPLING_INTERVAL_S': 'Sampling interval (s)',
+        'NDATA': 'Number of recorded samples',
+        'DURATION_S': 'Recording duration (s)',
+        'STREAM': 'Channel code (orientation)',
+        'UNITS': r'Data units (cm/s$^2$)',
+        'INSTRUMENT': 'Instrument type code',
+        'INSTRUMENT_ANALOG/DIGITAL': 'Analog or digital',
+        'INSTRUMENTAL_FREQUENCY_HZ': 'Natural frequency (Hz)',
+        'INSTRUMENTAL_DAMPING': 'Critical damping ratio',
+        'FULL_SCALE_G': 'Full-scale range (g)',
+        'N_BIT_DIGITAL_CONVERTER': 'ADC resolution (bit)',
+        'PGA_CM/S^2': r'Peak Ground Acceleration (cm/s$^2$)',
+        'TIME_PGA_S': 'Time of PGA from start (s)',
+        'PGV_CM/S': 'Peak Ground Velocity (cm/s)',
+        'TIME_PGV_S': 'Time of PGV from start (s)',
+        'PGD_CM': 'Peak Ground Displacement (cm)',
+        'TIME_PGD_S': 'Time of PGD from start (s)',
+        'BASELINE_CORRECTION': 'Baseline correction type',
+        'FILTER_TYPE': 'Filter type (Butterworth)',
+        'FILTER_ORDER': 'Filter order',
+        'LOW_CUT_FREQUENCY_HZ': 'Low-cut frequency (Hz)',
+        'HIGH_CUT_FREQUENCY_HZ': 'High-cut frequency (Hz)',
+        'LATE/NORMAL_TRIGGERED': 'Trigger type (NT/LT)',
+        'DATABASE_VERSION': 'Database version',
+        'HEADER_FORMAT': 'Header format version',
+        'DATA_TYPE': 'Data type',
+        'PROCESSING': 'Processing information',
+        'DATA_TIMESTAMP_YYYYMMDD_HHMMSS': 'Data timestamp',
+        'DATA_LICENSE': 'Data license',
+        'DATA_CITATION': 'Bibliographic citation',
+        'DATA_CREATOR': 'Data creator',
+        'ORIGINAL_DATA_MEDIATOR_CITATION': 'Citation for the original data mediator',
+        'ORIGINAL_DATA_MEDIATOR': 'Original data mediator',
+        'ORIGINAL_DATA_CREATOR_CITATION': 'Citation for the original data creator',
+        'ORIGINAL_DATA_CREATOR': 'Original data creator',
+        'USER1': 'Free annotation field',
+        'USER2': 'Free annotation field',
+        'USER3': 'Free annotation field',
+        'USER4': 'Free annotation field',
+        'USER5': 'Free annotation field',
+    }
+    # Build rows
+    rows = []
+
+    for col in df_meta.columns:
+        if col == 'file':
+            continue
+
+        desc = descriptions.get(col, col)
+
+        # Check constancy
+        is_constant = df_meta[col].nunique(dropna=False) == 1
+        const_str = 'Yes' if is_constant else 'No'
+        field_name = col.replace('_', ' ')
+
+        rows.append(f"{field_name} & {desc} & {const_str} \\\\")
+
+    body = "\n".join(rows)
+
+    # Full LaTeX longtable
+    latex_str = (
+        r"\begin{longtable}{" + "\n"
+        r"  >{\raggedright\arraybackslash}p{4cm}"
+        r"  >{\raggedright\arraybackslash}p{8cm}"
+        r"  >{\centering\arraybackslash}p{2cm}" + "\n"
+        r"}" + "\n"
+        r"\caption{Summary of header fields, their description, and constancy across files.}" + "\n"
+        r"\label{tab:metadata_fields} \\" + "\n"
+        r"\toprule" + "\n"
+        r"\textbf{Field} & \textbf{Description} & \textbf{Constant} \\" + "\n"
+        r"\midrule" + "\n"
+        r"\endfirsthead" + "\n\n"
+        r"\multicolumn{3}{c}{\tablename~\thetable{} -- continued from previous page} \\" + "\n"
+        r"\toprule" + "\n"
+        r"\textbf{Field} & \textbf{Description} & \textbf{Constant} \\" + "\n"
+        r"\midrule" + "\n"
+        r"\endhead" + "\n\n"
+        r"\midrule" + "\n"
+        r"\multicolumn{3}{r}{\textit{Continued on next page}} \\" + "\n"
+        r"\endfoot" + "\n\n"
+        r"\bottomrule" + "\n"
+        r"\endlastfoot" + "\n\n"
+        + body + "\n"
+        + r"\end{longtable}"
+    )
+
+    if output_path is not None:
+        with open(output_path, 'w') as f:
+            f.write(latex_str)
+        print(f"Saved to: {output_path}")
+
+    return latex_str
+
+
+def constant_fields_to_latex(df_meta: pd.DataFrame, 
+                             constant_cols: List[str], 
+                             output_path: Optional[Union[str, Path]] = None) -> str:
+    """
+    Generate a LaTeX longtable showing constant metadata fields and their values.
+    
+    Parameters
+    ----------
+    df_meta : pd.DataFrame
+        Metadata DataFrame (one row per record).
+    constant_cols : list of str
+        List of column names that are constant across all records.
+    output_path : str or Path, optional
+        If provided, the LaTeX string is also saved to this path.
+    
+    Returns
+    -------
+    str
+        Complete LaTeX longtable environment as a string.
+    """
+    
+    # Build rows
+    rows = []
+    for col in constant_cols:
+        if col == 'file':
+            continue
+        
+        field_name = col.replace('_', ' ')
+        
+        # Get the constant value
+        unique_values = df_meta[col].dropna().unique()
+        
+        if len(unique_values) == 0:
+            value_str = 'all NaN'
+        elif len(unique_values) == 1:
+            value = _escape_latex(unique_values[0])
+            if len(value) > 50:
+                value = value[:47] + '...'
+            value_str = value
+        else:
+            # Should not happen if constant_cols is correct, but handle it
+            value_str = 'ERROR: not constant'
+        
+        rows.append(f"{field_name} & {value_str} \\\\")
+    
+    body = "\n".join(rows)
+    
+    # Full LaTeX longtable
+    latex_str = (
+        r"\begin{longtable}{" + "\n"
+        r"  >{\raggedright\arraybackslash}p{5cm}"
+        r"  >{\raggedright\arraybackslash}p{8cm}" + "\n"
+        r"}" + "\n"
+        r"\caption{Constant metadata fields across all records in the dataset.}" + "\n"
+        r"\label{tab:constant_fields} \\" + "\n"
+        r"\toprule" + "\n"
+        r"\textbf{Field} & \textbf{Value} \\" + "\n"
+        r"\midrule" + "\n"
+        r"\endfirsthead" + "\n\n"
+        r"\multicolumn{2}{c}{\tablename~\thetable{} -- continued from previous page} \\" + "\n"
+        r"\toprule" + "\n"
+        r"\textbf{Field} & \textbf{Value} \\" + "\n"
+        r"\midrule" + "\n"
+        r"\endhead" + "\n\n"
+        r"\midrule" + "\n"
+        r"\multicolumn{2}{r}{\textit{Continued on next page}} \\" + "\n"
+        r"\endfoot" + "\n\n"
+        r"\bottomrule" + "\n"
+        r"\endlastfoot" + "\n\n"
+        + body + "\n"
+        + r"\end{longtable}"
+    )
+    
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(latex_str)
+        print(f"Saved to: {output_path}")
+    
+    return latex_str
+
+
+# ===============================================================================================
+# ========================== Heavy-tail assessment table ========================================
+# ===============================================================================================
+
+def heavy_tail_to_latex(df: pd.DataFrame, output_path: Optional[Union[str, Path]] = None) -> str:
+    """
+    Generate the row data for a LaTeX longtable from the heavy-tail
+    assessment results DataFrame.
+
+    The output contains only the table rows (no header, no footer),
+    ready to be pasted inside the longtable environment defined in
+    the appendix .tex file. A blank \\addlinespace is inserted between
+    different stations for readability.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain the following columns:
+            station         : str  — station code
+            stream          : str  — stream component (e.g. HNE, HNN, HNZ)
+            aic_levy_stable : float — AIC for the Levy-stable fit
+            aic_student_t   : float — AIC for the Student-t fit
+            best_fit_aic    : str  — winning model label
+            student_t_df    : float — Student-t degrees of freedom (nu)
+            power_law_exp   : float — Hill estimator power-law exponent
+    output_path : str or Path, optional
+        If provided, the LaTeX string is also saved to this path.
+
+    Returns
+    -------
+    str
+        LaTeX row data as a single string.
+    """
+    lines = []
+    current_station = None
+
+    for _, row in df.iterrows():
+        # Insert a small vertical space between station groups
+        if row['station'] != current_station:
+            if current_station is not None:
+                lines.append(r"\addlinespace")
+            current_station = row['station']
+
+        aic_levy = _format_aic(row['aic_levy_stable'])
+        aic_st   = _format_aic(row['aic_student_t'])
+        best     = _best_fit_label(row['best_fit_aic'])
+        nu       = f"{row['student_t_df']:.4f}"
+        alpha    = f"{row['power_law_exp']:.4f}"
+
+        line = (
+            f"{row['station']} & {row['stream']} & "
+            f"{aic_levy} & {aic_st} & {best} & "
+            f"{nu} & {alpha} \\\\"
+        )
+        lines.append(line)
+
+    latex_str = "\n".join(lines)
+
+    if output_path is not None:
+        with open(output_path, 'w') as f:
+            f.write(latex_str)
+        print(f"Saved to: {output_path}")
+
+    return latex_str
+
+def onset_detection_to_latex(df_onsets_full: pd.DataFrame, 
+                             coda_method: str = 'rautian', 
+                             output_path: Optional[Union[str, Path]] = None, 
+                             caption: Optional[str] = None, 
+                             label: Optional[str] = None) -> str:
+    """
+    Convert onset detection results to LaTeX table format.
+    
+    Creates a professional table showing detected P, S, and coda onset times
+    with comparison to theoretical arrivals and crustal velocities.
+    
+    Parameters
+    ----------
+    df_onsets_full : pd.DataFrame
+        Full onset detection results with columns:
+        - STATION_CODE
+        - COMPONENT (or STREAM)
+        - EPICENTRAL_DISTANCE_KM
+        - vp_crust, vs_crust
+        - t_p_theo, t_p_detected, p_residual
+        - t_s_theo, t_s_detected, s_residual
+        - t_coda_rautian, t_coda_arias, t_coda_envelope
+        - s_duration_rautian, s_duration_arias, s_duration_envelope
+    coda_method : str, default='rautian'
+        Which coda method to display: 'rautian', 'arias', or 'envelope'.
+    output_path : str or Path, optional
+        If provided, save LaTeX code to this file.
+    caption : str, optional
+        Table caption (default: auto-generated).
+    label : str, optional
+        LaTeX label for cross-referencing (default: 'tab:onset_detection').
+    
+    Returns
+    -------
+    str
+        LaTeX longtable code.
+    
+    Examples
+    --------
+    >>> # Use Rautian method (default)
+    >>> latex = onset_detection_to_latex(
+    ...     df_onsets_full,
+    ...     output_path='tables/onset_detection.tex'
+    ... )
+    >>> 
+    >>> # Use Arias method instead
+    >>> latex = onset_detection_to_latex(
+    ...     df_onsets_full,
+    ...     coda_method='arias',
+    ...     output_path='tables/onset_detection_arias.tex'
+    ... )
+    """
+    # Validate coda_method
+    valid_methods = ['rautian', 'arias', 'envelope']
+    if coda_method not in valid_methods:
+        raise ValueError(
+            f"coda_method must be one of {valid_methods}, got '{coda_method}'"
+        )
+    
+    # Determine component column name
+    comp_col = 'COMPONENT' if 'COMPONENT' in df_onsets_full.columns else 'STREAM'
+    
+    # Select columns
+    t_coda_col = f't_coda_{coda_method}'
+    s_duration_col = f's_duration_{coda_method}'
+    
+    required_cols = [
+    'STATION_CODE', comp_col, 'EPICENTRAL_DISTANCE_KM',
+    'vp_crust', 'vs_crust',
+    't_p_theo_seconds', 't_p_detected_seconds', 'p_residual_seconds',
+    't_s_theo_seconds', 't_s_detected_seconds', 's_residual_seconds',
+    t_coda_col, s_duration_col
+]
+    
+    # Check if required columns exist
+    missing = [col for col in required_cols if col not in df_onsets_full.columns]
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}")
+    
+    # Prepare data
+    table = df_onsets_full[required_cols].copy()
+    
+    # Sort by station then component
+    table = table.sort_values(['STATION_CODE', comp_col]).reset_index(drop=True)
+    
+    # Round values
+    table['EPICENTRAL_DISTANCE_KM'] = table['EPICENTRAL_DISTANCE_KM'].round(1)
+    table['vp_crust'] = table['vp_crust'].round(2)
+    table['vs_crust'] = table['vs_crust'].round(2)
+    table['t_p_theo_seconds'] = table['t_p_theo_seconds'].round(2)
+    table['t_p_detected_seconds'] = table['t_p_detected_seconds'].round(2)
+    table['p_residual_seconds'] = table['p_residual_seconds'].round(2)
+    table['t_s_theo_seconds'] = table['t_s_theo_seconds'].round(2)
+    table['t_s_detected_seconds'] = table['t_s_detected_seconds'].round(2)
+    table['s_residual_seconds'] = table['s_residual_seconds'].round(2)
+    table[t_coda_col] = table[t_coda_col].round(2)
+    table[s_duration_col] = table[s_duration_col].round(2)
+    
+    # Statistics for caption
+    n_records = len(table)
+    n_stations = table['STATION_CODE'].nunique()
+    dist_min = table['EPICENTRAL_DISTANCE_KM'].min()
+    dist_max = table['EPICENTRAL_DISTANCE_KM'].max()
+    vp_median = table['vp_crust'].median()
+    vs_median = table['vs_crust'].median()
+    
+    # Method name for caption
+    method_names = {
+        'rautian': 'Rautian \\& Khalturin (1978) lapse-time criterion',
+        'arias': 'Arias Intensity D5-75 threshold (Lanzano et al., 2019)',
+        'envelope': 'envelope decay to 30\\% of peak (Boore \\& Bommer, 2005)'
+    }
+    method_name = method_names[coda_method]
+    
+    # Default caption and label
+    if caption is None:
+        caption = (
+            f"P and S wave onset detection results for {n_stations} stations "
+            f"({n_records} three-component recordings). "
+            f"Theoretical arrivals calculated using CRUST1.0 crustal velocities "
+            f"(median: $v_P = {vp_median:.2f}$ km/s, $v_S = {vs_median:.2f}$ km/s). "
+            f"Detected times from AR-AIC method (Leonard \\& Kennett, 1999). "
+            f"Coda onset identified using {method_name}. "
+            f"Residuals computed as $\\Delta t = t_{{\\text{{det}}}} - t_{{\\text{{theo}}}}$. "
+            f"S-wave duration: $\\Delta_S = t_{{\\text{{coda}}}} - t_{{S,\\text{{det}}}}$."
+        )
+    
+    if label is None:
+        label = 'tab:onset_detection'
+    
+    # Build LaTeX longtable
+    latex_lines = [
+        r'\begin{longtable}{llrcccccccccc}',
+        r'    \caption{' + caption + r'} \\',
+        r'    \label{' + label + r'} \\',
+        r'    \toprule',
+        r'    \multirow{2}{*}{Station} & \multirow{2}{*}{Comp.} & \multirow{2}{*}{Dist.} & ',
+        r'    \multicolumn{2}{c}{Velocity} & \multicolumn{3}{c}{P-wave} & ',
+        r'    \multicolumn{3}{c}{S-wave} & \multirow{2}{*}{$t_{\text{coda}}$} & ',
+        r'    \multirow{2}{*}{$\Delta_S$} \\',
+        r'    \cmidrule(lr){4-5} \cmidrule(lr){6-8} \cmidrule(lr){9-11}',
+        r'    & & (km) & $v_P$ & $v_S$ & $t_{\text{theo}}$ & $t_{\text{det}}$ & ',
+        r'    $\Delta t$ & $t_{\text{theo}}$ & $t_{\text{det}}$ & $\Delta t$ & (s) & (s) \\',
+        r'    & & & (km/s) & (km/s) & (s) & (s) & (s) & (s) & (s) & (s) & & \\',
+        r'    \midrule',
+        r'    \endfirsthead',
+        r'',
+        r'    \multicolumn{13}{c}{\tablename\ \thetable{} -- continued from previous page} \\',
+        r'    \toprule',
+        r'    \multirow{2}{*}{Station} & \multirow{2}{*}{Comp.} & \multirow{2}{*}{Dist.} & ',
+        r'    \multicolumn{2}{c}{Velocity} & \multicolumn{3}{c}{P-wave} & ',
+        r'    \multicolumn{3}{c}{S-wave} & \multirow{2}{*}{$t_{\text{coda}}$} & ',
+        r'    \multirow{2}{*}{$\Delta_S$} \\',
+        r'    \cmidrule(lr){4-5} \cmidrule(lr){6-8} \cmidrule(lr){9-11}',
+        r'    & & (km) & $v_P$ & $v_S$ & $t_{\text{theo}}$ & $t_{\text{det}}$ & ',
+        r'    $\Delta t$ & $t_{\text{theo}}$ & $t_{\text{det}}$ & $\Delta t$ & (s) & (s) \\',
+        r'    & & & (km/s) & (km/s) & (s) & (s) & (s) & (s) & (s) & (s) & & \\',
+        r'    \midrule',
+        r'    \endhead',
+        r'',
+        r'    \midrule',
+        r'    \multicolumn{13}{r}{\textit{Continued on next page}} \\',
+        r'    \endfoot',
+        r'',
+        r'    \bottomrule',
+        r'    \endlastfoot',
+        r'',
+    ]
+    
+    # Add data rows with visual grouping by station
+    current_station = None
+    
+    for idx, row in table.iterrows():
+        station = row['STATION_CODE']
+        component = row[comp_col]
+        
+        # Add spacing between stations
+        if station != current_station:
+            if current_station is not None:
+                latex_lines.append(r'    \addlinespace')
+            current_station = station
+        
+        # Format residuals with sign
+        p_res = row['p_residual_seconds']
+        s_res = row['s_residual_seconds']
+        p_res_str = f"+{p_res:.2f}" if p_res >= 0 else f"{p_res:.2f}"
+        s_res_str = f"+{s_res:.2f}" if s_res >= 0 else f"{s_res:.2f}"
+        
+        line = (
+            f"    {station} & {component} & "
+            f"{row['EPICENTRAL_DISTANCE_KM']:.1f} & "
+            f"{row['vp_crust']:.2f} & "
+            f"{row['vs_crust']:.2f} & "
+            f"{row['t_p_theo_seconds']:.2f} & "
+            f"{row['t_p_detected_seconds']:.2f} & "
+            f"{p_res_str} & "
+            f"{row['t_s_theo_seconds']:.2f} & "
+            f"{row['t_s_detected_seconds']:.2f} & "
+            f"{s_res_str} & "
+            f"{row[t_coda_col]:.2f} & "
+            f"{row[s_duration_col]:.2f} \\\\"
+        )
+        latex_lines.append(line)
+    
+    # Close table
+    latex_lines.append(r'\end{longtable}')
+    
+    latex_str = '\n'.join(latex_lines)
+    
+    # Save if path provided
+    if output_path:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(latex_str)
+        
+        print(f"LaTeX table saved: {output_path}")
+        print(f"  Method used: {coda_method}")
+        print(f"  Rows: {n_records} (from {n_stations} stations)")
+    
+    return latex_str
+
+def coda_onset_comparison_to_latex(df_onsets_full: pd.DataFrame, 
+                                   output_path: Optional[Union[str, Path]] = None) -> str:
+    """
+    Generate LaTeX longtable with coda onset times for all methods.
+    
+    Creates a table with one row per (station, component) showing
+    detected coda onset times for Rautian, Arias, and Envelope methods.
+    
+    Parameters
+    ----------
+    df_onsets_full : pd.DataFrame
+        Must contain columns:
+        - STATION_CODE
+        - COMPONENT (or STREAM)
+        - t_s_detected
+        - t_coda_rautian
+        - t_coda_arias
+        - t_coda_envelope
+        - s_duration_rautian
+        - s_duration_arias
+        - s_duration_envelope
+    output_path : str or Path, optional
+        If provided, save LaTeX code to this file.
+    
+    Returns
+    -------
+    str
+        LaTeX longtable code.
+    
+    Examples
+    --------
+    >>> latex = coda_onset_comparison_to_latex(
+    ...     df_onsets_full,
+    ...     output_path='tables/coda_comparison.tex'
+    ... )
+    """
+    
+    # Determine component column name
+    comp_col = 'COMPONENT' if 'COMPONENT' in df_onsets_full.columns else 'STREAM'
+    
+    # Select and sort data
+    table = df_onsets_full[[
+    'STATION_CODE',
+    comp_col,
+    't_s_detected_seconds',
+    't_coda_rautian_seconds',
+    't_coda_arias_seconds',
+    't_coda_envelope_seconds',
+    's_duration_rautian_seconds',
+    's_duration_arias_seconds',
+    's_duration_envelope_seconds'
+]].copy()
+    
+    table = table.sort_values(['STATION_CODE', comp_col]).reset_index(drop=True)
+    
+    # Round values
+    for col in table.columns:
+        if col not in ['STATION_CODE', comp_col]:
+            table[col] = table[col].round(2)
+    
+    # Build LaTeX
+    latex_lines = [
+        r'\begin{longtable}{llcccccccc}',
+        r'    \caption{Coda onset times detected by three methods: Rautian \& Khalturin (1978) lapse-time criterion, Arias Intensity D5-75 threshold (Lanzano et al., 2019), and envelope decay to 30\% of peak (Boore \& Bommer, 2005). S-wave duration ($\Delta_S$) computed as $t_{\text{coda}} - t_{S,\text{det}}$ for each method.} \\',
+        r'    \label{tab:coda_comparison} \\',
+        r'    \toprule',
+        r'    \multirow{2}{*}{Station} & \multirow{2}{*}{Comp.} & \multirow{2}{*}{$t_{S,\text{det}}$} & \multicolumn{3}{c}{$t_{\text{coda}}$ (s)} & \multicolumn{3}{c}{$\Delta_S$ (s)} \\',
+        r'    \cmidrule(lr){4-6} \cmidrule(lr){7-9}',
+        r'    & & (s) & Rautian & Arias & Envelope & Rautian & Arias & Envelope \\',
+        r'    \midrule',
+        r'    \endfirsthead',
+        r'',
+        r'    \multicolumn{9}{c}{\tablename\ \thetable{} -- continued from previous page} \\',
+        r'    \toprule',
+        r'    \multirow{2}{*}{Station} & \multirow{2}{*}{Comp.} & \multirow{2}{*}{$t_{S,\text{det}}$} & \multicolumn{3}{c}{$t_{\text{coda}}$ (s)} & \multicolumn{3}{c}{$\Delta_S$ (s)} \\',
+        r'    \cmidrule(lr){4-6} \cmidrule(lr){7-9}',
+        r'    & & (s) & Rautian & Arias & Envelope & Rautian & Arias & Envelope \\',
+        r'    \midrule',
+        r'    \endhead',
+        r'',
+        r'    \midrule',
+        r'    \multicolumn{9}{r}{\textit{Continued on next page}} \\',
+        r'    \endfoot',
+        r'',
+        r'    \bottomrule',
+        r'    \endlastfoot',
+        r'',
+    ]
+    
+    # Add data rows with visual grouping by station
+    current_station = None
+    
+    for idx, row in table.iterrows():
+        station = row['STATION_CODE']
+        component = row[comp_col]
+        
+        # Add spacing between stations
+        if station != current_station:
+            if current_station is not None:
+                latex_lines.append(r'    \addlinespace')
+            current_station = station
+        
+        line = (
+            f"    {station} & {component} & "
+            f"{row['t_s_detected_seconds']:.2f} & "
+            f"{row['t_coda_rautian_seconds']:.2f} & "
+            f"{row['t_coda_arias_seconds']:.2f} & "
+            f"{row['t_coda_envelope_seconds']:.2f} & "
+            f"{row['s_duration_rautian_seconds']:.2f} & "
+            f"{row['s_duration_arias_seconds']:.2f} & "
+            f"{row['s_duration_envelope_seconds']:.2f} \\\\"
+        )
+        latex_lines.append(line)
+    
+    # Close table
+    latex_lines.append(r'\end{longtable}')
+    
+    latex_str = '\n'.join(latex_lines)
+    
+    # Save if path provided
+    if output_path:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(latex_str)
+        
+        print(f"LaTeX table saved: {output_path}")
+    
+    return latex_str
+
+# ===============================================================================================
+# ========================== Moment scaling results table =======================================
+# ===============================================================================================
+
+WINDOW_LABELS = {
+    'p_wave': 'P-wave',
+    's_wave': 'S-wave',
+    'coda': 'Coda',
+}
+
+CODA_METHOD_LABELS = {
+    'rautian': 'Rautian',
+    'arias': 'Arias',
+    'envelope': 'Envelope',
+    'median': 'Median',
+}
+
+CODA_METHOD_ORDER = ['rautian', 'arias', 'envelope', 'median']
+
+
+def _format_zeta_r2_cell(zeta: float, r_squared: float) -> str:
+    """
+    Format a (zeta, R^2) pair as a single LaTeX table cell "zeta (R^2)".
+
+    Parameters
+    ----------
+    zeta : float
+        Scaling exponent value. If NaN, the cell is rendered as '--'.
+    r_squared : float
+        Coefficient of determination of the corresponding fit.
+
+    Returns
+    -------
+    str
+        Formatted cell content, e.g. "0.53 (0.79)" or "--" if not available.
+    """
+    if zeta is None or pd.isna(zeta):
+        return '--'
+    return f"{zeta:.2f} ({r_squared:.2f})"
+
+# ===============================================================================================
+# ========================== Moment scaling: caption/label dictionaries =========================
+# ===============================================================================================
+
+EVENT_LABELS = {
+    'INT-41004391': {'caption': 'INT-41004391', 'label': 'queyras'},
+    'IT-2009-0009': {'caption': 'IT-2009-0009', 'label': 'laquila'},
+}
+
+PICKER_LABELS = {
+    'ar_pick': {'caption': 'AR-AIC', 'label': 'ar_aic'},
+    'phasenet': {'caption': 'PhaseNet', 'label': 'phasenet'},
+}
+
+CONFIG_LABELS = {
+    'no_filter': {'caption': 'no residual filter', 'label': 'nothresh'},
+    'no_thresh': {'caption': 'no probability threshold', 'label': 'nothresh'},
+    'thresh_30': {'caption': r'probability threshold $P \geq 0.3$', 'label': 'thresh30'},
+    'residual_filter': {'caption': 'residual filter', 'label': 'res_filter'},
+}
+
+DATA_TYPE_LABELS = {
+    'acceleration': {'caption': 'acceleration', 'label': 'acc'},
+    'velocity': {'caption': 'velocity', 'label': 'vel'},
+    'displacement': {'caption': 'displacement', 'label': 'disp'},
+}
+
+
+def _moment_scaling_caption_and_label(
+    event_id: str,
+    data_type: str,
+    picking_method: str,
+    config: str,
+    q_subset: Tuple[float, float] = (1.0, 2.0),
+) -> Tuple[str, str]:
+    """
+    Build the caption and label for a moment scaling LaTeX table, following
+    the standard naming convention: 'tab:{picker}_scaling_{signal}_{config}_{event}'.
+
+    Parameters
+    ----------
+    event_id : str
+        Event identifier, must be a key of EVENT_LABELS.
+    data_type : str
+        Signal type, must be a key of DATA_TYPE_LABELS.
+    picking_method : str
+        Phase picker, must be a key of PICKER_LABELS.
+    config : str
+        Segmentation configuration, must be a key of CONFIG_LABELS.
+    q_subset : tuple of float, default=(1.0, 2.0)
+        The two moment orders reported in the table.
+
+    Returns
+    -------
+    tuple of str
+        (caption, label) pair for use in moment_scaling_to_latex().
+
+    Raises
+    ------
+    KeyError
+        If any of event_id, data_type, picking_method, or config is not
+        found in the corresponding label dictionary.
+    """
+    for value, mapping, name in [
+        (event_id, EVENT_LABELS, 'event_id'),
+        (data_type, DATA_TYPE_LABELS, 'data_type'),
+        (picking_method, PICKER_LABELS, 'picking_method'),
+        (config, CONFIG_LABELS, 'config'),
+    ]:
+        if value not in mapping:
+            raise KeyError(f"Unknown {name} '{value}'. Expected one of {list(mapping)}.")
+
+    q1, q2 = q_subset
+    q1_str = f"{q1:g}"
+    q2_str = f"{q2:g}"
+
+    caption = (
+        f"Moment scaling results for \\textbf{{{DATA_TYPE_LABELS[data_type]['caption']}}} signals, "
+        f"obtained from {PICKER_LABELS[picking_method]['caption']} segmentation "
+        f"({CONFIG_LABELS[config]['caption']}), for the {EVENT_LABELS[event_id]['caption']} event. "
+        f"For each window and coda-onset method, $N$ is the ensemble size (number of "
+        f"station-component traces), and $\\tau_{{\\max}}$ is the maximum time lag used in the fit. "
+        f"The columns $\\zeta({q1_str})$ and $\\zeta({q2_str})$ report the scaling exponents for "
+        f"$q={q1_str}$ and $q={q2_str}$, with the corresponding coefficient of determination $R^2$ "
+        f"of the log-log fit given in parentheses."
+    )
+
+    label = (
+        f"tab:{PICKER_LABELS[picking_method]['label']}_scaling_"
+        f"{DATA_TYPE_LABELS[data_type]['label']}_"
+        f"{CONFIG_LABELS[config]['label']}_"
+        f"{EVENT_LABELS[event_id]['label']}"
+    )
+
+    return caption, label
+
+
+def moment_scaling_to_latex(
+    results_by_method: dict,
+    event_id: str,
+    data_type: str,
+    picking_method: str,
+    config: str,
+    q_subset: Tuple[float, float] = (1.0, 2.0),
+    windows: Tuple[str, ...] = ('p_wave', 's_wave', 'coda'),
+    caption: Optional[str] = None,
+    label: Optional[str] = None,
+    output_path: Optional[Union[str, Path]] = None,
+) -> str:
+    """
+    Generate a LaTeX table of moment scaling results for multiple coda
+    onset methods and seismic windows.
+
+    For each window and coda onset method, the table reports the ensemble
+    size N, the maximum time lag tau_max used in the fit, and the scaling
+    exponents zeta(q) with their coefficient of determination R^2 for the
+    two moment orders given in q_subset.
+
+    Parameters
+    ----------
+    results_by_method : dict
+        Dictionary mapping coda method names ('rautian', 'arias',
+        'envelope', 'median') to the results dictionaries returned by
+        analyze_all_windows(). Each results dictionary must be keyed by
+        window name ('p_wave', 's_wave', 'coda', ...), with each entry
+        either None (window not analyzed) or a dict containing 'ensemble'
+        (with keys 'n_signals', 'tau', 'q') and 'scaling' (with keys
+        'zeta', 'r_squared').
+    caption : str
+        LaTeX caption text for the table.
+    label : str
+        LaTeX label for cross-referencing (without leading backslash,
+        e.g. 'tab:phasenet_nofilter_scaling_vel_laquila').
+    q_subset : tuple of float, default=(1.0, 2.0)
+        The two moment orders for which zeta(q) and R^2 are reported.
+    windows : tuple of str, default=('p_wave', 's_wave', 'coda')
+        Window names to include as table sections, in order.
+    output_path : str or Path, optional
+        If provided, the LaTeX string is also saved to this path.
+
+    Returns
+    -------
+    str
+        Complete LaTeX table environment as a string.
+
+    Examples
+    --------
+    >>> results_by_method = {
+    ...     'rautian': results_rautian,
+    ...     'arias': results_arias,
+    ...     'envelope': results_envelope,
+    ...     'median': results_median,
+    ... }
+    >>> latex_str = moment_scaling_to_latex(
+    ...     results_by_method,
+    ...     event_id='INT-41004391',
+    ...     data_type='velocity',
+    ...     picking_method='phasenet',
+    ...     config='no_filter',
+    ...     caption="Moment scaling results for velocity signals...",
+    ...     label="tab:phasenet_nofilter_scaling_vel_laquila",
+    ...     output_path="latex_tables/phasenet_nofilter_scaling_vel_laquila.tex",
+    ... )
+    """
+    q1, q2 = q_subset
+    if caption is None or label is None:
+        auto_caption, auto_label = _moment_scaling_caption_and_label(
+            event_id, data_type, picking_method, config, q_subset
+        )
+        caption = caption if caption is not None else auto_caption
+        label = label if label is not None else auto_label
+
+    rows = []
+    for window_idx, window in enumerate(windows):
+        window_label = WINDOW_LABELS.get(window, window)
+
+        for method_idx, method in enumerate(CODA_METHOD_ORDER):
+            method_label = CODA_METHOD_LABELS[method]
+            window_results = results_by_method.get(method, {}).get(window)
+
+            if window_results is None:
+                n_str = '--'
+                tau_max_str = '--'
+                cell_q1 = '--'
+                cell_q2 = '--'
+            else:
+                ensemble = window_results['ensemble']
+                scaling = window_results['scaling']
+                q_values = ensemble['q']
+
+                n_str = str(ensemble['n_signals'])
+                tau_max_str = f"{ensemble['tau'].max():.2f}"
+
+                idx_q1 = (abs(q_values - q1)).argmin()
+                idx_q2 = (abs(q_values - q2)).argmin()
+                cell_q1 = _format_zeta_r2_cell(scaling['zeta'][idx_q1], scaling['r_squared'][idx_q1])
+                cell_q2 = _format_zeta_r2_cell(scaling['zeta'][idx_q2], scaling['r_squared'][idx_q2])
+
+            if method_idx == 0:
+                row = f"\\multirow{{4}}{{*}}{{{window_label}}}\n& {method_label} & {n_str} & {tau_max_str} & {cell_q1} & {cell_q2} \\\\"
+            else:
+                row = f"& {method_label} & {n_str} & {tau_max_str} & {cell_q1} & {cell_q2} \\\\"
+            rows.append(row)
+
+        if window_idx < len(windows) - 1:
+            rows.append(r"\midrule")
+
+    body = "\n".join(rows)
+
+    q1_str = f"{q1:g}"
+    q2_str = f"{q2:g}"
+
+    latex_str = (
+        r"\begin{table}[H]" + "\n"
+        r"\centering" + "\n"
+        r"\small" + "\n"
+        r"\begin{tabular}{llcccc}" + "\n"
+        r"\toprule" + "\n"
+        rf"\textbf{{Window}} & \textbf{{Method}} & \textbf{{N}} & $\bm{{\tau_{{\max}}}}$ \textbf{{(s)}} & "
+        rf"$\bm{{\zeta({q1_str})}}$ \textbf{{(}}$\bm{{R^2}}$\textbf{{)}} & "
+        rf"$\bm{{\zeta({q2_str})}}$ \textbf{{(}}$\bm{{R^2}}$\textbf{{)}} \\" + "\n"
+        r"\midrule" + "\n"
+        + body + "\n"
+        + r"\bottomrule" + "\n"
+        r"\end{tabular}" + "\n"
+        rf"\caption{{{caption}}}" + "\n"
+        rf"\label{{{label}}}" + "\n"
+        r"\end{table}"
+    )
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(latex_str)
+        print(f"Saved to: {output_path}")
+
+    return latex_str
+
+BASELINE_THRESHOLD_VALUES = {
+    'onset': 0.30,
+    'end': 0.10,
+}
+
+THRESHOLD_TYPE_DESCRIPTIONS = {
+    'onset': 'coda onset envelope threshold',
+    'end': 'coda end amplitude threshold',
+}
+
+
+def _format_zscore_cell(value: float) -> str:
+    """
+    Format a z-score value for display in a LaTeX table cell.
+
+    Parameters
+    ----------
+    value : float
+        Z-score value. NaN is rendered as '--'.
+
+    Returns
+    -------
+    str
+        Formatted string with two decimal places, or '--' if NaN.
+    """
+    if pd.isna(value):
+        return '--'
+    return f"{value:.2f}"
+
+
+def _coda_threshold_sensitivity_caption_and_label(
+    threshold_type: str,
+    event_id: str,
+    data_type: str,
+    picking_method: str,
+    config: str,
+) -> Tuple[str, str]:
+    """
+    Build the caption and label for a coda threshold sensitivity LaTeX table.
+
+    Parameters
+    ----------
+    threshold_type : str
+        Either 'onset' or 'end'.
+    event_id : str
+        Event identifier, must be a key of EVENT_LABELS.
+    data_type : str
+        Signal type, must be a key of DATA_TYPE_LABELS.
+    picking_method : str
+        Phase picker, must be a key of PICKER_LABELS.
+    config : str
+        Segmentation configuration, must be a key of CONFIG_LABELS.
+
+    Returns
+    -------
+    tuple of str
+        (caption, label) pair for use in coda_threshold_sensitivity_to_latex().
+
+    Raises
+    ------
+    KeyError
+        If threshold_type, event_id, data_type, picking_method, or config
+        is not found in the corresponding label mapping.
+    """
+    if threshold_type not in THRESHOLD_TYPE_DESCRIPTIONS:
+        raise KeyError(
+            f"Unknown threshold_type '{threshold_type}'. "
+            f"Expected one of {list(THRESHOLD_TYPE_DESCRIPTIONS)}."
+        )
+    for value, mapping, name in [
+        (event_id, EVENT_LABELS, 'event_id'),
+        (data_type, DATA_TYPE_LABELS, 'data_type'),
+        (picking_method, PICKER_LABELS, 'picking_method'),
+        (config, CONFIG_LABELS, 'config'),
+    ]:
+        if value not in mapping:
+            raise KeyError(f"Unknown {name} '{value}'. Expected one of {list(mapping)}.")
+
+    baseline_pct = int(round(BASELINE_THRESHOLD_VALUES[threshold_type] * 100))
+    description = THRESHOLD_TYPE_DESCRIPTIONS[threshold_type]
+
+    caption = (
+        f"Sensitivity of \\textbf{{{DATA_TYPE_LABELS[data_type]['caption']}}} moment scaling "
+        f"exponents to the {description} (baseline {baseline_pct}\\%), for the "
+        f"{EVENT_LABELS[event_id]['caption']} event, {PICKER_LABELS[picking_method]['caption']} "
+        f"segmentation ({CONFIG_LABELS[config]['caption']}). For each affected coda method and "
+        f"alternative threshold value, $z(1)$ and $z(2)$ report the pointwise z-score "
+        f"(Eq.~\\eqref{{eq:z_score_sensitivity}}) at $q=1$ and $q=2$, and $z_{{\\max}}$ the maximum "
+        f"z-score over the full range $q \\in [0.25, 10.0]$, for the S-wave and coda windows."
+    )
+
+    label = (
+        f"tab:coda_threshold_sensitivity_{threshold_type}_"
+        f"{PICKER_LABELS[picking_method]['label']}_"
+        f"{DATA_TYPE_LABELS[data_type]['label']}_"
+        f"{CONFIG_LABELS[config]['label']}_"
+        f"{EVENT_LABELS[event_id]['label']}"
+    )
+
+    return caption, label
+
+
+def coda_threshold_sensitivity_to_latex(
+    df_sensitivity: pd.DataFrame,
+    threshold_type: str,
+    event_id: str,
+    data_type: str,
+    picking_method: str,
+    config: str,
+    windows: Tuple[str, str] = ('s_wave', 'coda'),
+    caption: Optional[str] = None,
+    label: Optional[str] = None,
+    output_path: Optional[Union[str, Path]] = None,
+) -> str:
+    """
+    (docstring unchanged)
+    """
+    subset = df_sensitivity[df_sensitivity['threshold_type'] == threshold_type]
+    if subset.empty:
+        raise ValueError(
+            f"No rows found in df_sensitivity for threshold_type='{threshold_type}'."
+        )
+
+    if caption is None or label is None:
+        auto_caption, auto_label = _coda_threshold_sensitivity_caption_and_label(
+            threshold_type, event_id, data_type, picking_method, config
+        )
+        caption = caption if caption is not None else auto_caption
+        label = label if label is not None else auto_label
+
+    window_a, window_b = windows
+    methods_present = [m for m in CODA_METHOD_ORDER if m in subset['method'].unique()]
+
+    rows = []
+    for method in methods_present:
+        method_subset = subset[subset['method'] == method]
+        threshold_values = sorted(method_subset['threshold_value'].unique())
+        n_values = len(threshold_values)
+
+        for row_idx, threshold_value in enumerate(threshold_values):
+            value_pct = f"{threshold_value * 100:.0f}\\%"
+
+            row_a = method_subset[
+                (method_subset['threshold_value'] == threshold_value)
+                & (method_subset['window'] == window_a)
+            ]
+            row_b = method_subset[
+                (method_subset['threshold_value'] == threshold_value)
+                & (method_subset['window'] == window_b)
+            ]
+
+            z1_a = _format_zscore_cell(row_a['z1'].iloc[0]) if not row_a.empty else '--'
+            z2_a = _format_zscore_cell(row_a['z2'].iloc[0]) if not row_a.empty else '--'
+            zmax_a = _format_zscore_cell(row_a['z_max'].iloc[0]) if not row_a.empty else '--'
+            z1_b = _format_zscore_cell(row_b['z1'].iloc[0]) if not row_b.empty else '--'
+            z2_b = _format_zscore_cell(row_b['z2'].iloc[0]) if not row_b.empty else '--'
+            zmax_b = _format_zscore_cell(row_b['z_max'].iloc[0]) if not row_b.empty else '--'
+
+            if row_idx == 0:
+                row = (
+                    f"\\multirow{{{n_values}}}{{*}}{{{CODA_METHOD_LABELS[method]}}}\n"
+                    f"& {value_pct} & {z1_a} & {z2_a} & {zmax_a} & {z1_b} & {z2_b} & {zmax_b} \\\\"
+                )
+            else:
+                row = f"& {value_pct} & {z1_a} & {z2_a} & {zmax_a} & {z1_b} & {z2_b} & {zmax_b} \\\\"
+            rows.append(row)
+
+        if method != methods_present[-1]:
+            rows.append(r"\midrule")
+
+    body = "\n".join(rows)
+    window_a_label = WINDOW_LABELS.get(window_a, window_a)
+    window_b_label = WINDOW_LABELS.get(window_b, window_b)
+
+    latex_str = (
+        r"\begin{table}[htbp]" + "\n"
+        r"\centering" + "\n"
+        r"\small" + "\n"
+        r"\begin{tabular}{llcccccc}" + "\n"
+        r"\toprule" + "\n"
+        rf"& & \multicolumn{{3}}{{c}}{{\textbf{{{window_a_label}}}}} & "
+        rf"\multicolumn{{3}}{{c}}{{\textbf{{{window_b_label}}}}} \\" + "\n"
+        r"\textbf{Method} & \textbf{Value} & $\bm{z(1)}$ & $\bm{z(2)}$ & $\bm{z_{\max}}$ & "
+        r"$\bm{z(1)}$ & $\bm{z(2)}$ & $\bm{z_{\max}}$ \\" + "\n"
+        r"\midrule" + "\n"
+        + body + "\n"
+        + r"\bottomrule" + "\n"
+        r"\end{tabular}" + "\n"
+        rf"\caption{{{caption}}}" + "\n"
+        rf"\label{{{label}}}" + "\n"
+        r"\end{table}"
+    )
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(latex_str)
+        print(f"Saved to: {output_path}")
+
+    return latex_str

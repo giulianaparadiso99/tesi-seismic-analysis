@@ -1,0 +1,45 @@
+cff-version: 1.2.0
+message: "If you use this software or data, please cite it as below."
+type: software
+title: "Moment Scaling Analysis of Seismic Ground Motion"
+authors:
+  - family-names: "Paradiso"
+    given-names: "Giuliana"
+    affiliation: "Politecnico di Torino"
+version: "1.0.0"
+date-released: 2026-04-07
+url: "https://github.com/giulianaparadiso99/tesi-seismic-analysis"
+repository-code: "https://github.com/giulianaparadiso99/tesi-seismic-analysis"
+license: MIT
+keywords:
+  - seismology
+  - moment scaling
+  - multifractal analysis
+  - ground motion
+  - seismic signals
+  - probability density functions
+  - scaling exponents
+abstract: >
+  Analysis of moment scaling properties in seismic ground motion acceleration
+  signals from the 2016 Central Italy earthquake sequence. This repository
+  contains the complete data processing pipeline for multifractal moment scaling
+  analysis, including preprocessing of seismic waveforms, probability density
+  function characterization, computation of scaling exponents across different
+  time lags and moment orders, and statistical testing of scaling behavior.
+  The analysis implements both time-averaged and ensemble-averaged approaches
+  to characterize the multiscale properties of seismic ground motion.
+references:
+  - type: article
+    authors:
+      - family-names: "Vollmer"
+        given-names: "C."
+      - family-names: "Hainzl"
+        given-names: "S."
+      - family-names: "Shows"
+        given-names: "K."
+      - family-names: "Marzocchi"
+        given-names: "W."
+    title: "Multifractal scaling of seismic ground motion"
+    journal: "Journal of Geophysical Research: Solid Earth"
+    year: 2024
+    doi: "10.1029/2024JB028765"

@@ -1,0 +1,16 @@
+# .gitignore
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
+
+# Raw data - ignore extracted files, keep ZIP
+data/raw/*.ASC
+data/raw/*.asc
+!data/raw/*.zip
+data/raw/metadata_Instance_events_v3.csv.bz2
+
+# Processed data - regenerable from notebooks, not tracked
+data/processed/
+
+*.egg-info/
+data/Crust1.0/
