@@ -158,7 +158,8 @@ from .analysis.signals_scaling_spatial import (
     get_scaling_results_path,
     compute_coda_threshold_sensitivity,
     compute_pointwise_zscore,
-    compute_filter_band_sensitivity
+    compute_filter_band_sensitivity,
+    _load_summary_window
 )
 
 # ===============================================================================
